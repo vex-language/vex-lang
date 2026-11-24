@@ -1,0 +1,14 @@
+circle: 3.14
+rect: 6.0
+rect: 4.0
+nothing: 0.0
+total area: 13.14
+Shape.rect(width: 2.0, height: 3.0)
+Light.red Light.green Light.yellow Light.red 
+after 4 changes: Light.green true
+42 -> 84
+ -> error: the text is empty
+4 2 -> error: the text has spaces
+200 ok
+404 not found
+500 error 500

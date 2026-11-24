@@ -1,0 +1,46 @@
+// Enums and match.
+
+enum Shape {
+    circle(radius: float)
+    rect(width: float, height: float)
+    empty
+}
+
+enum Dir { up, down }
+
+fn main() {
+    let a = Shape.circel(radius: 1)
+    let b = Shape.circle
+    let c = .empty
+    let s = Shape.empty
+    println(s.radius)
+    match s {
+        empty => println(0)
+    }
+    match s {
+        rect(w) => println(w)
+        _ => println(1)
+        circle(r) => println(r)
+    }
+    let n = match 3 {
+        1 => "one"
+        _ => 2
+    }
+    match 1.5 {
+        _ => println(0)
+    }
+    let same = s == Shape.empty
+}
+
+
+// Expected errors:
+// error: 12:19: Shape has no case 'circel'
+// error: 13:19: case 'circle' carries values, so it must be called
+// error: 14:13: can't tell which enum '.empty' belongs to
+// error: 16:15: Shape has no member 'radius'
+// error: 17:5: match doesn't handle 'circle' and 'rect'
+// error: 21:9: case 'rect' carries 2 values, found 1
+// error: 23:9: this arm is never reached: _ on line 22 matches everything
+// error: 27:14: match arms must have the same type: expected string, found int
+// error: 29:11: can't match on float values
+// error: 32:16: values of type Shape can't be compared with ==
