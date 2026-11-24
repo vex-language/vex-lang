@@ -241,6 +241,7 @@ func (l *lexer) number() {
 		}
 	} else {
 		l.digits(10)
+		leadingZero := l.src[start] == '0' && l.pos-start > 1
 		if l.peek(0) == '.' && isDigit(l.peek(1)) {
 			kind = Float
 			l.pos++
@@ -256,6 +257,12 @@ func (l *lexer) number() {
 				l.pos += n
 				l.digits(10)
 			}
+		}
+		if leadingZero && kind == Int && !isLetter(l.peek(0)) {
+			text := strings.ReplaceAll(l.src[start:l.pos], "_", "")
+			l.errorAt(start, l.pos-start, "write "+strings.TrimLeft(text[:len(text)-1], "0")+text[len(text)-1:]+", or 0o"+strings.TrimLeft(text, "0")+" for octal", "numbers can't start with 0")
+			l.emit(Int, start, l.pos, "0")
+			return
 		}
 	}
 	if c := l.peek(0); isLetter(c) || isDigit(c) {

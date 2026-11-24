@@ -4,12 +4,15 @@
 #include <inttypes.h>
 #include <math.h>
 #include <setjmp.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
+#include <unistd.h>
 
 // An immutable UTF-8 string. [ptr] is not NUL-terminated.
 typedef struct {
@@ -368,12 +371,109 @@ static void vx_gc_init(void *base) {
     if (stats && *stats && strcmp(stats, "0") != 0) atexit(vx_gc_report);
 }
 
+// --- Printing ---
+
+// The structs being printed, so one that refers back to itself prints as
+// Name(...) instead of recursing forever. An open-addressing set: entries
+// are added and removed in stack order while printing nests.
+static const void **vx_repr_set;
+static size_t vx_repr_cap, vx_repr_count;
+
+static bool vx_repr_enter(const void *p) {
+    if ((vx_repr_count + 1) * 2 > vx_repr_cap) {
+        const void **old = vx_repr_set;
+        size_t old_cap = vx_repr_cap;
+        vx_repr_cap = old_cap ? old_cap * 2 : 64;
+        vx_repr_set = calloc(vx_repr_cap, sizeof(void *));
+        if (!vx_repr_set) vx_out_of_memory();
+        for (size_t i = 0; i < old_cap; i++) {
+            if (!old[i]) continue;
+            size_t j = vx_page_hash((uintptr_t)old[i], vx_repr_cap);
+            while (vx_repr_set[j]) j = (j + 1) & (vx_repr_cap - 1);
+            vx_repr_set[j] = old[i];
+        }
+        free(old);
+    }
+    size_t i = vx_page_hash((uintptr_t)p, vx_repr_cap);
+    for (; vx_repr_set[i]; i = (i + 1) & (vx_repr_cap - 1)) {
+        if (vx_repr_set[i] == p) return true;
+    }
+    vx_repr_set[i] = p;
+    vx_repr_count++;
+    return false;
+}
+
+static void vx_repr_leave(const void *p) {
+    size_t mask = vx_repr_cap - 1, i = vx_page_hash((uintptr_t)p, vx_repr_cap);
+    while (vx_repr_set[i] != p) i = (i + 1) & mask;
+    // Backward-shift deletion keeps every probe chain unbroken.
+    for (size_t j = i;;) {
+        vx_repr_set[i] = NULL;
+        for (;;) {
+            j = (j + 1) & mask;
+            if (!vx_repr_set[j]) {
+                vx_repr_count--;
+                return;
+            }
+            size_t k = vx_page_hash((uintptr_t)vx_repr_set[j], vx_repr_cap);
+            if (i <= j ? (i < k && k <= j) : (i < k || k <= j)) continue;
+            break;
+        }
+        vx_repr_set[i] = vx_repr_set[j];
+        i = j;
+    }
+}
+
+// --- Startup ---
+
+static size_t vx_stack_limit;
+static char vx_signal_stack[64 * 1024];
+
+// Turns a crash just below the stack into a readable error: it means the
+// program ran out of stack, almost always through endless recursion.
+static void vx_on_fault(int sig, siginfo_t *info, void *ctx) {
+    (void)ctx;
+    uintptr_t addr = (uintptr_t)info->si_addr, base = (uintptr_t)vx_stack_base;
+    if (addr < base && base - addr <= vx_stack_limit + ((size_t)1 << 20)) {
+        fflush(stdout);
+        static const char msg[] = "error: stack overflow: too many nested function calls, "
+                                  "probably a function that calls itself without stopping\n";
+        ssize_t n = write(STDERR_FILENO, msg, sizeof(msg) - 1);
+        (void)n;
+        _exit(1);
+    }
+    // Anything else is a real crash: let it happen as usual.
+    signal(sig, SIG_DFL);
+}
+
+static void vx_catch_stack_overflow(void) {
+    struct rlimit rl;
+    vx_stack_limit = getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY
+        ? (size_t)rl.rlim_cur : (size_t)1 << 30;
+    stack_t ss = {.ss_sp = vx_signal_stack, .ss_size = sizeof(vx_signal_stack)};
+    if (sigaltstack(&ss, NULL) != 0) return;
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = vx_on_fault;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+}
+
+// Prepares the runtime; [base] is the top of the stack.
+static void vx_init(void *base) {
+    vx_gc_init(base);
+    vx_catch_stack_overflow();
+}
+
 // --- Strings ---
 
 // Returns a string that owns a copy of [n] bytes at [p].
 static vx_str vx_str_new(const char *p, int64_t n) {
     char *buf = vx_alloc_atomic((size_t)n + 1);
     memcpy(buf, p, (size_t)n);
+    buf[n] = 0;
     return (vx_str){buf, n};
 }
 
@@ -562,35 +662,46 @@ static vx_str vx_str_quote(vx_str s) {
     return (vx_str){buf, n};
 }
 
-// Copies [s] into a NUL-terminated buffer, trimming surrounding spaces.
-static char *vx_cstr_trim(vx_str s) {
+// Copies [s] into a NUL-terminated buffer, trimming surrounding spaces, and
+// stores the trimmed length in [len].
+static char *vx_cstr_trim(vx_str s, int64_t *len) {
     int64_t a = 0, b = s.len;
     while (a < b && (s.ptr[a] == ' ' || s.ptr[a] == '\t' || s.ptr[a] == '\n' || s.ptr[a] == '\r')) a++;
     while (b > a && (s.ptr[b - 1] == ' ' || s.ptr[b - 1] == '\t' || s.ptr[b - 1] == '\n' || s.ptr[b - 1] == '\r')) b--;
     char *buf = vx_alloc_atomic((size_t)(b - a) + 1);
     memcpy(buf, s.ptr + a, (size_t)(b - a));
     buf[b - a] = '\0';
+    *len = b - a;
     return buf;
 }
 
 static int64_t vx_str_to_int(vx_str s, int line) {
-    char *c = vx_cstr_trim(s), *end;
+    int64_t n;
+    char *c = vx_cstr_trim(s, &n), *end;
     char *digits = c + (*c == '-' || *c == '+');
     if (*digits < '0' || *digits > '9') {
         vx_fail(line, "can't convert \"%.*s\" to int", (int)s.len, s.ptr);
     }
     errno = 0;
     long long v = strtoll(c, &end, 10);
-    if (*end != 0) vx_fail(line, "can't convert \"%.*s\" to int", (int)s.len, s.ptr);
+    // Checking against the length also catches a NUL inside the text.
+    if (end != c + n) vx_fail(line, "can't convert \"%.*s\" to int", (int)s.len, s.ptr);
     if (errno == ERANGE) vx_fail(line, "can't convert \"%s\" to int: the number is too big", c);
     return (int64_t)v;
 }
 
 static double vx_str_to_float(vx_str s, int line) {
-    char *c = vx_cstr_trim(s), *end;
-    if (*c == 0) goto bad;
+    int64_t n;
+    char *c = vx_cstr_trim(s, &n), *end;
+    // Only decimal numbers: strtod would also take hex, nan and inf.
+    bool digit = false;
+    for (int64_t i = 0; i < n; i++) {
+        if (c[i] >= '0' && c[i] <= '9') digit = true;
+        else if (!strchr(".eE+-", c[i]) || c[i] == 0) goto bad;
+    }
+    if (!digit) goto bad;
     double v = strtod(c, &end);
-    if (*end != 0) goto bad;
+    if (end != c + n || isinf(v)) goto bad;
     return v;
 bad:
     vx_fail(line, "can't convert \"%.*s\" to float", (int)s.len, s.ptr);
@@ -598,7 +709,8 @@ bad:
 
 static int64_t vx_float_to_int(double v, int line) {
     if (isnan(v) || v >= 9223372036854775808.0 || v < -9223372036854775808.0) {
-        vx_fail(line, "can't convert %s to int: it's out of range", vx_float_str(v).ptr);
+        vx_str f = vx_float_str(v);
+        vx_fail(line, "can't convert %.*s to int: it's out of range", (int)f.len, f.ptr);
     }
     return (int64_t)v;
 }

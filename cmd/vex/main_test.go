@@ -149,6 +149,11 @@ func TestRun(t *testing.T) {
 	if code != exitError || !strings.Contains(errOut, "index 3 is out of range") || !strings.Contains(errOut, "main.vx:3") {
 		t.Errorf("runtime error: code %d, stderr %q", code, errOut)
 	}
+	path = writeFile(t, "fn main() {\n    let n = 2;\n    println(n)\n}\n")
+	code, out, errOut = runCLI("run", path)
+	if code != exitOK || out != "2\n" || !strings.Contains(errOut, "warning: a ; isn't needed at the end of a line") {
+		t.Errorf("warning: code %d, stdout %q, stderr %q", code, out, errOut)
+	}
 	path = writeFile(t, "fn main() {\n    let n: int = \"x\"\n}\n")
 	if code, _, errOut := runCLI("run", path); code != exitError || !strings.Contains(errOut, "expected int, found string") {
 		t.Errorf("type error: code %d, stderr %q", code, errOut)

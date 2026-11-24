@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/irshadio/vex-lang/compiler/cc"
 	"github.com/irshadio/vex-lang/compiler/codegen"
@@ -28,6 +29,7 @@ func translate(path string, stderr io.Writer) (string, int) {
 	if err != nil {
 		return "", report(f, err, stderr)
 	}
+	warn(f, tree, stderr)
 	info, err := types.Check(f, tree)
 	if err != nil {
 		return "", report(f, err, stderr)
@@ -110,6 +112,10 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
+			if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() {
+				fmt.Fprintf(stderr, "vex: the program crashed (%v); this is a bug in vex\n", status.Signal())
+				return 128 + int(status.Signal())
+			}
 			return exit.ExitCode()
 		}
 		fmt.Fprintf(stderr, "vex: %v\n", err)

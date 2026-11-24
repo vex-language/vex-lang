@@ -72,6 +72,78 @@ func TestPrograms(t *testing.T) {
 		name, src, stdin, want string
 	}{
 		{"hello", `fn main() { println("Hello, world!") }`, "", "Hello, world!\n"},
+		{"printing cycles", `struct Node {
+    name: string
+    next: Node? = nil
+}
+fn main() {
+    let a = Node(name: "a")
+    let b = Node(name: "b", next: a)
+    a.next = b
+    println(a, [b])
+    let s = Node(name: "s")
+    println([Node(name: "x", next: s), Node(name: "y", next: s)])
+}`, "", "Node(name: \"a\", next: Node(name: \"b\", next: Node(...))) [Node(name: \"b\", next: Node(name: \"a\", next: Node(...)))]\n" +
+			"[Node(name: \"x\", next: Node(name: \"s\", next: nil)), Node(name: \"y\", next: Node(name: \"s\", next: nil))]\n"},
+		{"changing a list while looping over it", `fn main() {
+    var xs = [1, 2, 3]
+    for x in xs {
+        xs.push(x * 10)
+    }
+    var ys = [1, 2, 3, 4]
+    for i, y in ys {
+        if i == 0 {
+            ys.pop()
+            ys.pop()
+        }
+        print(y, "")
+    }
+    println(xs)
+}`, "", "1 2 [1, 2, 3, 10, 20, 30]\n"},
+		{"compound assignment reads the target first", `struct Box { n: int }
+fn main() {
+    let o = Box(n: 10)
+    var xs = [10]
+    var x = 10
+    o.n += fn() -> int {
+        o.n = 100
+        return 1
+    }()
+    xs[0] += fn() -> int {
+        xs[0] = 100
+        return 1
+    }()
+    x += fn() -> int {
+        x = 100
+        return 1
+    }()
+    println(o.n, xs, x)
+}`, "", "11 [11] 11\n"},
+		{"inclusive range at the largest int", `fn main() {
+    var n = 0
+    for i in 9223372036854775806..=9223372036854775807 {
+        n += 1
+    }
+    for i in 5..=4 { n += 100 }
+    for i in 1..=4 {
+        if i % 2 == 0 { continue }
+        n += 10
+    }
+    println(n)
+}`, "", "22\n"},
+		{"conditions with temporaries", `fn two() -> int => 2
+fn main() {
+    let xs = [1, 2, 3]
+    if xs.contains(two()) {
+        println("yes")
+    }
+    while xs.filter(fn(x) => x > two()).len > 5 {
+        println("never")
+    }
+    if "(" + str(two()) == "(2" {
+        println("paren")
+    }
+}`, "", "yes\nparen\n"},
 		{"optionals", `struct User {
     name: string
     boss: User? = nil
@@ -638,6 +710,25 @@ fn main() {
 	}
 }
 
+func TestStackOverflow(t *testing.T) {
+	if strings.Contains(os.Getenv("VEX_CFLAGS"), "sanitize") {
+		t.Skip("sanitizers report stack overflows themselves")
+	}
+	out, errOut, code := run(t, `fn depth(n: int) -> int {
+    if n < 0 { return 0 }
+    // Two calls, so no compiler can turn the recursion into a loop.
+    return depth(n + 1) + depth(n - 1)
+}
+fn main() {
+    println("start")
+    println(depth(0))
+}`, "")
+	want := "error: stack overflow: too many nested function calls, probably a function that calls itself without stopping\n"
+	if code != 1 || out != "start\n" || errOut != want {
+		t.Errorf("exit %d, stdout %q, stderr %q", code, out, errOut)
+	}
+}
+
 func TestGarbageIsFreed(t *testing.T) {
 	exe := build(t, `struct Point {
     x: int
@@ -686,6 +777,12 @@ func TestRuntimeErrors(t *testing.T) {
 		{"parse float", `println(float("abc"))`, "can't convert \"abc\" to float\n --> main.vx:2"},
 		{"int too big", `println(int("99999999999999999999"))`, "can't convert \"99999999999999999999\" to int: the number is too big\n --> main.vx:2"},
 		{"float to int", "let big = 1e30\nprintln(int(big))", "can't convert 1e+30 to int: it's out of range\n --> main.vx:3"},
+		{"float to int after garbage", "for i in 0..20000 { let s = \"XXXXXXXXXXXXXXX\" + \"XXXXXXXXXXXXXXXX\" }\nprintln(int(12345678901234567890.0))", "can't convert 1.2345678901234567e+19 to int: it's out of range\n --> main.vx:3"},
+		{"int with NUL", `println(int("12\u{0}34"))`, "can't convert \"12\" to int\n --> main.vx:2"},
+		{"float with NUL", `println(float("1\u{0}5"))`, "can't convert \"1\" to float\n --> main.vx:2"},
+		{"float hex", `println(float("0x10"))`, "can't convert \"0x10\" to float\n --> main.vx:2"},
+		{"float inf", `println(float("inf"))`, "can't convert \"inf\" to float\n --> main.vx:2"},
+		{"float too big", `println(float("1e999"))`, "can't convert \"1e999\" to float\n --> main.vx:2"},
 		{"panic", `panic("something broke")`, "something broke\n --> main.vx:2"},
 		{"panic in match", "let n = match 3 {\n    1 => 1\n    _ => panic(\"bad number\")\n}", "bad number\n --> main.vx:4"},
 		{"assert", "assert(1 > 2)", "assertion failed\n --> main.vx:2"},

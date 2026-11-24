@@ -138,7 +138,7 @@ func Generate(info *types.Info, srcName string) string {
 	g.b.WriteString(g.lams.String())
 	g.line("")
 	g.line("int main(void) {")
-	g.line("    vx_gc_init(__builtin_frame_address(0));")
+	g.line("    vx_init(__builtin_frame_address(0));")
 	g.line("    vx_file = %s;", cQuote(srcName))
 	g.line("    fn_main();")
 	g.line("    return 0;")
@@ -459,6 +459,7 @@ func (g *gen) repr(name string, t types.Type) {
 		g.line("    }")
 		g.line("    return vx_str_concat(s, VX_LIT(\"]\"));")
 	case *types.Struct:
+		g.line("    if (vx_repr_enter(v)) return VX_LIT(%s);", cQuote(t.Name+"(...)"))
 		g.line("    vx_str s = VX_LIT(%s);", cQuote(t.Name+"("))
 		for i, f := range t.Fields {
 			sep := ""
@@ -468,6 +469,7 @@ func (g *gen) repr(name string, t types.Type) {
 			g.line("    s = vx_str_concat(s, VX_LIT(%s));", cQuote(sep+f.Name+": "))
 			g.line("    s = vx_str_concat(s, %s);", repr(f.Type, "v->f_"+f.Name))
 		}
+		g.line("    vx_repr_leave(v);")
 		g.line("    return vx_str_concat(s, VX_LIT(\")\"));")
 	case *types.Optional:
 		g.line("    return v.has ? %s : VX_LIT(\"nil\");", repr(t.Elem, "v.v"))
@@ -520,7 +522,9 @@ func (g *gen) block(header string, b *ast.Block) {
 // Returns a condition for `if (...)`, without a redundant outer pair of
 // parentheses.
 func cond(c string) string {
-	if !strings.HasPrefix(c, "(") || !strings.HasSuffix(c, ")") {
+	// A statement expression `({ ... })` keeps its parentheses, and a
+	// string literal may hold unbalanced ones, so neither is touched.
+	if !strings.HasPrefix(c, "(") || !strings.HasSuffix(c, ")") || strings.HasPrefix(c, "({") || strings.Contains(c, `"`) {
 		return c
 	}
 	depth := 0
@@ -636,15 +640,25 @@ func (g *gen) forStmt(s *ast.ForStmt) {
 		if r.Inclusive {
 			cmp = "<="
 		}
+		if r.Inclusive {
+			// Testing for the end after each pass, not with <=, lets a range
+			// end at the largest int.
+			done := g.temp()
+			g.block(fmt.Sprintf("for (int64_t %s = %s, %s = %s, %s = %s > %s; !%s; %s = %s == %s, %s++)", v, g.expr(r.Lo), hi, g.expr(r.Hi), done, v, hi, done, done, v, hi, v), s.Body)
+			return
+		}
 		g.block(fmt.Sprintf("for (int64_t %s = %s, %s = %s; %s %s %s; %s++)", v, g.expr(r.Lo), hi, g.expr(r.Hi), v, cmp, hi, v), s.Body)
 		return
 	}
+	// Items added during the loop aren't visited, so pushing inside the
+	// loop can't make it endless; removed items end it early.
 	elem := g.info.Defs[s.Elem]
-	list, i := g.temp(), g.temp()
+	list, n, i := g.temp(), g.temp(), g.temp()
 	g.line("{")
 	g.ind++
 	g.line("vx_list *%s = %s;", list, g.expr(s.Iter))
-	g.line("for (int64_t %s = 0; %s < %s->len; %s++) {", i, i, list, i)
+	g.line("int64_t %s = %s->len;", n, list)
+	g.line("for (int64_t %s = 0; %s < %s && %s < %s->len; %s++) {", i, i, n, i, list, i)
 	g.ind++
 	if s.Index != nil {
 		g.line("int64_t %s = %s;", g.declare(g.info.Defs[s.Index]), i)
@@ -687,14 +701,22 @@ func (g *gen) assign(s *ast.AssignStmt) {
 	default:
 		target = g.expr(s.Target)
 	}
+	op, compound := compoundOps[s.Op]
+	// A compound assignment reads the target before the value runs, as
+	// x += f() reads x first.
+	old := target
+	if compound {
+		old = g.temp()
+		setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, old), target))
+	}
 	value := g.expr(s.Value)
 	if setup != nil {
 		v := g.temp()
 		setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, v), value))
 		value = v
 	}
-	if op, ok := compoundOps[s.Op]; ok {
-		value = binop(op, t, target, value, s.Pos().Line)
+	if compound {
+		value = binop(op, t, old, value, s.Pos().Line)
 	}
 	if setup == nil {
 		g.line("%s = %s;", target, value)

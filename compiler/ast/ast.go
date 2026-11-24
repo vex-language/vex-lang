@@ -54,6 +54,10 @@ type TypeExpr interface {
 type File struct {
 	Span
 	Decls []Decl
+
+	// Problems that don't stop the program from building, such as a
+	// needless `;`.
+	Warnings diag.List
 }
 
 // A name, such as a variable, function, field or type name.

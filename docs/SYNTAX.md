@@ -83,6 +83,10 @@ while running { tick() }
 
 `else` must be on the same line as the closing `}`.
 
+A loop over a list visits the items it had when the loop started: items pushed inside the loop aren't visited, and the loop ends early if items are removed.
+
+Conditions don't need parentheses, and lines don't need a `;` at the end. The compiler warns about both, as it does about other habits from C-style languages, but still builds the program.
+
 ## Lists
 
 ```swift
@@ -278,10 +282,10 @@ let message = match code {             // a match can be a value
 |---|---|
 | `print(a, b, ...)` / `println(...)` | Print values separated by spaces |
 | `input(prompt)` | Read a line from standard input; the prompt is optional |
-| `int(x)`, `float(x)`, `str(x)` | Convert between types |
+| `int(x)`, `float(x)`, `str(x)` | Convert between types; `int` and `float` ignore spaces around the number |
 | `panic(msg)`, `assert(cond, msg)` | Stop the program with a message; `assert`'s message is optional |
 | `list.len`, `.push(x)`, `.pop()`, `.contains(x)`, `.filter(f)`, `.map(f)` | List members |
-| `s.len`, `.upper()`, `.lower()`, `.contains(x)`, `.split(sep)` | String members |
+| `s.len`, `.upper()`, `.lower()`, `.contains(x)`, `.split(sep)` | String members. `len` counts Unicode code points, so an emoji with a modifier counts as more than one; `upper` and `lower` change only the letters A–Z for now |
 
 ## Types
 
@@ -311,7 +315,7 @@ error: index 5 is out of range for a list of length 3
  --> main.vx:12
 ```
 
-These cover list indexes out of range, `pop()` on an empty list, division by zero, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Int arithmetic wraps around on overflow.
+These cover list indexes out of range, `pop()` on an empty list, division by zero, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`. Int arithmetic wraps around on overflow.
 
 ## Planned
 

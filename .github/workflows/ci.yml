@@ -60,3 +60,16 @@ jobs:
         run: go test ./tests -run '^$' -fuzz FuzzCompiler -fuzztime 90s
       - name: Fuzz generated C
         run: go test ./tests -run '^$' -fuzz FuzzGeneratedC -fuzztime 90s
+
+  generated:
+    name: generated programs
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Run 200 random programs with known output
+        run: go test ./tests -run TestGeneratedPrograms -programs 200

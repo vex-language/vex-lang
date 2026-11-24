@@ -234,7 +234,7 @@ nums[0] = 10
 println(nums, nums.len, nums.contains(2))   // [10, 1, 2] 3 true
 ```
 
-**Strings.** `s.len` counts characters. Also `.upper()`, `.lower()`, `.contains(x)` and `.split(sep)`.
+**Strings.** `s.len` counts Unicode code points. Also `.upper()` and `.lower()` (A–Z only for now), `.contains(x)` and `.split(sep)`.
 
 **Structs.** Fields can have defaults, methods use fields directly, and `static fn` belongs to the type. Struct values are shared references.
 
@@ -332,6 +332,9 @@ go test ./tests -run '^$' -fuzz FuzzCompiler -fuzztime 5m
 
 # Programs that pass the type checker must produce C that compiles.
 go test ./tests -run '^$' -fuzz FuzzGeneratedC -fuzztime 5m
+
+# Random valid programs whose exact output is known in advance.
+go test ./tests -run TestGeneratedPrograms -programs 200
 
 # Run every test program under AddressSanitizer and UndefinedBehaviorSanitizer.
 ASAN_OPTIONS=detect_stack_use_after_return=0 \
