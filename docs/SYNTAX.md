@@ -147,6 +147,17 @@ The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]` an
 
 Run `vex check file.vx` to see type errors without building.
 
+## Runtime errors
+
+Mistakes that can only be found while the program runs stop it with a message and the source line, and exit code 1:
+
+```
+error: index 5 is out of range for a list of length 3
+ --> main.vx:12
+```
+
+These cover list indexes out of range, `pop()` on an empty list, division by zero, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Int arithmetic wraps around on overflow.
+
 ## Planned
 
 ### Optionals and errors (v0.2)

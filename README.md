@@ -108,7 +108,7 @@ The compiler is written in Go. It turns Vex source into portable C, then uses th
 
 ## Getting started
 
-> These steps describe the first release (v0.1). The CLI is still being built.
+> Vex is pre-release (v0.1 in progress). Programs compile and run; the language is still growing.
 
 **Requirements**
 - Go 1.23 or newer, to build the compiler
