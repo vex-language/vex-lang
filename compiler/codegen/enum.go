@@ -1,0 +1,161 @@
+package codegen
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/irshadio/vex-lang/compiler/types"
+)
+
+func enumName(e *types.Enum) string { return "E_" + e.Name }
+
+// Returns the name of the function creating values of [cs].
+func caseFunc(cs *types.Case) string {
+	return fmt.Sprintf("case%d%s_%s", len(cs.Enum.Name), cs.Enum.Name, cs.Name)
+}
+
+func caseSig(cs *types.Case) string {
+	var params []string
+	for _, f := range cs.Fields {
+		params = append(params, decl(f.Type, "f_"+f.Name))
+	}
+	if len(params) == 0 {
+		params = []string{"void"}
+	}
+	return fmt.Sprintf("%s *%s(%s)", enumName(cs.Enum), caseFunc(cs), strings.Join(params, ", "))
+}
+
+// Writes the C struct of [e]: a tag naming the case, and a union with the
+// values of each case that carries any.
+func (g *gen) enumStruct(e *types.Enum) {
+	g.line("struct %s {", enumName(e))
+	g.line("    int32_t tag;")
+	if !e.Simple() {
+		g.line("    union {")
+		for _, cs := range e.Cases {
+			if len(cs.Fields) == 0 {
+				continue
+			}
+			var fields []string
+			for _, f := range cs.Fields {
+				fields = append(fields, decl(f.Type, "f_"+f.Name)+";")
+			}
+			g.line("        struct { %s } c_%s;", strings.Join(fields, " "), cs.Name)
+		}
+		g.line("    } u;")
+	}
+	g.line("};")
+}
+
+func (g *gen) caseConstructor(cs *types.Case) {
+	e := enumName(cs.Enum)
+	g.line("")
+	g.line("static %s {", caseSig(cs))
+	g.line("    %s *o = vx_alloc(sizeof(%s));", e, e)
+	g.line("    o->tag = %d;", cs.Index)
+	for _, f := range cs.Fields {
+		g.line("    o->u.c_%s.f_%s = f_%s;", cs.Name, f.Name, f.Name)
+	}
+	g.line("    return o;")
+	g.line("}")
+}
+
+// Returns the C condition under which arm [i] of [m] matches the subject
+// stored in [subject].
+func (g *gen) armCond(m *ast.MatchExpr, i int, subject string) string {
+	arm := g.info.Matches[m].Arms[i]
+	if arm.Case != nil {
+		return fmt.Sprintf("%s->tag == %d", subject, arm.Case.Index)
+	}
+	lit, ok := m.Arms[i].Pattern.(*ast.LiteralPattern)
+	if !ok {
+		return "1"
+	}
+	if g.info.Types[m.Subject] == types.String {
+		return fmt.Sprintf("vx_str_eq(%s, %s)", subject, g.expr(lit.Value))
+	}
+	return fmt.Sprintf("%s == %s", subject, g.expr(lit.Value))
+}
+
+// Returns the declarations of the names arm [i] binds, reading them from
+// [subject].
+func (g *gen) armBinds(m *ast.MatchExpr, i int, subject string) []string {
+	arm := g.info.Matches[m].Arms[i]
+	var out []string
+	for j, v := range arm.Binds {
+		if v == nil {
+			continue
+		}
+		f := arm.Case.Fields[j]
+		out = append(out, fmt.Sprintf("%s = %s->u.c_%s.f_%s;", decl(v.Type, g.declare(v)), subject, arm.Case.Name, f.Name))
+	}
+	return out
+}
+
+// Returns the opening of arm [i]: `if (...) {`, `} else if (...) {`, or
+// `} else {` for the last arm, which the checker guarantees matches
+// whatever the earlier arms didn't.
+func (g *gen) armHeader(m *ast.MatchExpr, i int, subject string) string {
+	switch {
+	case len(m.Arms) == 1:
+		return "{"
+	case i == len(m.Arms)-1:
+		return "} else {"
+	case i == 0:
+		return "if (" + g.armCond(m, i, subject) + ") {"
+	}
+	return "} else if (" + g.armCond(m, i, subject) + ") {"
+}
+
+// Writes a match used as a statement.
+func (g *gen) matchStmt(m *ast.MatchExpr) {
+	subject := g.temp()
+	g.line("{")
+	g.ind++
+	g.line("%s = %s;", decl(g.info.Types[m.Subject], subject), g.expr(m.Subject))
+	for i, arm := range m.Arms {
+		g.line("%s", g.armHeader(m, i, subject))
+		g.ind++
+		for _, b := range g.armBinds(m, i, subject) {
+			g.line("%s", b)
+		}
+		if arm.Block != nil {
+			g.block("", arm.Block)
+		} else {
+			g.line("%s;", g.expr(arm.Expr))
+		}
+		g.ind--
+	}
+	g.line("}")
+	g.ind--
+	g.line("}")
+}
+
+// Returns a match used as a value, as a statement expression.
+func (g *gen) matchExpr(m *ast.MatchExpr) string {
+	t := g.info.Types[m]
+	subject, result := g.temp(), g.temp()
+	var b strings.Builder
+	fmt.Fprintf(&b, "({ %s = %s; ", decl(g.info.Types[m.Subject], subject), g.expr(m.Subject))
+	if t != types.Void {
+		fmt.Fprintf(&b, "%s; ", decl(t, result))
+	}
+	for i, arm := range m.Arms {
+		b.WriteString(g.armHeader(m, i, subject) + " ")
+		for _, d := range g.armBinds(m, i, subject) {
+			b.WriteString(d + " ")
+		}
+		if t == types.Void || g.info.Matches[m].Arms[i].NoValue {
+			fmt.Fprintf(&b, "%s; ", g.expr(arm.Expr))
+		} else {
+			fmt.Fprintf(&b, "%s = %s; ", result, g.expr(arm.Expr))
+		}
+	}
+	b.WriteString("} ")
+	if t != types.Void {
+		b.WriteString(result + "; ")
+	}
+	b.WriteString("})")
+	return b.String()
+}

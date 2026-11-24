@@ -52,6 +52,9 @@ func Generate(info *types.Info, srcName string) string {
 	for _, s := range info.Structs {
 		g.needRepr(s)
 	}
+	for _, e := range info.Enums {
+		g.needRepr(e)
+	}
 
 	// Function bodies come first, since they discover the closures and
 	// function values whose declarations must precede them.
@@ -59,6 +62,11 @@ func Generate(info *types.Info, srcName string) string {
 	g.b = &defs
 	for _, s := range info.Structs {
 		g.constructor(s)
+	}
+	for _, e := range info.Enums {
+		for _, cs := range e.Cases {
+			g.caseConstructor(cs)
+		}
 	}
 	for _, name := range g.reprNames() {
 		g.repr(name, g.reprs[name])
@@ -81,6 +89,9 @@ func Generate(info *types.Info, srcName string) string {
 	for _, s := range info.Structs {
 		g.line("typedef struct %s %s;", structName(s), structName(s))
 	}
+	for _, e := range info.Enums {
+		g.line("typedef struct %s %s;", enumName(e), enumName(e))
+	}
 	for _, s := range info.Structs {
 		g.line("struct %s {", structName(s))
 		for _, f := range s.Fields {
@@ -88,9 +99,17 @@ func Generate(info *types.Info, srcName string) string {
 		}
 		g.line("};")
 	}
+	for _, e := range info.Enums {
+		g.enumStruct(e)
+	}
 	g.line("")
 	for _, s := range info.Structs {
 		g.line("static %s;", constructorSig(s))
+	}
+	for _, e := range info.Enums {
+		for _, cs := range e.Cases {
+			g.line("static %s;", caseSig(cs))
+		}
 	}
 	for _, name := range g.reprNames() {
 		g.line("static vx_str repr_%s(%s);", name, decl(g.reprs[name], "v"))
@@ -129,6 +148,9 @@ func funcName(f *types.Func) string {
 	if f.Owner != nil {
 		return fmt.Sprintf("m%d%s_%s", len(f.Owner.Name), f.Owner.Name, f.Name)
 	}
+	if f.Enum != nil {
+		return fmt.Sprintf("m%d%s_%s", len(f.Enum.Name), f.Enum.Name, f.Name)
+	}
 	return "fn_" + f.Name
 }
 
@@ -140,6 +162,8 @@ func ctype(t types.Type) string {
 		return structName(t) + " *"
 	case *types.FuncType:
 		return "vx_fn"
+	case *types.Enum:
+		return enumName(t) + " *"
 	}
 	switch t {
 	case types.Int:
@@ -190,6 +214,8 @@ func mangle(t types.Type) string {
 		return "L_" + mangle(t.Elem)
 	case *types.Struct:
 		return fmt.Sprintf("S%d%s", len(t.Name), t.Name)
+	case *types.Enum:
+		return fmt.Sprintf("E%d%s", len(t.Name), t.Name)
 	case *types.FuncType:
 		parts := []string{fmt.Sprintf("F%d", len(t.Params))}
 		for _, p := range t.Params {
@@ -273,6 +299,9 @@ func (g *gen) signature(f *types.Func, define bool) string {
 	if f.Owner != nil && !f.Static {
 		params = append(params, structName(f.Owner)+" *self")
 	}
+	if f.Enum != nil && !f.Static {
+		params = append(params, enumName(f.Enum)+" *self")
+	}
 	for i, p := range f.Params {
 		name := "v_" + p.Name
 		if define {
@@ -330,6 +359,15 @@ func (g *gen) needRepr(t types.Type) {
 				g.needRepr(f.Type)
 			}
 		}
+	case *types.Enum:
+		if _, ok := g.reprs[mangle(t)]; !ok {
+			g.reprs[mangle(t)] = t
+			for _, cs := range t.Cases {
+				for _, f := range cs.Fields {
+					g.needRepr(f.Type)
+				}
+			}
+		}
 	}
 }
 
@@ -346,7 +384,7 @@ func (g *gen) reprNames() []string {
 // strings quoted.
 func repr(t types.Type, x string) string {
 	switch t := t.(type) {
-	case *types.List, *types.Struct:
+	case *types.List, *types.Struct, *types.Enum:
 		return fmt.Sprintf("repr_%s(%s)", mangle(t), x)
 	case *types.FuncType:
 		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
@@ -395,6 +433,29 @@ func (g *gen) repr(name string, t types.Type) {
 			g.line("    s = vx_str_concat(s, %s);", repr(f.Type, "v->f_"+f.Name))
 		}
 		g.line("    return vx_str_concat(s, VX_LIT(\")\"));")
+	case *types.Enum:
+		g.line("    switch (v->tag) {")
+		for _, cs := range t.Cases {
+			name := t.Name + "." + cs.Name
+			if len(cs.Fields) == 0 {
+				g.line("    case %d: return VX_LIT(%s);", cs.Index, cQuote(name))
+				continue
+			}
+			g.line("    case %d: {", cs.Index)
+			g.line("        vx_str s = VX_LIT(%s);", cQuote(name+"("))
+			for i, f := range cs.Fields {
+				sep := ""
+				if i > 0 {
+					sep = ", "
+				}
+				g.line("        s = vx_str_concat(s, VX_LIT(%s));", cQuote(sep+f.Name+": "))
+				g.line("        s = vx_str_concat(s, %s);", repr(f.Type, fmt.Sprintf("v->u.c_%s.f_%s", cs.Name, f.Name)))
+			}
+			g.line("        return vx_str_concat(s, VX_LIT(\")\"));")
+			g.line("    }")
+		}
+		g.line("    }")
+		g.line("    __builtin_unreachable();")
 	}
 	g.line("}")
 }
@@ -451,6 +512,10 @@ func (g *gen) stmt(s ast.Stmt) {
 	case *ast.AssignStmt:
 		g.assign(s)
 	case *ast.ExprStmt:
+		if m, ok := s.X.(*ast.MatchExpr); ok && g.info.Matches[m].Stmt {
+			g.matchStmt(m)
+			break
+		}
 		g.line("%s;", g.expr(s.X))
 	case *ast.IfStmt:
 		g.ifStmt(s)
@@ -720,6 +785,9 @@ func hasCall(e ast.Expr) bool {
 				return true
 			}
 		}
+	case *ast.MatchExpr:
+		// Arms may run calls, so a match is ordered like one.
+		return true
 	}
 	return false
 }
@@ -807,6 +875,10 @@ func (g *gen) expr(e ast.Expr) string {
 		}
 	case *ast.FuncLit:
 		return g.funcLit(e)
+	case *ast.ImplicitMember:
+		return caseFunc(g.info.CaseValues[e]) + "()"
+	case *ast.MatchExpr:
+		return g.matchExpr(e)
 	case *ast.ListLit:
 		elem := t.(*types.List).Elem
 		if len(e.Elems) == 0 {
@@ -832,6 +904,9 @@ func (g *gen) expr(e ast.Expr) string {
 			return fmt.Sprintf("(*(%s*)vx_list_at(%s, %s, %d))", ctype(t), cs[0], cs[1], e.Pos().Line)
 		})
 	case *ast.MemberExpr:
+		if cs := g.info.CaseValues[e]; cs != nil {
+			return caseFunc(cs) + "()"
+		}
 		m := g.info.Members[e]
 		x := g.expr(e.X)
 		if m.Field != nil {
@@ -861,6 +936,9 @@ func binop(k lexer.Kind, t types.Type, a, b string, line int) string {
 		default:
 			return fmt.Sprintf("(vx_str_cmp(%s, %s) %s 0)", a, b, op(k))
 		}
+	}
+	if _, ok := t.(*types.Enum); ok {
+		return fmt.Sprintf("((%s)->tag %s (%s)->tag)", a, op(k), b)
 	}
 	if t == types.Int {
 		switch k {
@@ -915,6 +993,10 @@ func (g *gen) call(e *ast.CallExpr) string {
 	case types.ConstructorCall:
 		return g.orderedBy(c.Args, rank, func(cs []string) string {
 			return "new_" + structName(c.Struct) + "(" + strings.Join(cs, ", ") + ")"
+		})
+	case types.CaseCall:
+		return g.orderedBy(c.Args, rank, func(cs []string) string {
+			return caseFunc(c.Case) + "(" + strings.Join(cs, ", ") + ")"
 		})
 	case types.MethodCall:
 		if c.Recv == nil {
@@ -1018,6 +1100,9 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 				eq := item + " == " + v
 				if l.Elem == types.String {
 					eq = fmt.Sprintf("vx_str_eq(%s, %s)", item, v)
+				}
+				if _, ok := l.Elem.(*types.Enum); ok {
+					eq = fmt.Sprintf("%s->tag == %s->tag", item, v)
 				}
 				return fmt.Sprintf("({ vx_list *%s = %s; %s = %s; bool %s = false; "+
 					"for (int64_t %s = 0; %s < %s->len; %s++) if (%s) { %s = true; break; } %s; })",
