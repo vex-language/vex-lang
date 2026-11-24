@@ -243,6 +243,87 @@ fn main() {
     println("{name} is {age}")
     println(input() == "")
 }`, "Ann\n30\n", "Name? Ann is 30\ntrue\n"},
+		{"closures", `fn apply(f: fn(int) -> int, x: int) -> int => f(x)
+fn double(x: int) -> int => x * 2
+fn repeat(times: int, action: fn()) {
+    for i in 0..times { action() }
+}
+fn adder(n: int) -> fn(int) -> int => fn(x) => x + n
+
+fn counter() -> fn() -> int {
+    var n = 0
+    return fn() -> int {
+        n += 1
+        return n
+    }
+}
+
+struct Button {
+    title: string
+    onTap: fn()
+    fn tap() { onTap() }
+}
+
+struct Counter {
+    count: int = 0
+    fn incrementer() -> fn() => fn() { count += 1 }
+}
+
+fn main() {
+    println(apply(fn(x) => x + 1, 5), apply(double, 5), adder(10)(5))
+    var count = 0
+    repeat(3) { count += 1 }
+    println("count:", count)
+    let btn = Button(title: "Add") { count += 10 }
+    btn.tap()
+    btn.onTap()
+    println("count:", count)
+
+    let next = counter()
+    let other = counter()
+    println(next(), next(), next(), other())
+
+    let nums = [1, 2, 3, 4, 5, 6]
+    println(nums.filter(fn(x) => x % 2 == 0), nums.map(fn(x) => x * x), nums.map(fn(x) => "#{x}"))
+
+    let c = Counter()
+    let inc = c.incrementer()
+    inc()
+    inc()
+    println(c.count)
+
+    var total = 0
+    let outer = fn() {
+        let inner = fn() { total += 100 }
+        inner()
+        inner()
+    }
+    outer()
+    println(total)
+
+    var actions: [fn()] = []
+    for i in 0..3 {
+        actions.push(fn() { print(i, "") })
+    }
+    for a in actions { a() }
+    println()
+    println(double, fn(s: string) => s.len)
+}
+`, "", "6 10 15\ncount: 3\ncount: 23\n1 2 3 1\n[2, 4, 6] [1, 4, 9, 16, 25, 36] [\"#1\", \"#2\", \"#3\", \"#4\", \"#5\", \"#6\"]\n2\n200\n0 1 2 \n<fn(int) -> int> <fn(string) -> int>\n"},
+		{"closure evaluation order", `fn step(name: string, v: int) -> int {
+    print(name)
+    return v
+}
+fn main() {
+    let pick = fn(n: int) -> fn(int) -> int {
+        print("p")
+        return fn(x) => x + n
+    }
+    println(" ", pick(1)(step("a", 2)))
+    var fs: [fn(int) -> int] = []
+    fs.push(fn(x) => x * 3)
+    println(fs[0](4), [fn() => 1, fn() => 2][1]())
+}`, "", "pa  3\n12 2\n"},
 		{"names that are C keywords", `struct char {
     double: int
 }

@@ -18,22 +18,34 @@ var runtime string
 
 type gen struct {
 	info *types.Info
-	b    strings.Builder
+	b    *strings.Builder
 	ind  int
 
-	// C names of the variables of the function being generated.
-	names map[*types.Var]string
+	// The function or closure being generated: C code reading each variable
+	// (an lvalue), the address of each boxed variable, the names in use and
+	// the method's `self`, if any.
+	vals  map[*types.Var]string
+	boxes map[*types.Var]string
 	used  map[string]bool
 	tmp   int
+	self  *types.Var
 
 	// Lists and structs that need a function to show their values.
 	reprs map[string]types.Type
+
+	// Closures: environment structs and prototypes, and their bodies.
+	lamDecls strings.Builder
+	lams     strings.Builder
+	nlams    int
+
+	// Named functions used as values, which need a wrapper.
+	fnValues map[*types.Func]bool
 }
 
 // Returns the C source of the program described by [info]. [srcName] is
 // the file name shown in runtime errors.
 func Generate(info *types.Info, srcName string) string {
-	g := &gen{info: info, reprs: map[string]types.Type{}}
+	g := &gen{info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{}}
 	for _, t := range info.Types {
 		g.needRepr(t)
 	}
@@ -41,6 +53,27 @@ func Generate(info *types.Info, srcName string) string {
 		g.needRepr(s)
 	}
 
+	// Function bodies come first, since they discover the closures and
+	// function values whose declarations must precede them.
+	var defs strings.Builder
+	g.b = &defs
+	for _, s := range info.Structs {
+		g.constructor(s)
+	}
+	for _, name := range g.reprNames() {
+		g.repr(name, g.reprs[name])
+	}
+	for _, f := range info.Funcs {
+		g.function(f)
+	}
+	for _, f := range info.Funcs {
+		if g.fnValues[f] {
+			g.fnValueWrapper(f)
+		}
+	}
+
+	var out strings.Builder
+	g.b, g.ind = &out, 0
 	g.b.WriteString(runtime)
 	g.line("")
 	g.line("// --- Program ---")
@@ -51,7 +84,7 @@ func Generate(info *types.Info, srcName string) string {
 	for _, s := range info.Structs {
 		g.line("struct %s {", structName(s))
 		for _, f := range s.Fields {
-			g.line("    %s f_%s;", ctype(f.Type), f.Name)
+			g.line("    %s;", decl(f.Type, "f_"+f.Name))
 		}
 		g.line("};")
 	}
@@ -65,15 +98,9 @@ func Generate(info *types.Info, srcName string) string {
 	for _, f := range info.Funcs {
 		g.line("static %s;", g.signature(f, false))
 	}
-	for _, s := range info.Structs {
-		g.constructor(s)
-	}
-	for _, name := range g.reprNames() {
-		g.repr(name, g.reprs[name])
-	}
-	for _, f := range info.Funcs {
-		g.function(f)
-	}
+	g.b.WriteString(g.lamDecls.String())
+	g.b.WriteString(defs.String())
+	g.b.WriteString(g.lams.String())
 	g.line("")
 	g.line("int main(void) {")
 	g.line("    vx_file = %s;", cQuote(srcName))
@@ -87,7 +114,7 @@ func Generate(info *types.Info, srcName string) string {
 func (g *gen) line(format string, args ...any) {
 	if format != "" {
 		g.b.WriteString(strings.Repeat("    ", g.ind))
-		fmt.Fprintf(&g.b, format, args...)
+		fmt.Fprintf(g.b, format, args...)
 	}
 	g.b.WriteByte('\n')
 }
@@ -111,6 +138,8 @@ func ctype(t types.Type) string {
 		return "vx_list *"
 	case *types.Struct:
 		return structName(t) + " *"
+	case *types.FuncType:
+		return "vx_fn"
 	}
 	switch t {
 	case types.Int:
@@ -134,13 +163,39 @@ func decl(t types.Type, name string) string {
 	return c + " " + name
 }
 
+// Returns a C declaration of [name] as a pointer to a value of type [t].
+func declPtr(t types.Type, name string) string {
+	c := ctype(t)
+	if strings.HasSuffix(c, "*") {
+		return c + "*" + name
+	}
+	return c + " *" + name
+}
+
+// Returns the C type of a pointer to a closure function of type [ft].
+func fnPtrType(ft *types.FuncType) string {
+	params := []string{"void *"}
+	for _, p := range ft.Params {
+		params = append(params, ctype(p))
+	}
+	return ctype(ft.Result) + " (*)(" + strings.Join(params, ", ") + ")"
+}
+
 // Returns a name for [t] usable inside C identifiers, such as `L_int`.
+// Struct names and parameter lists carry their length, so different types
+// never share a name.
 func mangle(t types.Type) string {
 	switch t := t.(type) {
 	case *types.List:
 		return "L_" + mangle(t.Elem)
 	case *types.Struct:
-		return structName(t)
+		return fmt.Sprintf("S%d%s", len(t.Name), t.Name)
+	case *types.FuncType:
+		parts := []string{fmt.Sprintf("F%d", len(t.Params))}
+		for _, p := range t.Params {
+			parts = append(parts, mangle(p))
+		}
+		return strings.Join(append(parts, mangle(t.Result)), "_")
 	}
 	if t == types.String {
 		return "str"
@@ -156,15 +211,30 @@ func (g *gen) declare(v *types.Var) string {
 		name = fmt.Sprintf("%s_%d", base, n)
 	}
 	g.used[name] = true
-	g.names[v] = name
+	g.vals[v] = name
 	return name
 }
 
+// Returns C code reading (or assigning) the variable [v].
 func (g *gen) varName(v *types.Var) string {
-	if v.Kind == types.SelfVar {
-		return "self"
+	if c, ok := g.vals[v]; ok {
+		return c
 	}
-	return g.names[v]
+	return "self"
+}
+
+// Returns C code for the current method's `self`.
+func (g *gen) selfRef() string {
+	if g.self != nil {
+		return g.varName(g.self)
+	}
+	return "self"
+}
+
+// Starts generating a new function or closure body into [b].
+func (g *gen) enter(b *strings.Builder) {
+	g.b, g.ind = b, 0
+	g.vals, g.boxes, g.used, g.tmp, g.self = map[*types.Var]string{}, map[*types.Var]string{}, map[string]bool{}, 0, nil
 }
 
 // Returns a fresh name for a temporary value.
@@ -217,7 +287,11 @@ func (g *gen) signature(f *types.Func, define bool) string {
 }
 
 func (g *gen) function(f *types.Func) {
-	g.names, g.used, g.tmp = map[*types.Var]string{}, map[string]bool{}, 0
+	g.enter(g.b)
+	if self := g.info.Selves[f.Decl]; self != nil {
+		g.self = self
+		g.vals[self] = "self"
+	}
 	g.line("")
 	g.line("static %s {", g.signature(f, true))
 	g.ind++
@@ -271,9 +345,11 @@ func (g *gen) reprNames() []string {
 // Returns C code giving [x] as it appears inside a list or struct, with
 // strings quoted.
 func repr(t types.Type, x string) string {
-	switch t.(type) {
+	switch t := t.(type) {
 	case *types.List, *types.Struct:
 		return fmt.Sprintf("repr_%s(%s)", mangle(t), x)
+	case *types.FuncType:
+		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
 	}
 	switch t {
 	case types.Int:
@@ -364,7 +440,14 @@ func (g *gen) stmt(s ast.Stmt) {
 	case *ast.LetStmt:
 		v := g.info.Defs[s.Name]
 		value := g.expr(s.Value)
-		g.line("%s = %s;", decl(v.Type, g.declare(v)), value)
+		if v.Boxed() {
+			name := g.declare(v)
+			g.line("%s = vx_alloc(sizeof(%s));", declPtr(v.Type, name), ctype(v.Type))
+			g.line("*%s = %s;", name, value)
+			g.vals[v], g.boxes[v] = "(*"+name+")", name
+		} else {
+			g.line("%s = %s;", decl(v.Type, g.declare(v)), value)
+		}
 	case *ast.AssignStmt:
 		g.assign(s)
 	case *ast.ExprStmt:
@@ -498,6 +581,117 @@ func (g *gen) assign(s *ast.AssignStmt) {
 	g.line("}")
 }
 
+// --- Closures ---
+
+// Generates the C function for the closure [e] and returns C code creating
+// its value. Captured variables are copied into a heap environment; boxed
+// ones are shared through their address.
+func (g *gen) funcLit(e *ast.FuncLit) string {
+	ft := g.info.Types[e].(*types.FuncType)
+	caps := g.info.Captures[e]
+	g.nlams++
+	name := fmt.Sprintf("lam%d", g.nlams)
+	env := "env_" + name
+
+	// Values for the environment, read in the enclosing context.
+	inits := make([]string, len(caps))
+	for i, v := range caps {
+		if v.Boxed() {
+			inits[i] = g.boxes[v]
+		} else {
+			inits[i] = g.varName(v)
+		}
+	}
+
+	outer, ind, vals, boxes, used, tmp, self := g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self
+	var body strings.Builder
+	g.enter(&body)
+	params := []string{"void *env_"}
+	for i, p := range e.Params {
+		params = append(params, decl(ft.Params[i], g.declare(g.info.Defs[p.Name])))
+	}
+	sig := decl(ft.Result, name+"("+strings.Join(params, ", ")+")")
+	g.line("")
+	g.line("static %s {", sig)
+	g.ind++
+	if len(caps) > 0 {
+		g.line("struct %s *_env = env_;", env)
+	}
+	for i, v := range caps {
+		field := fmt.Sprintf("_env->c%d", i)
+		if v.Boxed() {
+			g.vals[v], g.boxes[v] = "(*"+field+")", field
+		} else {
+			g.vals[v] = field
+		}
+		if v.Kind == types.SelfVar {
+			g.self = v
+		}
+	}
+	if e.ExprBody != nil {
+		if ft.Result == types.Void {
+			g.line("%s;", g.expr(e.ExprBody))
+		} else {
+			g.line("return %s;", g.expr(e.ExprBody))
+		}
+	} else {
+		for _, st := range e.Body.Stmts {
+			g.stmt(st)
+		}
+		if ft.Result != types.Void {
+			g.line("__builtin_unreachable();")
+		}
+	}
+	g.ind--
+	g.line("}")
+	g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self = outer, ind, vals, boxes, used, tmp, self
+
+	if len(caps) > 0 {
+		fmt.Fprintf(&g.lamDecls, "struct %s {", env)
+		for i, v := range caps {
+			field := fmt.Sprintf("c%d", i)
+			if v.Boxed() {
+				fmt.Fprintf(&g.lamDecls, " %s;", declPtr(v.Type, field))
+			} else {
+				fmt.Fprintf(&g.lamDecls, " %s;", decl(v.Type, field))
+			}
+		}
+		g.lamDecls.WriteString(" };\n")
+	}
+	fmt.Fprintf(&g.lamDecls, "static %s;\n", sig)
+	g.lams.WriteString(body.String())
+
+	if len(caps) == 0 {
+		return fmt.Sprintf("((vx_fn){(void *)%s, NULL})", name)
+	}
+	ptr := g.temp()
+	var b strings.Builder
+	fmt.Fprintf(&b, "({ struct %s *%s = vx_alloc(sizeof(struct %s)); ", env, ptr, env)
+	for i, init := range inits {
+		fmt.Fprintf(&b, "%s->c%d = %s; ", ptr, i, init)
+	}
+	fmt.Fprintf(&b, "(vx_fn){(void *)%s, %s}; })", name, ptr)
+	return b.String()
+}
+
+// Writes `fnv_NAME`, which lets the top-level function [f] be called
+// through a function value.
+func (g *gen) fnValueWrapper(f *types.Func) {
+	params := []string{"void *env_"}
+	var args []string
+	for i, p := range f.Params {
+		params = append(params, decl(p.Type, fmt.Sprintf("a%d", i)))
+		args = append(args, fmt.Sprintf("a%d", i))
+	}
+	sig := decl(f.Result, "fnv_"+f.Name+"("+strings.Join(params, ", ")+")")
+	fmt.Fprintf(&g.lamDecls, "static %s;\n", sig)
+	call := funcName(f) + "(" + strings.Join(args, ", ") + ")"
+	if f.Result != types.Void {
+		call = "return " + call
+	}
+	fmt.Fprintf(&g.lams, "\nstatic %s {\n    %s;\n}\n", sig, call)
+}
+
 // --- Expressions ---
 
 // Reports whether evaluating [e] may call a function, so its order relative
@@ -606,8 +800,13 @@ func (g *gen) expr(e ast.Expr) string {
 		case *types.Var:
 			return g.varName(u)
 		case *types.Field:
-			return "self->f_" + u.Name
+			return g.selfRef() + "->f_" + u.Name
+		case *types.Func:
+			g.fnValues[u] = true
+			return "((vx_fn){(void *)fnv_" + u.Name + ", NULL})"
 		}
+	case *ast.FuncLit:
+		return g.funcLit(e)
 	case *ast.ListLit:
 		elem := t.(*types.List).Elem
 		if len(e.Elems) == 0 {
@@ -720,7 +919,7 @@ func (g *gen) call(e *ast.CallExpr) string {
 	case types.MethodCall:
 		if c.Recv == nil {
 			return g.orderedBy(c.Args, rank, func(cs []string) string {
-				return funcName(c.Func) + "(" + strings.Join(append([]string{"self"}, cs...), ", ") + ")"
+				return funcName(c.Func) + "(" + strings.Join(append([]string{g.selfRef()}, cs...), ", ") + ")"
 			})
 		}
 		return g.orderedBy(append([]ast.Expr{c.Recv}, c.Args...), append([]int{-1}, rank...), func(cs []string) string {
@@ -729,7 +928,17 @@ func (g *gen) call(e *ast.CallExpr) string {
 	case types.BuiltinCall:
 		return g.builtin(c, line)
 	case types.MemberBuiltinCall:
-		return g.memberBuiltin(c, line)
+		return g.memberBuiltin(e, c, line)
+	case types.ValueCall:
+		fp := fnPtrType(g.info.Types[c.Callee].(*types.FuncType))
+		return g.ordered(append([]ast.Expr{c.Callee}, c.Args...), func(cs []string) string {
+			f := g.temp()
+			args := ""
+			for _, a := range cs[1:] {
+				args += ", " + a
+			}
+			return fmt.Sprintf("({ vx_fn %s = %s; ((%s)%s.fn)(%s.env%s); })", f, cs[0], fp, f, f, args)
+		})
 	}
 	panic("codegen: unknown call kind")
 }
@@ -776,7 +985,7 @@ func (g *gen) builtin(c *types.Call, line int) string {
 	})
 }
 
-func (g *gen) memberBuiltin(c *types.Call, line int) string {
+func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 	recv := g.info.Types[c.Recv]
 	return g.ordered(append([]ast.Expr{c.Recv}, c.Args...), func(cs []string) string {
 		if l, ok := recv.(*types.List); ok {
@@ -787,6 +996,22 @@ func (g *gen) memberBuiltin(c *types.Call, line int) string {
 				return fmt.Sprintf("({ %s = %s; vx_list_push(%s, &%s); })", decl(l.Elem, item), cs[1], cs[0], item)
 			case "pop":
 				return fmt.Sprintf("(*(%s*)vx_list_pop(%s, %d))", elem, cs[0], line)
+			case "filter", "map":
+				list, f, i, x, out := g.temp(), g.temp(), g.temp(), g.temp(), g.temp()
+				ft := g.info.Types[c.Args[0]].(*types.FuncType)
+				call := fmt.Sprintf("((%s)%s.fn)(%s.env, %s)", fnPtrType(ft), f, f, x)
+				resultElem := ft.Result
+				body := fmt.Sprintf("if (%s) vx_list_push(%s, &%s);", call, out, x)
+				if c.Builtin == "map" {
+					y := g.temp()
+					body = fmt.Sprintf("%s = %s; vx_list_push(%s, &%s);", decl(resultElem, y), call, out, y)
+				} else {
+					resultElem = l.Elem
+				}
+				return fmt.Sprintf("({ vx_list *%s = %s; vx_fn %s = %s; vx_list *%s = vx_list_new(sizeof(%s), 0, NULL); "+
+					"for (int64_t %s = 0; %s < %s->len; %s++) { %s = ((%s*)%s->data)[%s]; %s } %s; })",
+					list, cs[0], f, cs[1], out, ctype(resultElem),
+					i, i, list, i, decl(l.Elem, x), elem, list, i, body, out)
 			case "contains":
 				list, v, i, found := g.temp(), g.temp(), g.temp(), g.temp()
 				item := fmt.Sprintf("((%s*)%s->data)[%s]", elem, list, i)
