@@ -72,7 +72,7 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 
 Goal: the language features real apps need before any UI work.
 
-- [ ] **V-100** Enums with data plus `match` (exhaustive) (L)
+- [x] **V-100** Enums with data plus `match` (exhaustive) (L)
 - [ ] **V-101** Optionals `User?` with `if let`, `??` and `?.`; no null crashes (L)
 - [ ] **V-102** Errors: `throws` functions, `try`, `catch` (L)
 - [x] **V-103** Closures / lambdas, needed for UI event handlers (L)
@@ -172,3 +172,6 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-24 | Closures use `fn` syntax (`fn(x: int) => x * 2`); function types `fn(int) -> int`; parameter types inferred from context |
 | 2026-11-24 | Closures capture by reference; captured `var`s move to the heap; each loop iteration has its own variable |
 | 2026-11-24 | A trailing block is a `fn()` closure passed as the last argument |
+| 2026-11-24 | Enum cases are lowercase and carry named values: `circle(radius: float)`; `.case` when the enum is known |
+| 2026-11-24 | `match` works on enums, `int`, `bool` and `string`; it must be exhaustive or end with `_`; bindings are positional |
+| 2026-11-24 | Enum values are immutable references; `==` only on enums whose cases carry no values |
