@@ -66,11 +66,42 @@ func TypeString(t TypeExpr) string {
 		return t.Name
 	case *ListType:
 		return "[" + TypeString(t.Elem) + "]"
+	case *FuncType:
+		params := make([]string, len(t.Params))
+		for i, p := range t.Params {
+			params[i] = TypeString(p)
+		}
+		s := "fn(" + strings.Join(params, ", ") + ")"
+		if t.Result != nil {
+			s += " -> " + TypeString(t.Result)
+		}
+		return s
 	}
 	return "?"
 }
 
 func op(k lexer.Kind) string { return strings.Trim(k.String(), "'") }
+
+// Builds the tree of a function declaration or closure.
+func funcTree(label string, params []*Param, result TypeExpr, body *Block, exprBody Expr) *tree {
+	t := branch(label)
+	for _, p := range params {
+		name := "param " + p.Name.Name
+		if p.Type != nil {
+			name += ": " + TypeString(p.Type)
+		}
+		t.kids = append(t.kids, branch(name, buildExpr(p.Default)))
+	}
+	if result != nil {
+		t.kids = append(t.kids, leaf("-> "+TypeString(result)))
+	}
+	if exprBody != nil {
+		t.kids = append(t.kids, branch("=>", buildExpr(exprBody)))
+	} else {
+		t.kids = append(t.kids, build(body))
+	}
+	return t
+}
 
 func build(n Node) *tree {
 	switch n := n.(type) {
@@ -88,19 +119,7 @@ func build(n Node) *tree {
 		if n.Static {
 			label = "static " + label
 		}
-		t := branch(label)
-		for _, p := range n.Params {
-			t.kids = append(t.kids, branch("param "+p.Name.Name+": "+TypeString(p.Type), buildExpr(p.Default)))
-		}
-		if n.Result != nil {
-			t.kids = append(t.kids, leaf("-> "+TypeString(n.Result)))
-		}
-		if n.ExprBody != nil {
-			t.kids = append(t.kids, branch("=>", buildExpr(n.ExprBody)))
-		} else {
-			t.kids = append(t.kids, build(n.Body))
-		}
-		return t
+		return funcTree(label, n.Params, n.Result, n.Body, n.ExprBody)
 	case *StructDecl:
 		t := branch("struct " + n.Name.Name)
 		for _, f := range n.Fields {
@@ -202,6 +221,8 @@ func buildExpr(e Expr) *tree {
 			label = "..="
 		}
 		return branch(label, buildExpr(e.Lo), buildExpr(e.Hi))
+	case *FuncLit:
+		return funcTree("fn", e.Params, e.Result, e.Body, e.ExprBody)
 	case *CallExpr:
 		t := branch("call", buildExpr(e.Fn))
 		for _, a := range e.Args {

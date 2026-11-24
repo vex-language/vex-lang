@@ -139,6 +139,35 @@ func TestTrailingBlocks(t *testing.T) {
 	}
 }
 
+func TestClosures(t *testing.T) {
+	cases := []struct{ src, want string }{
+		{"let double = fn(x: int) -> int => x * 2", "(let double (fn param x: int -> int (=> (* x 2))))"},
+		{"let f = fn(x) => x", "(let f (fn param x (=> x)))"},
+		{"let hi = fn() {\n    println(1)\n}", "(let hi (fn (block (call println 1))))"},
+		{"let add: fn(int, int) -> int = fn(a, b) => a + b", "(let add: fn(int, int) -> int (fn param a param b (=> (+ a b))))"},
+		{"let cb: fn() = fn() {}", "(let cb: fn() (fn block))"},
+		{"xs.filter(fn(x) => x > 2)", "(call (. xs filter) (fn param x (=> (> x 2))))"},
+		{"f(1)(2)", "(call (call f 1) 2)"},
+		{"handlers[0]()", "(call (index handlers 0))"},
+		{"if all(xs, fn(x) => x > 0) { ok() }", "(if (call all xs (fn param x (=> (> x 0)))) (block (call ok)))"},
+		{"run(fn() {\n    a()\n}, 2)", "(call run (fn (block (call a))) 2)"},
+	}
+	for _, c := range cases {
+		got := body(t, c.src)
+		if want := "(block " + c.want + ")"; got != want {
+			t.Errorf("%s\n got: %s\nwant: %s", c.src, got, want)
+		}
+	}
+	f, errs := parse(t, "fn apply(f: fn(int) -> int, x: int) -> fn() -> int => fn() => f(x)\nfn main() {}")
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	want := "(fn apply param f: fn(int) -> int param x: int -> fn() -> int (=> (fn (=> (call f x)))))"
+	if got := ast.Sexpr(f.Decls[0]); got != want {
+		t.Errorf("\n got: %s\nwant: %s", got, want)
+	}
+}
+
 func TestLineBreaksInsideBrackets(t *testing.T) {
 	src := `let users = [
     User(
@@ -248,7 +277,7 @@ func TestErrors(t *testing.T) {
 		{"parameter without type", "fn f(a) {}", "1:7", "parameter 'a' needs a type", "write it as a: int"},
 		{"colon return type", "fn f(): int {}", "1:7", "expected '->' before the return type, found ':'", "write the return type as -> int"},
 		{"missing body", "fn f()\n{}", "1:7", "expected '{' or '=>' to start the body of f, found end of line", ""},
-		{"bad type", "fn f(a: 5) {}", "1:9", "expected a type, found number 5", "for example int, string or [int]"},
+		{"bad type", "fn f(a: 5) {}", "1:9", "expected a type, found number 5", "for example int, string, [int] or fn(int) -> bool"},
 		{"field without type", "struct U {\n name\n}", "2:6", "field 'name' needs a type", "write it as name: int"},
 		{"let field", "struct U {\n let name: string\n}", "2:2", "fields don't use 'let'", "write fields as name: type"},
 		{"unclosed struct", "struct U {\n a: int", "1:10", "unclosed struct body", "add a matching }"},
@@ -269,7 +298,10 @@ func TestErrors(t *testing.T) {
 		{"unclosed list", "fn main() {\n let xs = [1, 2\n}", "2:11", "unclosed '['", "add a matching ]"},
 		{"missing comma", "fn main() {\n f(1 2)\n}", "2:6", "expected ',' or ')', found number 2", "add a , between items"},
 		{"empty interpolation", "fn main() {\n f(\"a {} b\")\n}", "2:8", "empty {} in string", `put a value inside, or write \{ for a literal brace`},
-		{"nested fn", "fn main() {\n fn inner() {}\n}", "2:2", "functions can't be declared inside other functions", "declare it at the top level of the file"},
+		{"nested fn", "fn main() {\n fn inner() {}\n}", "2:2", "functions can't be declared inside other functions", "declare it at the top level, or store a closure: let inner = fn(...) { ... }"},
+		{"named closure", "fn main() {\n let f = fn g() {}\n}", "2:13", "expected '(' after 'fn' in an expression", "closures have no name; store one with let name = fn(...) { ... }"},
+		{"closure default", "fn main() {\n let f = fn(x = 1) {}\n}", "2:15", "closure parameters can't have default values", ""},
+		{"closure without body", "fn main() {\n let f = fn(x)\n}", "2:15", "expected '{' or '=>' to start the closure body, found end of line", ""},
 		{"unclosed block", "fn main() {\n f()", "1:11", "unclosed block", "add a matching }"},
 		{"empty parens", "fn main() {\n f(())\n}", "2:5", "expected an expression inside ( )", ""},
 	}
