@@ -88,6 +88,15 @@ func TestExamples(t *testing.T) {
 			if !bytes.Equal(got, want) {
 				t.Errorf("output differs from %s.out\n--- got\n%s--- want\n%s", name, got, want)
 			}
+
+			stress := exec.Command(exe)
+			stress.Env = append(os.Environ(), "VEX_GC_STRESS=1")
+			if in, err := os.ReadFile(base + ".in"); err == nil {
+				stress.Stdin = bytes.NewReader(in)
+			}
+			if got, err := stress.Output(); err != nil || !bytes.Equal(got, want) {
+				t.Errorf("under VEX_GC_STRESS: %v\n--- got\n%s", err, got)
+			}
 		})
 	}
 }
