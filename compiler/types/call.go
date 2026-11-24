@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/irshadio/vex-lang/compiler/ast"
 )
@@ -11,6 +12,9 @@ type slot struct {
 	name string
 	typ  Type
 	def  ast.Expr
+
+	// How errors refer to the argument; defaults to "argument 'name'".
+	label string
 
 	// Set for built-in arguments that may be left out.
 	optional bool
@@ -23,18 +27,13 @@ type memberSig struct {
 }
 
 func (c *checker) call(e *ast.CallExpr) Type {
-	if e.Trailing != nil {
-		c.errorAt(e.Trailing, "pass the values as arguments instead", "trailing blocks are reserved for UI components")
-	}
 	switch fn := e.Fn.(type) {
 	case *ast.Ident:
 		return c.callName(e, fn)
 	case *ast.MemberExpr:
 		return c.callMember(e, fn)
 	}
-	c.checkArgs(e)
-	c.errorAt(e.Fn, "", "this expression can't be called")
-	return Invalid
+	return c.callValue(e)
 }
 
 // Checks the arguments of a call that has already failed, so mistakes
@@ -50,9 +49,12 @@ func (c *checker) checkArgs(e *ast.CallExpr) {
 func (c *checker) callName(e *ast.CallExpr, id *ast.Ident) Type {
 	name := id.Name
 	if v := c.lookupVar(name); v != nil {
+		if _, ok := v.Type.(*FuncType); ok || v.Type == Invalid {
+			return c.callValue(e)
+		}
 		c.info.Uses[id] = v
 		c.checkArgs(e)
-		c.errorAt(id, "", "'%s' is a %s, not a function", name, v.Type)
+		c.errorAt(id, "", "'%s' is %s, not a function", name, article(v.Type))
 		return Invalid
 	}
 	if owner := c.ownStruct(); owner != nil {
@@ -66,11 +68,16 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident) Type {
 			kind := MethodCall
 			if m.Static {
 				kind = StaticCall
+			} else {
+				c.use(c.self)
 			}
 			c.info.Calls[e] = &Call{Kind: kind, Func: m, Args: c.bind(e, paramSlots(m), m.Name)}
 			return m.Result
 		}
 		if f := owner.Field(name); f != nil {
+			if _, ok := f.Type.(*FuncType); ok {
+				return c.callValue(e)
+			}
 			c.checkArgs(e)
 			c.errorAt(id, "", "'%s' is a field, not a method", name)
 			return Invalid
@@ -136,6 +143,11 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 		method := s.Method(name)
 		switch {
 		case method == nil:
+			if f := s.Field(name); f != nil {
+				if _, ok := f.Type.(*FuncType); ok {
+					return c.callValue(e)
+				}
+			}
 			c.checkArgs(e)
 			if s.Field(name) != nil {
 				c.errorAt(m.Name, "", "'%s' is a field, not a method", name)
@@ -154,6 +166,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 	if recv == Invalid {
 		c.checkArgs(e)
 		return Invalid
+	}
+	if l, ok := recv.(*List); ok && name == "map" {
+		return c.mapCall(e, m, l)
 	}
 	sig := builtinMember(recv, name)
 	if sig == nil {
@@ -228,8 +243,18 @@ func (c *checker) bind(e *ast.CallExpr, slots []slot, callee string) []ast.Expr 
 			continue
 		}
 		t := c.expr(a.Value, slots[i].typ)
-		c.assignable(slots[i].typ, t, a.Value, "argument '"+slots[i].name+"'")
+		c.assignable(slots[i].typ, t, a.Value, slots[i].describe())
 		out[i], set[i] = a.Value, true
+	}
+	if call := c.info.Calls[e]; e.Trailing != nil && (call == nil || call.Kind != BuiltinCall) {
+		if i := c.trailing(e, slots, set, callee); i >= 0 {
+			lit := &ast.FuncLit{Span: e.Trailing.Span, Body: e.Trailing}
+			t := c.expr(lit, slots[i].typ)
+			c.assignable(slots[i].typ, t, lit, slots[i].describe())
+			out[i], set[i] = lit, true
+		} else {
+			misplaced = true
+		}
 	}
 	var missing []string
 	for i, s := range slots {
@@ -250,6 +275,42 @@ func (c *checker) bind(e *ast.CallExpr, slots []slot, callee string) []ast.Expr 
 		}
 	}
 	return out
+}
+
+// Returns how errors refer to the argument for [s].
+func (s slot) describe() string {
+	if s.label != "" {
+		return s.label
+	}
+	return "argument '" + s.name + "'"
+}
+
+// Returns the slot a trailing block fills: the last one, which must take a
+// function without parameters. Reports an error and returns -1 otherwise.
+func (c *checker) trailing(e *ast.CallExpr, slots []slot, set []bool, callee string) int {
+	i := len(slots) - 1
+	if i < 0 {
+		c.errorAt(e.Trailing, "", "%s takes no arguments, so it can't take a trailing block", callee)
+		return -1
+	}
+	if set[i] {
+		c.errorAt(e.Trailing, "", "the last argument of %s is given twice: in the call and as a trailing block", callee)
+		return -1
+	}
+	if ft, ok := slots[i].typ.(*FuncType); !ok || len(ft.Params) > 0 {
+		c.errorAt(e.Trailing, "", "a trailing block needs the last parameter of %s to be fn(), but '%s' is %s", callee, slots[i].name, slots[i].typ)
+		return -1
+	}
+	return i
+}
+
+// Returns [t] with "a" or "an" before it: "an int", "a string".
+func article(t Type) string {
+	name := t.String()
+	if strings.ContainsRune("aeiou", rune(name[0])) {
+		return "an " + name
+	}
+	return "a " + name
 }
 
 func plural(n int, word string) string {
@@ -290,6 +351,9 @@ var builtinSlots = map[string]struct {
 func (c *checker) callBuiltin(e *ast.CallExpr, name string) Type {
 	call := &Call{Kind: BuiltinCall, Builtin: name}
 	c.info.Calls[e] = call
+	if e.Trailing != nil {
+		c.errorAt(e.Trailing, "", "%s doesn't take a trailing block", name)
+	}
 	if b, ok := builtinSlots[name]; ok {
 		call.Args = c.bind(e, b.params, name)
 		return b.result
@@ -331,6 +395,35 @@ func (c *checker) callBuiltin(e *ast.CallExpr, name string) Type {
 	return result
 }
 
+// Checks `list.map(fn(x) => ...)`, whose result is a list of whatever the
+// function returns.
+func (c *checker) mapCall(e *ast.CallExpr, m *ast.MemberExpr, l *List) Type {
+	fnType := &FuncType{Params: []Type{l.Elem}}
+	var arg ast.Expr
+	switch {
+	case len(e.Args) == 1 && e.Args[0].Name == nil && e.Trailing == nil:
+		arg = e.Args[0].Value
+	default:
+		c.checkArgs(e)
+		c.errorAt(m.Name, "e.g. xs.map(fn(x) => x * 2)", "map takes 1 function")
+		return Invalid
+	}
+	t := c.expr(arg, fnType)
+	ft, ok := t.(*FuncType)
+	switch {
+	case t == Invalid:
+		return Invalid
+	case !ok || len(ft.Params) != 1 || !Identical(ft.Params[0], l.Elem):
+		c.errorAt(arg, "e.g. xs.map(fn(x) => x * 2)", "map needs a function that takes %s, found %s", l.Elem, t)
+		return Invalid
+	case ft.Result == Void:
+		c.errorAt(arg, "", "map needs a function that returns a value")
+		return Invalid
+	}
+	c.info.Calls[e] = &Call{Kind: MemberBuiltinCall, Builtin: "map", Recv: m.X, Args: []ast.Expr{arg}}
+	return &List{Elem: ft.Result}
+}
+
 // Returns the signature of the built-in method [name] of [recv], or nil.
 func builtinMember(recv Type, name string) *memberSig {
 	if l, ok := recv.(*List); ok {
@@ -341,6 +434,8 @@ func builtinMember(recv Type, name string) *memberSig {
 			return &memberSig{nil, l.Elem}
 		case "contains":
 			return &memberSig{[]slot{{name: "item", typ: l.Elem}}, Bool}
+		case "filter":
+			return &memberSig{[]slot{{name: "keep", typ: &FuncType{Params: []Type{l.Elem}, Result: Bool}}}, &List{Elem: l.Elem}}
 		}
 		return nil
 	}
@@ -359,7 +454,7 @@ func builtinMember(recv Type, name string) *memberSig {
 
 func builtinMemberNames(recv Type) []string {
 	if _, ok := recv.(*List); ok {
-		return []string{"len", "push", "pop", "contains"}
+		return []string{"len", "push", "pop", "contains", "filter", "map"}
 	}
 	if recv == String {
 		return []string{"len", "upper", "lower", "contains", "split"}

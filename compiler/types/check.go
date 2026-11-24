@@ -45,6 +45,9 @@ type checker struct {
 	fn    *Func
 	self  *Var
 	loops int
+
+	// The closures enclosing the current expression, innermost last.
+	lits []*litCtx
 }
 
 // Checks [file] and returns what was learned about it.
@@ -55,13 +58,14 @@ func Check(f *diag.File, file *ast.File) (info *Info, err error) {
 	c := &checker{
 		file: f,
 		info: &Info{
-			Types:   map[ast.Expr]Type{},
-			Uses:    map[*ast.Ident]any{},
-			Defs:    map[*ast.Ident]*Var{},
-			Calls:   map[*ast.CallExpr]*Call{},
-			Members: map[*ast.MemberExpr]*Member{},
-			Selves:  map[*ast.FuncDecl]*Var{},
-			FuncOf:  map[*ast.FuncDecl]*Func{},
+			Types:    map[ast.Expr]Type{},
+			Uses:     map[*ast.Ident]any{},
+			Defs:     map[*ast.Ident]*Var{},
+			Calls:    map[*ast.CallExpr]*Call{},
+			Members:  map[*ast.MemberExpr]*Member{},
+			Selves:   map[*ast.FuncDecl]*Var{},
+			Captures: map[*ast.FuncLit][]*Var{},
+			FuncOf:   map[*ast.FuncDecl]*Func{},
 		},
 		structs: map[string]*Struct{},
 		funcs:   map[string]*Func{},
@@ -149,7 +153,7 @@ func (c *checker) pop() { c.scope = c.scope.parent }
 
 // Declares a variable in the current scope.
 func (c *checker) declare(id *ast.Ident, t Type, mutable bool, kind VarKind) *Var {
-	v := &Var{Name: id.Name, Type: t, Mutable: mutable, Kind: kind, Decl: id}
+	v := &Var{Name: id.Name, Type: t, Mutable: mutable, Kind: kind, Decl: id, lit: c.curLit()}
 	c.info.Defs[id] = v
 	if c.reserved(id, "a variable") {
 		return v
@@ -303,6 +307,15 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 	switch te := te.(type) {
 	case *ast.ListType:
 		return &List{Elem: c.resolveType(te.Elem)}
+	case *ast.FuncType:
+		ft := &FuncType{Result: Void}
+		for _, p := range te.Params {
+			ft.Params = append(ft.Params, c.resolveType(p))
+		}
+		if te.Result != nil {
+			ft.Result = c.resolveType(te.Result)
+		}
+		return ft
 	case *ast.NamedType:
 		if t := builtinTypes[te.Name]; t != nil {
 			return t
@@ -400,7 +413,7 @@ func (c *checker) bodies() {
 }
 
 func (c *checker) funcBody(f *Func) {
-	c.fn, c.self, c.loops = f, nil, 0
+	c.fn, c.self, c.loops, c.lits = f, nil, 0, nil
 	c.scope = nil
 	c.push()
 	if f.Owner != nil && !f.Static {
@@ -641,6 +654,10 @@ func (c *checker) forStmt(s *ast.ForStmt) {
 }
 
 func (c *checker) returnStmt(s *ast.ReturnStmt) {
+	if len(c.lits) > 0 {
+		c.closureReturn(s, c.lits[len(c.lits)-1])
+		return
+	}
 	f := c.fn
 	switch {
 	case s.Value == nil && f.Result != Void:
