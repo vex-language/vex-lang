@@ -126,11 +126,26 @@ Fields and methods are reachable inside methods without `self.`; `self` is avail
 | Name | Description |
 |---|---|
 | `print(a, b, ...)` / `println(...)` | Print values separated by spaces |
-| `input()` | Read a line from standard input |
+| `input(prompt)` | Read a line from standard input; the prompt is optional |
 | `int(x)`, `float(x)`, `str(x)` | Convert between types |
-| `panic(msg)`, `assert(cond)` | Stop the program with a message |
+| `panic(msg)`, `assert(cond, msg)` | Stop the program with a message; `assert`'s message is optional |
 | `list.len`, `.push(x)`, `.pop()`, `.contains(x)` | List members |
 | `s.len`, `.upper()`, `.lower()`, `.contains(x)`, `.split(sep)` | String members |
+
+## Types
+
+The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]` and structs.
+
+- `let x = ...` takes its type from the value. An empty list needs the type written: `let xs: [int] = []`.
+- Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.
+- `int` and `float` never mix silently: `count * price` is an error until one side is converted with `float(count)` or `int(price)`.
+- Strings join with `+` only to other strings. Use interpolation for anything else: `"{count} items"`.
+- `==` and `!=` compare `int`, `float`, `bool` and `string`; `<`, `<=`, `>`, `>=` also work on these except `bool`.
+- Conditions must be `bool`: write `if xs.len > 0`, not `if xs`.
+- Structs are shared references: after `let b = a`, changing `b.name` also changes `a.name`. `let` stops the name being reassigned, not the fields being changed.
+- A name can be declared again in an inner block, which hides the outer one; declaring it twice in the same block is an error.
+
+Run `vex check file.vx` to see type errors without building.
 
 ## Planned
 

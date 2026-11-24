@@ -132,6 +132,7 @@ source ~/.zshrc
 **Usage**
 
 ```sh
+vex check hello.vx          # check for errors without building
 vex run hello.vx            # compile and run
 vex build hello.vx -o hello # build a standalone native binary
 vex emit-c hello.vx         # print the generated C
