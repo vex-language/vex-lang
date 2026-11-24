@@ -119,7 +119,14 @@ The compiler is written in Go. It turns Vex source into portable C, then uses th
 ```sh
 git clone https://github.com/irshadio/vex-lang.git
 cd vex-lang
-go build -o vex ./cmd/vex
+./build.sh
+```
+
+This builds `bin/vex`. To run `vex` from anywhere, add the folder to your `PATH` (for zsh):
+
+```sh
+echo 'export PATH="'"$PWD"'/bin:$PATH"' >> ~/.zshrc
+source ~/.zshrc
 ```
 
 **Usage**
@@ -162,6 +169,7 @@ examples/      sample programs with expected output
 tests/         compiler tests, including programs that must fail
 docs/          language documentation
 assets/brand/  logo files
+bin/           built binaries (not tracked)
 BACKLOG.md     roadmap and tasks
 ```
 
