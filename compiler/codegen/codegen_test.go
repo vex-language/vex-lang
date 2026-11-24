@@ -72,6 +72,19 @@ func TestPrograms(t *testing.T) {
 		name, src, stdin, want string
 	}{
 		{"hello", `fn main() { println("Hello, world!") }`, "", "Hello, world!\n"},
+		{"conditions with temporaries", `fn two() -> int => 2
+fn main() {
+    let xs = [1, 2, 3]
+    if xs.contains(two()) {
+        println("yes")
+    }
+    while xs.filter(fn(x) => x > two()).len > 5 {
+        println("never")
+    }
+    if "(" + str(two()) == "(2" {
+        println("paren")
+    }
+}`, "", "yes\nparen\n"},
 		{"optionals", `struct User {
     name: string
     boss: User? = nil
@@ -635,6 +648,24 @@ fn main() {
 				t.Errorf("under VEX_GC_STRESS: exit %d, stderr %q\n got: %q\nwant: %q", code, errOut, out, c.want)
 			}
 		})
+	}
+}
+
+func TestStackOverflow(t *testing.T) {
+	if strings.Contains(os.Getenv("VEX_CFLAGS"), "sanitize") {
+		t.Skip("sanitizers report stack overflows themselves")
+	}
+	out, errOut, code := run(t, `fn depth(n: int) -> int {
+    if n < 0 { return 0 }
+    return depth(n + 1) * 2 + 1
+}
+fn main() {
+    println("start")
+    println(depth(0))
+}`, "")
+	want := "error: stack overflow: too many nested function calls, probably a function that calls itself without stopping\n"
+	if code != 1 || out != "start\n" || errOut != want {
+		t.Errorf("exit %d, stdout %q, stderr %q", code, out, errOut)
 	}
 }
 
