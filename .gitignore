@@ -1,0 +1,16 @@
+# Build output
+/vex
+/bin/
+/dist/
+*.o
+*.out.bin
+
+# Go
+*.test
+*.prof
+coverage.out
+
+# Editors and OS
+.vscode/
+.idea/
+.DS_Store
