@@ -210,15 +210,25 @@ static vx_str vx_int_str(int64_t v) {
 }
 
 // Formats [v] with the fewest digits that read back as the same value,
-// always showing a decimal point: 2.5, 3.0, 1e+20.
+// always showing a decimal point: 2.5, 10.0, 0.001. Very large or small
+// values use an exponent: 1e+20, 1e-07.
 static vx_str vx_float_str(double v) {
     if (isnan(v)) return VX_LIT("nan");
     if (isinf(v)) return v > 0 ? VX_LIT("inf") : VX_LIT("-inf");
-    char buf[40];
-    int n = 0;
-    for (int prec = 1; prec <= 17; prec++) {
-        n = snprintf(buf, sizeof buf, "%.*g", prec, v);
+    char buf[400];
+    int prec = 1;
+    for (; prec < 17; prec++) {
+        snprintf(buf, sizeof buf, "%.*e", prec - 1, v);
         if (strtod(buf, NULL) == v) break;
+    }
+    snprintf(buf, sizeof buf, "%.*e", prec - 1, v);
+    int exp10 = atoi(strchr(buf, 'e') + 1);
+    int n;
+    if (exp10 >= -5 && exp10 < 17) {
+        int decimals = prec - 1 - exp10;
+        n = snprintf(buf, sizeof buf, "%.*f", decimals > 0 ? decimals : 0, v);
+    } else {
+        n = snprintf(buf, sizeof buf, "%.*g", prec, v);
     }
     if (!strpbrk(buf, ".e")) {
         buf[n++] = '.';
