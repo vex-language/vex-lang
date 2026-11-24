@@ -459,6 +459,7 @@ func (g *gen) repr(name string, t types.Type) {
 		g.line("    }")
 		g.line("    return vx_str_concat(s, VX_LIT(\"]\"));")
 	case *types.Struct:
+		g.line("    if (vx_repr_enter(v)) return VX_LIT(%s);", cQuote(t.Name+"(...)"))
 		g.line("    vx_str s = VX_LIT(%s);", cQuote(t.Name+"("))
 		for i, f := range t.Fields {
 			sep := ""
@@ -468,6 +469,7 @@ func (g *gen) repr(name string, t types.Type) {
 			g.line("    s = vx_str_concat(s, VX_LIT(%s));", cQuote(sep+f.Name+": "))
 			g.line("    s = vx_str_concat(s, %s);", repr(f.Type, "v->f_"+f.Name))
 		}
+		g.line("    vx_repr_leave(v);")
 		g.line("    return vx_str_concat(s, VX_LIT(\")\"));")
 	case *types.Optional:
 		g.line("    return v.has ? %s : VX_LIT(\"nil\");", repr(t.Elem, "v.v"))
@@ -641,12 +643,15 @@ func (g *gen) forStmt(s *ast.ForStmt) {
 		g.block(fmt.Sprintf("for (int64_t %s = %s, %s = %s; %s %s %s; %s++)", v, g.expr(r.Lo), hi, g.expr(r.Hi), v, cmp, hi, v), s.Body)
 		return
 	}
+	// Items added during the loop aren't visited, so pushing inside the
+	// loop can't make it endless; removed items end it early.
 	elem := g.info.Defs[s.Elem]
-	list, i := g.temp(), g.temp()
+	list, n, i := g.temp(), g.temp(), g.temp()
 	g.line("{")
 	g.ind++
 	g.line("vx_list *%s = %s;", list, g.expr(s.Iter))
-	g.line("for (int64_t %s = 0; %s < %s->len; %s++) {", i, i, list, i)
+	g.line("int64_t %s = %s->len;", n, list)
+	g.line("for (int64_t %s = 0; %s < %s && %s < %s->len; %s++) {", i, i, n, i, list, i)
 	g.ind++
 	if s.Index != nil {
 		g.line("int64_t %s = %s;", g.declare(g.info.Defs[s.Index]), i)

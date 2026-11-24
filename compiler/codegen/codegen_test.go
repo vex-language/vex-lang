@@ -72,6 +72,34 @@ func TestPrograms(t *testing.T) {
 		name, src, stdin, want string
 	}{
 		{"hello", `fn main() { println("Hello, world!") }`, "", "Hello, world!\n"},
+		{"printing cycles", `struct Node {
+    name: string
+    next: Node? = nil
+}
+fn main() {
+    let a = Node(name: "a")
+    let b = Node(name: "b", next: a)
+    a.next = b
+    println(a, [b])
+    let s = Node(name: "s")
+    println([Node(name: "x", next: s), Node(name: "y", next: s)])
+}`, "", "Node(name: \"a\", next: Node(name: \"b\", next: Node(...))) [Node(name: \"b\", next: Node(name: \"a\", next: Node(...)))]\n" +
+			"[Node(name: \"x\", next: Node(name: \"s\", next: nil)), Node(name: \"y\", next: Node(name: \"s\", next: nil))]\n"},
+		{"changing a list while looping over it", `fn main() {
+    var xs = [1, 2, 3]
+    for x in xs {
+        xs.push(x * 10)
+    }
+    var ys = [1, 2, 3, 4]
+    for i, y in ys {
+        if i == 0 {
+            ys.pop()
+            ys.pop()
+        }
+        print(y, "")
+    }
+    println(xs)
+}`, "", "1 2 [1, 2, 3, 10, 20, 30]\n"},
 		{"conditions with temporaries", `fn two() -> int => 2
 fn main() {
     let xs = [1, 2, 3]

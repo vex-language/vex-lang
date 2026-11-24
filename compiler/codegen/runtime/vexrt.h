@@ -371,6 +371,59 @@ static void vx_gc_init(void *base) {
     if (stats && *stats && strcmp(stats, "0") != 0) atexit(vx_gc_report);
 }
 
+// --- Printing ---
+
+// The structs being printed, so one that refers back to itself prints as
+// Name(...) instead of recursing forever. An open-addressing set: entries
+// are added and removed in stack order while printing nests.
+static const void **vx_repr_set;
+static size_t vx_repr_cap, vx_repr_count;
+
+static bool vx_repr_enter(const void *p) {
+    if ((vx_repr_count + 1) * 2 > vx_repr_cap) {
+        const void **old = vx_repr_set;
+        size_t old_cap = vx_repr_cap;
+        vx_repr_cap = old_cap ? old_cap * 2 : 64;
+        vx_repr_set = calloc(vx_repr_cap, sizeof(void *));
+        if (!vx_repr_set) vx_out_of_memory();
+        for (size_t i = 0; i < old_cap; i++) {
+            if (!old[i]) continue;
+            size_t j = vx_page_hash((uintptr_t)old[i], vx_repr_cap);
+            while (vx_repr_set[j]) j = (j + 1) & (vx_repr_cap - 1);
+            vx_repr_set[j] = old[i];
+        }
+        free(old);
+    }
+    size_t i = vx_page_hash((uintptr_t)p, vx_repr_cap);
+    for (; vx_repr_set[i]; i = (i + 1) & (vx_repr_cap - 1)) {
+        if (vx_repr_set[i] == p) return true;
+    }
+    vx_repr_set[i] = p;
+    vx_repr_count++;
+    return false;
+}
+
+static void vx_repr_leave(const void *p) {
+    size_t mask = vx_repr_cap - 1, i = vx_page_hash((uintptr_t)p, vx_repr_cap);
+    while (vx_repr_set[i] != p) i = (i + 1) & mask;
+    // Backward-shift deletion keeps every probe chain unbroken.
+    for (size_t j = i;;) {
+        vx_repr_set[i] = NULL;
+        for (;;) {
+            j = (j + 1) & mask;
+            if (!vx_repr_set[j]) {
+                vx_repr_count--;
+                return;
+            }
+            size_t k = vx_page_hash((uintptr_t)vx_repr_set[j], vx_repr_cap);
+            if (i <= j ? (i < k && k <= j) : (i < k || k <= j)) continue;
+            break;
+        }
+        vx_repr_set[i] = vx_repr_set[j];
+        i = j;
+    }
+}
+
 // --- Startup ---
 
 static size_t vx_stack_limit;
