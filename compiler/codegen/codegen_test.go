@@ -100,6 +100,37 @@ fn main() {
     }
     println(xs)
 }`, "", "1 2 [1, 2, 3, 10, 20, 30]\n"},
+		{"compound assignment reads the target first", `struct Box { n: int }
+fn main() {
+    let o = Box(n: 10)
+    var xs = [10]
+    var x = 10
+    o.n += fn() -> int {
+        o.n = 100
+        return 1
+    }()
+    xs[0] += fn() -> int {
+        xs[0] = 100
+        return 1
+    }()
+    x += fn() -> int {
+        x = 100
+        return 1
+    }()
+    println(o.n, xs, x)
+}`, "", "11 [11] 11\n"},
+		{"inclusive range at the largest int", `fn main() {
+    var n = 0
+    for i in 9223372036854775806..=9223372036854775807 {
+        n += 1
+    }
+    for i in 5..=4 { n += 100 }
+    for i in 1..=4 {
+        if i % 2 == 0 { continue }
+        n += 10
+    }
+    println(n)
+}`, "", "22\n"},
 		{"conditions with temporaries", `fn two() -> int => 2
 fn main() {
     let xs = [1, 2, 3]
@@ -745,6 +776,12 @@ func TestRuntimeErrors(t *testing.T) {
 		{"parse float", `println(float("abc"))`, "can't convert \"abc\" to float\n --> main.vx:2"},
 		{"int too big", `println(int("99999999999999999999"))`, "can't convert \"99999999999999999999\" to int: the number is too big\n --> main.vx:2"},
 		{"float to int", "let big = 1e30\nprintln(int(big))", "can't convert 1e+30 to int: it's out of range\n --> main.vx:3"},
+		{"float to int after garbage", "for i in 0..20000 { let s = \"XXXXXXXXXXXXXXX\" + \"XXXXXXXXXXXXXXXX\" }\nprintln(int(12345678901234567890.0))", "can't convert 1.2345678901234567e+19 to int: it's out of range\n --> main.vx:3"},
+		{"int with NUL", `println(int("12\u{0}34"))`, "can't convert \"12\" to int\n --> main.vx:2"},
+		{"float with NUL", `println(float("1\u{0}5"))`, "can't convert \"1\" to float\n --> main.vx:2"},
+		{"float hex", `println(float("0x10"))`, "can't convert \"0x10\" to float\n --> main.vx:2"},
+		{"float inf", `println(float("inf"))`, "can't convert \"inf\" to float\n --> main.vx:2"},
+		{"float too big", `println(float("1e999"))`, "can't convert \"1e999\" to float\n --> main.vx:2"},
 		{"panic", `panic("something broke")`, "something broke\n --> main.vx:2"},
 		{"panic in match", "let n = match 3 {\n    1 => 1\n    _ => panic(\"bad number\")\n}", "bad number\n --> main.vx:4"},
 		{"assert", "assert(1 > 2)", "assertion failed\n --> main.vx:2"},

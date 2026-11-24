@@ -640,6 +640,13 @@ func (g *gen) forStmt(s *ast.ForStmt) {
 		if r.Inclusive {
 			cmp = "<="
 		}
+		if r.Inclusive {
+			// Testing for the end after each pass, not with <=, lets a range
+			// end at the largest int.
+			done := g.temp()
+			g.block(fmt.Sprintf("for (int64_t %s = %s, %s = %s, %s = %s > %s; !%s; %s = %s == %s, %s++)", v, g.expr(r.Lo), hi, g.expr(r.Hi), done, v, hi, done, done, v, hi, v), s.Body)
+			return
+		}
 		g.block(fmt.Sprintf("for (int64_t %s = %s, %s = %s; %s %s %s; %s++)", v, g.expr(r.Lo), hi, g.expr(r.Hi), v, cmp, hi, v), s.Body)
 		return
 	}
@@ -694,14 +701,22 @@ func (g *gen) assign(s *ast.AssignStmt) {
 	default:
 		target = g.expr(s.Target)
 	}
+	op, compound := compoundOps[s.Op]
+	// A compound assignment reads the target before the value runs, as
+	// x += f() reads x first.
+	old := target
+	if compound {
+		old = g.temp()
+		setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, old), target))
+	}
 	value := g.expr(s.Value)
 	if setup != nil {
 		v := g.temp()
 		setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, v), value))
 		value = v
 	}
-	if op, ok := compoundOps[s.Op]; ok {
-		value = binop(op, t, target, value, s.Pos().Line)
+	if compound {
+		value = binop(op, t, old, value, s.Pos().Line)
 	}
 	if setup == nil {
 		g.line("%s = %s;", target, value)
