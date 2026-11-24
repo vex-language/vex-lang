@@ -3,6 +3,7 @@ package codegen
 import (
 	"bytes"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -32,6 +33,12 @@ func generate(t *testing.T, src string) string {
 // Compiles and runs [src] with [stdin], returning its output and exit code.
 func run(t *testing.T, src, stdin string) (stdout, stderr string, code int) {
 	t.Helper()
+	return execute(t, build(t, src), stdin)
+}
+
+// Compiles [src] and returns the path of the program.
+func build(t *testing.T, src string) string {
+	t.Helper()
 	if _, err := cc.Command(); err != nil {
 		t.Skip(err)
 	}
@@ -39,7 +46,14 @@ func run(t *testing.T, src, stdin string) (stdout, stderr string, code int) {
 	if err := cc.Compile(generate(t, src), exe); err != nil {
 		t.Fatal(err)
 	}
+	return exe
+}
+
+// Runs the program [exe] with [stdin] and the extra environment [env].
+func execute(t *testing.T, exe, stdin string, env ...string) (stdout, stderr string, code int) {
+	t.Helper()
 	cmd := exec.Command(exe)
+	cmd.Env = append(os.Environ(), env...)
 	cmd.Stdin = strings.NewReader(stdin)
 	var out, errOut bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &errOut
@@ -605,14 +619,58 @@ fn main() {
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
 			t.Parallel()
-			out, errOut, code := run(t, c.src, c.stdin)
+			exe := build(t, c.src)
+			out, errOut, code := execute(t, exe, c.stdin)
 			if code != 0 || errOut != "" {
 				t.Fatalf("exit %d, stderr:\n%s", code, errOut)
 			}
 			if out != c.want {
 				t.Errorf("output\n got: %q\nwant: %q", out, c.want)
 			}
+
+			// A collection on every allocation finds objects the collector
+			// would wrongly free.
+			out, errOut, code = execute(t, exe, c.stdin, "VEX_GC_STRESS=1")
+			if code != 0 || errOut != "" || out != c.want {
+				t.Errorf("under VEX_GC_STRESS: exit %d, stderr %q\n got: %q\nwant: %q", code, errOut, out, c.want)
+			}
 		})
+	}
+}
+
+func TestGarbageIsFreed(t *testing.T) {
+	exe := build(t, `struct Point {
+    x: int
+    label: string
+}
+enum Shape { dot(at: Point), none }
+fn main() {
+    var keep: [Point] = []
+    var total = 0
+    for i in 0..300000 {
+        let p = Point(x: i, label: "point {i}")
+        let s = Shape.dot(at: p)
+        let f = fn() -> int => p.x + p.label.len
+        total += f() + "a,b,{i}".split(",").len
+        match s {
+            dot(q) => total += q.x
+            none => total += 0
+        }
+        if i % 1000 == 0 { keep.push(p) }
+    }
+    println(total, keep.len, keep[299].label)
+}`)
+	out, errOut, code := execute(t, exe, "", "VEX_GC_STATS=1")
+	if code != 0 || out != "90004088890 300 point 299000\n" {
+		t.Fatalf("exit %d, output %q, stderr %q", code, out, errOut)
+	}
+	var collections, allocated, peak, live int
+	if _, err := fmt.Sscanf(errOut, "gc: %d collections, %d KB allocated, %d KB peak heap, %d KB live",
+		&collections, &allocated, &peak, &live); err != nil {
+		t.Fatalf("bad stats %q: %v", errOut, err)
+	}
+	if collections == 0 || allocated < 10*peak || peak > 16*1024 {
+		t.Errorf("garbage isn't freed: %s", errOut)
 	}
 }
 

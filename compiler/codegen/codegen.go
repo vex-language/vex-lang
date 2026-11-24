@@ -138,6 +138,7 @@ func Generate(info *types.Info, srcName string) string {
 	g.b.WriteString(g.lams.String())
 	g.line("")
 	g.line("int main(void) {")
+	g.line("    vx_gc_init(__builtin_frame_address(0));")
 	g.line("    vx_file = %s;", cQuote(srcName))
 	g.line("    fn_main();")
 	g.line("    return 0;")

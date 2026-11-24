@@ -1,10 +1,9 @@
 // Runtime library compiled into every Vex program.
-//
-// Memory is never freed in v0.1; programs are expected to be short-lived.
 
 #include <errno.h>
 #include <inttypes.h>
 #include <math.h>
+#include <setjmp.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
@@ -52,31 +51,319 @@ static void vx_fail(int line, const char *fmt, ...) {
     exit(1);
 }
 
-// --- Allocation ---
+// --- Memory ---
+//
+// A mark-and-sweep garbage collector. Live objects are found conservatively:
+// any word on the stack, in a register or inside a live object that points
+// into an object keeps that object alive. Everything else is reused.
+//
+// Small objects live in 64 KB pages, each holding objects of one size class,
+// and are handed out from per-class free lists. Larger objects get their own
+// allocation.
 
-static void *vx_alloc(size_t n) {
-    void *p = calloc(1, n ? n : 1);
-    if (!p) {
-        fputs("error: out of memory\n", stderr);
-        exit(1);
-    }
+#define VX_PAGE_SHIFT 16
+#define VX_PAGE_SIZE ((size_t)1 << VX_PAGE_SHIFT)
+#define VX_SMALL_MAX 2048
+#define VX_CLASSES 24
+
+static const uint32_t vx_class_size[VX_CLASSES] = {
+    16, 32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256,
+    320, 384, 448, 512, 640, 768, 896, 1024, 1280, 1536, 1792, 2048,
+};
+
+// Size class of each multiple of 16 bytes up to VX_SMALL_MAX.
+static uint8_t vx_class_of[VX_SMALL_MAX / 16 + 1];
+
+typedef struct {
+    char *start;
+    uint32_t size;    // object size; 0 while the page is unused
+    uint32_t count;   // objects that fit
+    uint32_t atomic;  // its objects hold no pointers, so they aren't scanned
+    uint32_t live;
+    uint8_t marks[VX_PAGE_SIZE / 16];
+} vx_page;
+
+// A large object's header. Its size keeps objects 16-byte aligned.
+typedef struct {
+    size_t size;
+    uint32_t atomic;
+    uint32_t mark;
+} vx_large;
+
+static vx_page **vx_pages;          // every page
+static size_t vx_pages_len, vx_pages_cap;
+static vx_page **vx_page_table;     // open-addressing map from page number to page
+static size_t vx_page_table_cap;
+static void *vx_free[2][VX_CLASSES]; // free objects by atomic flag and class
+static vx_large **vx_larges;        // every large object; sorted during a collection
+static size_t vx_larges_len, vx_larges_cap;
+
+static uintptr_t vx_lo = UINTPTR_MAX, vx_hi; // bounds of all objects
+static size_t vx_heap_bytes;        // bytes in objects, live or not
+static size_t vx_gc_next = 4 << 20; // collect once vx_heap_bytes passes this
+static char *vx_stack_base;
+
+typedef struct {
+    char *ptr;
+    size_t size;
+} vx_span;
+
+static vx_span *vx_gray;            // objects marked but not yet scanned
+static size_t vx_gray_len, vx_gray_cap;
+
+static bool vx_gc_stress;           // VEX_GC_STRESS: collect on every allocation
+static size_t vx_gc_count, vx_gc_total, vx_gc_peak;
+
+__attribute__((noreturn))
+static void vx_out_of_memory(void) {
+    fputs("error: out of memory\n", stderr);
+    exit(1);
+}
+
+static void *vx_grow(void *p, size_t *cap, size_t esz) {
+    *cap = *cap ? *cap * 2 : 256;
+    p = realloc(p, *cap * esz);
+    if (!p) vx_out_of_memory();
     return p;
 }
 
-static void *vx_realloc(void *p, size_t n) {
-    p = realloc(p, n ? n : 1);
-    if (!p) {
-        fputs("error: out of memory\n", stderr);
-        exit(1);
+static size_t vx_page_hash(uintptr_t n, size_t cap) {
+    return (size_t)((n * 0x9E3779B97F4A7C15ull) >> 7) & (cap - 1);
+}
+
+static void vx_page_table_put(vx_page *pg) {
+    uintptr_t n = (uintptr_t)pg->start >> VX_PAGE_SHIFT;
+    size_t i = vx_page_hash(n, vx_page_table_cap);
+    while (vx_page_table[i]) i = (i + 1) & (vx_page_table_cap - 1);
+    vx_page_table[i] = pg;
+}
+
+static vx_page *vx_page_of(uintptr_t p) {
+    if (!vx_page_table) return NULL;
+    uintptr_t n = p >> VX_PAGE_SHIFT;
+    for (size_t i = vx_page_hash(n, vx_page_table_cap);; i = (i + 1) & (vx_page_table_cap - 1)) {
+        vx_page *pg = vx_page_table[i];
+        if (!pg) return NULL;
+        if ((uintptr_t)pg->start >> VX_PAGE_SHIFT == n) return pg;
     }
+}
+
+static void vx_bounds(uintptr_t lo, uintptr_t hi) {
+    if (lo < vx_lo) vx_lo = lo;
+    if (hi > vx_hi) vx_hi = hi;
+}
+
+// Threads every object of [pg] onto its class's free list.
+static void vx_page_format(vx_page *pg, int cls, bool atomic) {
+    pg->size = vx_class_size[cls];
+    pg->count = (uint32_t)(VX_PAGE_SIZE / pg->size);
+    pg->atomic = atomic;
+    void **list = &vx_free[atomic][cls];
+    for (uint32_t i = pg->count; i-- > 0;) {
+        void **obj = (void **)(pg->start + (size_t)i * pg->size);
+        *obj = *list;
+        *list = obj;
+    }
+}
+
+static void vx_page_new(int cls, bool atomic) {
+    for (size_t i = 0; i < vx_pages_len; i++) {
+        if (vx_pages[i]->size == 0) {
+            vx_page_format(vx_pages[i], cls, atomic);
+            return;
+        }
+    }
+    vx_page *pg = calloc(1, sizeof(vx_page));
+    if (!pg || posix_memalign((void **)&pg->start, VX_PAGE_SIZE, VX_PAGE_SIZE) != 0) vx_out_of_memory();
+    if (vx_pages_len == vx_pages_cap) vx_pages = vx_grow(vx_pages, &vx_pages_cap, sizeof(vx_page *));
+    vx_pages[vx_pages_len++] = pg;
+    if (vx_pages_len * 2 > vx_page_table_cap) {
+        free(vx_page_table);
+        vx_page_table_cap = vx_page_table_cap ? vx_page_table_cap * 2 : 1024;
+        vx_page_table = calloc(vx_page_table_cap, sizeof(vx_page *));
+        if (!vx_page_table) vx_out_of_memory();
+        for (size_t i = 0; i < vx_pages_len; i++) vx_page_table_put(vx_pages[i]);
+    } else {
+        vx_page_table_put(pg);
+    }
+    vx_bounds((uintptr_t)pg->start, (uintptr_t)pg->start + VX_PAGE_SIZE);
+    vx_page_format(pg, cls, atomic);
+}
+
+static int vx_large_cmp(const void *a, const void *b) {
+    uintptr_t x = (uintptr_t)*(vx_large *const *)a, y = (uintptr_t)*(vx_large *const *)b;
+    return (x > y) - (x < y);
+}
+
+static vx_large *vx_large_of(uintptr_t p) {
+    size_t lo = 0, hi = vx_larges_len;
+    while (lo < hi) {
+        size_t mid = lo + (hi - lo) / 2;
+        if ((uintptr_t)(vx_larges[mid] + 1) <= p) lo = mid + 1;
+        else hi = mid;
+    }
+    if (lo == 0) return NULL;
+    vx_large *l = vx_larges[lo - 1];
+    return p < (uintptr_t)(l + 1) + l->size ? l : NULL;
+}
+
+static void vx_gray_push(char *ptr, size_t size) {
+    if (vx_gray_len == vx_gray_cap) vx_gray = vx_grow(vx_gray, &vx_gray_cap, sizeof(vx_span));
+    vx_gray[vx_gray_len++] = (vx_span){ptr, size};
+}
+
+static void vx_mark_range(const char *lo, const char *hi) {
+    uintptr_t start = ((uintptr_t)lo + sizeof(void *) - 1) & ~(uintptr_t)(sizeof(void *) - 1);
+    for (uintptr_t a = start; a + sizeof(void *) <= (uintptr_t)hi; a += sizeof(void *)) {
+        uintptr_t p = *(uintptr_t *)a;
+        if (p < vx_lo || p >= vx_hi) continue;
+        vx_page *pg = vx_page_of(p);
+        if (pg) {
+            if (pg->size == 0) continue;
+            size_t i = (p - (uintptr_t)pg->start) / pg->size;
+            if (i >= pg->count || pg->marks[i]) continue;
+            pg->marks[i] = 1;
+            pg->live++;
+            if (!pg->atomic) vx_gray_push(pg->start + i * pg->size, pg->size);
+            continue;
+        }
+        vx_large *l = vx_large_of(p);
+        if (!l || l->mark) continue;
+        l->mark = 1;
+        if (!l->atomic) vx_gray_push((char *)(l + 1), l->size);
+    }
+}
+
+__attribute__((noinline))
+static void vx_mark_stack(void) {
+    // Spill callee-saved registers onto the stack so they are scanned too.
+    jmp_buf regs;
+    setjmp(regs);
+    char here;
+    const char *lo = (const char *)&regs < &here ? (const char *)&regs : &here;
+    vx_mark_range(lo, vx_stack_base);
+}
+
+static void vx_collect(void) {
+    if (!vx_stack_base) return;
+    vx_gc_count++;
+    qsort(vx_larges, vx_larges_len, sizeof(vx_large *), vx_large_cmp);
+
+    vx_mark_stack();
+    while (vx_gray_len > 0) {
+        vx_span s = vx_gray[--vx_gray_len];
+        vx_mark_range(s.ptr, s.ptr + s.size);
+    }
+
+    // Sweep: rebuild the free lists from the unmarked objects.
+    memset(vx_free, 0, sizeof(vx_free));
+    vx_heap_bytes = 0;
+    for (size_t p = 0; p < vx_pages_len; p++) {
+        vx_page *pg = vx_pages[p];
+        if (pg->size == 0) continue;
+        if (pg->live == 0) {
+            pg->size = 0;
+            continue;
+        }
+        int cls = vx_class_of[pg->size / 16];
+        void **list = &vx_free[pg->atomic][cls];
+        for (uint32_t i = pg->count; i-- > 0;) {
+            if (pg->marks[i]) continue;
+            void **obj = (void **)(pg->start + (size_t)i * pg->size);
+            *obj = *list;
+            *list = obj;
+        }
+        vx_heap_bytes += (size_t)pg->live * pg->size;
+        memset(pg->marks, 0, pg->count);
+        pg->live = 0;
+    }
+    size_t kept = 0;
+    for (size_t i = 0; i < vx_larges_len; i++) {
+        vx_large *l = vx_larges[i];
+        if (l->mark) {
+            l->mark = 0;
+            vx_heap_bytes += l->size;
+            vx_larges[kept++] = l;
+        } else {
+            free(l);
+        }
+    }
+    vx_larges_len = kept;
+    vx_gc_next = vx_heap_bytes * 2 > (size_t)(4 << 20) ? vx_heap_bytes * 2 : (size_t)(4 << 20);
+}
+
+static void *vx_alloc_large(size_t n, bool atomic) {
+    vx_large *l = calloc(1, sizeof(vx_large) + n);
+    if (!l) vx_out_of_memory();
+    l->size = n;
+    l->atomic = atomic;
+    if (vx_larges_len == vx_larges_cap) vx_larges = vx_grow(vx_larges, &vx_larges_cap, sizeof(vx_large *));
+    vx_larges[vx_larges_len++] = l;
+    vx_bounds((uintptr_t)(l + 1), (uintptr_t)(l + 1) + n);
+    return l + 1;
+}
+
+static void *vx_alloc_block(size_t n, bool atomic) {
+    if (vx_gc_stress || vx_heap_bytes + n > vx_gc_next) vx_collect();
+    void *p;
+    if (n > VX_SMALL_MAX) {
+        p = vx_alloc_large(n, atomic);
+    } else {
+        int cls = vx_class_of[(n + 15) / 16];
+        n = vx_class_size[cls];
+        void **list = &vx_free[atomic][cls];
+        if (!*list) vx_page_new(cls, atomic);
+        p = *list;
+        *list = *(void **)p;
+        if (atomic) *(void **)p = NULL;
+        else memset(p, 0, n);
+    }
+    vx_heap_bytes += n;
+    vx_gc_total += n;
+    if (vx_heap_bytes > vx_gc_peak) vx_gc_peak = vx_heap_bytes;
     return p;
+}
+
+// Allocates [n] zeroed bytes that may hold pointers.
+static void *vx_alloc(size_t n) { return vx_alloc_block(n ? n : 1, false); }
+
+// Allocates [n] bytes that never hold pointers, such as string text.
+static void *vx_alloc_atomic(size_t n) { return vx_alloc_block(n ? n : 1, true); }
+
+// Returns a copy of [p] resized to [n] bytes. The old object is left for
+// the collector, since other code may still be reading it.
+static void *vx_realloc(void *p, size_t n) {
+    vx_page *pg = vx_page_of((uintptr_t)p);
+    size_t old = pg ? pg->size : ((vx_large *)p - 1)->size;
+    bool atomic = pg ? pg->atomic : ((vx_large *)p - 1)->atomic;
+    char *q = atomic ? vx_alloc_atomic(n) : vx_alloc(n);
+    memcpy(q, p, old < n ? old : n);
+    return q;
+}
+
+static void vx_gc_report(void) {
+    fprintf(stderr, "gc: %zu collections, %zu KB allocated, %zu KB peak heap, %zu KB live\n",
+        vx_gc_count, vx_gc_total / 1024, vx_gc_peak / 1024, vx_heap_bytes / 1024);
+}
+
+// Starts the collector; [base] is the top of the stack to scan.
+static void vx_gc_init(void *base) {
+    vx_stack_base = base;
+    for (int c = 0, i = 0; i <= VX_SMALL_MAX / 16; i++) {
+        while (vx_class_size[c] < (uint32_t)i * 16) c++;
+        vx_class_of[i] = (uint8_t)c;
+    }
+    const char *stress = getenv("VEX_GC_STRESS");
+    vx_gc_stress = stress && *stress && strcmp(stress, "0") != 0;
+    const char *stats = getenv("VEX_GC_STATS");
+    if (stats && *stats && strcmp(stats, "0") != 0) atexit(vx_gc_report);
 }
 
 // --- Strings ---
 
 // Returns a string that owns a copy of [n] bytes at [p].
 static vx_str vx_str_new(const char *p, int64_t n) {
-    char *buf = vx_alloc((size_t)n + 1);
+    char *buf = vx_alloc_atomic((size_t)n + 1);
     memcpy(buf, p, (size_t)n);
     return (vx_str){buf, n};
 }
@@ -84,7 +371,7 @@ static vx_str vx_str_new(const char *p, int64_t n) {
 static vx_str vx_str_concat(vx_str a, vx_str b) {
     if (a.len == 0) return b;
     if (b.len == 0) return a;
-    char *buf = vx_alloc((size_t)(a.len + b.len) + 1);
+    char *buf = vx_alloc_atomic((size_t)(a.len + b.len) + 1);
     memcpy(buf, a.ptr, (size_t)a.len);
     memcpy(buf + a.len, b.ptr, (size_t)b.len);
     return (vx_str){buf, a.len + b.len};
@@ -94,7 +381,7 @@ static vx_str vx_str_concat(vx_str a, vx_str b) {
 static vx_str vx_str_join(int n, const vx_str *parts) {
     int64_t total = 0;
     for (int i = 0; i < n; i++) total += parts[i].len;
-    char *buf = vx_alloc((size_t)total + 1);
+    char *buf = vx_alloc_atomic((size_t)total + 1);
     int64_t at = 0;
     for (int i = 0; i < n; i++) {
         memcpy(buf + at, parts[i].ptr, (size_t)parts[i].len);
@@ -125,7 +412,7 @@ static int64_t vx_str_len(vx_str s) {
 }
 
 static vx_str vx_str_upper(vx_str s) {
-    char *buf = vx_alloc((size_t)s.len + 1);
+    char *buf = vx_alloc_atomic((size_t)s.len + 1);
     for (int64_t i = 0; i < s.len; i++) {
         char c = s.ptr[i];
         buf[i] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
@@ -134,7 +421,7 @@ static vx_str vx_str_upper(vx_str s) {
 }
 
 static vx_str vx_str_lower(vx_str s) {
-    char *buf = vx_alloc((size_t)s.len + 1);
+    char *buf = vx_alloc_atomic((size_t)s.len + 1);
     for (int64_t i = 0; i < s.len; i++) {
         char c = s.ptr[i];
         buf[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
@@ -248,7 +535,7 @@ static vx_str vx_bool_str(bool v) { return v ? VX_LIT("true") : VX_LIT("false");
 
 // Returns [s] in quotes with escapes, as shown inside lists and structs.
 static vx_str vx_str_quote(vx_str s) {
-    char *buf = vx_alloc((size_t)s.len * 2 + 3);
+    char *buf = vx_alloc_atomic((size_t)s.len * 2 + 3);
     int64_t n = 0;
     buf[n++] = '"';
     for (int64_t i = 0; i < s.len; i++) {
@@ -271,8 +558,9 @@ static char *vx_cstr_trim(vx_str s) {
     int64_t a = 0, b = s.len;
     while (a < b && (s.ptr[a] == ' ' || s.ptr[a] == '\t' || s.ptr[a] == '\n' || s.ptr[a] == '\r')) a++;
     while (b > a && (s.ptr[b - 1] == ' ' || s.ptr[b - 1] == '\t' || s.ptr[b - 1] == '\n' || s.ptr[b - 1] == '\r')) b--;
-    char *buf = vx_alloc((size_t)(b - a) + 1);
+    char *buf = vx_alloc_atomic((size_t)(b - a) + 1);
     memcpy(buf, s.ptr + a, (size_t)(b - a));
+    buf[b - a] = '\0';
     return buf;
 }
 
@@ -341,10 +629,16 @@ static vx_str vx_input(vx_str prompt) {
     char *line = NULL;
     size_t cap = 0;
     ssize_t n = getline(&line, &cap, stdin);
-    if (n <= 0) return VX_LIT("");
-    if (n > 0 && line[n - 1] == '\n') n--;
+    if (n <= 0) {
+        free(line);
+        return VX_LIT("");
+    }
+    if (line[n - 1] == '\n') n--;
     if (n > 0 && line[n - 1] == '\r') n--;
-    return (vx_str){line, (int64_t)n};
+    char *buf = vx_alloc_atomic((size_t)n + 1);
+    memcpy(buf, line, (size_t)n);
+    free(line);
+    return (vx_str){buf, (int64_t)n};
 }
 
 __attribute__((noreturn))

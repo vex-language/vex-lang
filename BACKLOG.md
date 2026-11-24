@@ -79,7 +79,9 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-104** Generics for functions and structs (XL)
 - [ ] **V-105** Modules and imports (`import "ui"`), multi-file projects (L)
 - [ ] **V-106** Maps `[string: int]` (M)
-- [ ] **V-107** Memory management: reference counting or a GC (decide in a design doc) (XL)
+- [x] **V-107** Memory management: tracing GC, stage 1 mark and sweep ([design](docs/design/memory.md)) (XL)
+- [ ] **V-111** GC stage 2: precise roots and object layouts (L)
+- [ ] **V-112** GC stage 3: generational collection, returning memory to the OS (XL)
 - [ ] **V-108** Standard library: strings, math, time, files (L)
 - [ ] **V-109** JSON encode/decode built in, no codegen step (L)
 - [ ] **V-110** C interop: call C functions directly (`extern fn`) (M)
@@ -177,3 +179,5 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-24 | Enum values are immutable references; `==` only on enums whose cases carry no values |
 | 2026-11-24 | Optionals: `T?`, `nil`, `if let`, `guard let ... else`, `?.` and `??`; no force unwrap |
 | 2026-11-24 | Each step after an optional needs its own `?.` (`a?.b?.c`); optionals compare only with `nil` |
+| 2026-11-24 | Speed is the top goal: runtime and allocator changes are benchmarked against the same program in Go |
+| 2026-11-24 | Memory: tracing GC (not reference counting), so closures capturing `self` need no `weak`; stage 1 is conservative mark and sweep with size-class pages |
