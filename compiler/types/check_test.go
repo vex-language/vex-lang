@@ -234,6 +234,7 @@ func TestErrors(t *testing.T) {
 		{"int plus string", "", "let n = 3\nlet s = n + \" items\"", "3:9", "can't use '+' with int and string", `put the value inside the string instead: "{n} items"`},
 		{"string plus call", "", "let s = \"n: \" + str(1).len", "2:9", "can't use '+' with string and int", `put the value inside the string instead, e.g. "{count} items"`},
 		{"int times float", "", "let a = 2\nlet b = 1.5\nlet c = a * b", "4:9", "can't use '*' with int and float", "convert the int with float(...)"},
+		{"int too big", "", "let n = 9223372036854775808", "2:9", "number 9223372036854775808 is too big for int", "the largest int is 9223372036854775807"},
 		{"modulo float", "", "let x = 5.5 % 2.0", "2:9", "'%' can't be used with float", ""},
 		{"compare types", "", "let b = 1 == \"1\"", "2:9", "can't compare int with string", "parse it with int(...)"},
 		{"compare lists", "", "let b = [1] == [1]", "2:9", "values of type [int] can't be compared with ==", ""},
