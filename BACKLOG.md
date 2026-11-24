@@ -39,16 +39,16 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 - [x] **V-028** Parser unit tests (S)
 
 ### 1.4 Type checker
-- [ ] **V-030** Types: `int`, `float`, `bool`, `string`, `[T]` lists, structs (S)
-- [ ] **V-031** Scopes, name resolution, shadowing rules (M)
-- [ ] **V-032** Type inference for `let x = ...`; annotation for empty lists (`let xs: [int] = []`) (M)
-- [ ] **V-033** `let` (immutable) vs `var` (mutable) enforcement (S)
-- [ ] **V-034** Named and default arguments: matching, missing or unknown names, duplicates (M)
-- [ ] **V-035** Structs: constructor `User(...)` from fields, field defaults, methods with implicit `self` (fields used without `self.`), `static fn` called as `User.guest()` (L)
-- [ ] **V-036** Missing-return detection on all paths (S)
-- [ ] **V-037** Built-in functions: `print`, `println`, `input`, `panic`, `assert`, `int()`, `float()`, `str()` (S)
-- [ ] **V-038** Built-in members: lists `.len`, `.push()`, `.pop()`, `.contains()`; strings `.len`, `.upper()`, `.lower()`, `.contains()`, `.split()` (M)
-- [ ] **V-039** Clear type errors with hints, e.g. int + string suggests `"{count} items"`, int/float mix suggests `float()` (S)
+- [x] **V-030** Types: `int`, `float`, `bool`, `string`, `[T]` lists, structs (S)
+- [x] **V-031** Scopes, name resolution, shadowing rules (M)
+- [x] **V-032** Type inference for `let x = ...`; annotation for empty lists (`let xs: [int] = []`) (M)
+- [x] **V-033** `let` (immutable) vs `var` (mutable) enforcement (S)
+- [x] **V-034** Named and default arguments: matching, missing or unknown names, duplicates (M)
+- [x] **V-035** Structs: constructor `User(...)` from fields, field defaults, methods with implicit `self` (fields used without `self.`), `static fn` called as `User.guest()` (L)
+- [x] **V-036** Missing-return detection on all paths (S)
+- [x] **V-037** Built-in functions: `print`, `println`, `input`, `panic`, `assert`, `int()`, `float()`, `str()` (S)
+- [x] **V-038** Built-in members: lists `.len`, `.push()`, `.pop()`, `.contains()`; strings `.len`, `.upper()`, `.lower()`, `.contains()`, `.split()` (M)
+- [x] **V-039** Clear type errors with hints, e.g. int + string suggests `"{count} items"`, int/float mix suggests `float()` (S)
 
 ### 1.5 C code generation and runtime
 - [ ] **V-040** C runtime: lists, strings, allocation, printing (M)
@@ -164,3 +164,6 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-24 | v0.1 has no GC (memory is leaked); revisit in V-107 |
 | 2026-11-24 | Developer-friendly syntax approved (see docs/SYNTAX.md): `User(name:)` constructors, methods inside structs with implicit `self`, `static fn`, named/default arguments, `=>` one-liners, `"{expr}"` interpolation, `[T]` list type, member calls like `nums.push()` |
 | 2026-11-24 | Repo: github.com/irshadio/vex-lang (private) |
+| 2026-11-24 | Structs are shared references; `let` fixes the name, not the fields |
+| 2026-11-24 | No implicit int/float mixing; whole-number literals adapt to `float` where one is expected |
+| 2026-11-24 | `==` only on `int`, `float`, `bool`, `string` for v0.1 |
