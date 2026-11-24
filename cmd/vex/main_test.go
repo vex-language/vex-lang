@@ -3,9 +3,12 @@ package main
 import (
 	"bytes"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/irshadio/vex-lang/compiler/cc"
 )
 
 func runCLI(args ...string) (code int, stdout, stderr string) {
@@ -124,5 +127,55 @@ func TestCheck(t *testing.T) {
 	path = writeFile(t, "fn main() {\n    println(\"hi\")\n}\n")
 	if code, out, errOut := runCLI("check", path); code != exitOK || !strings.HasSuffix(out, ": no errors\n") {
 		t.Errorf("code %d, stdout %q, stderr %q", code, out, errOut)
+	}
+}
+
+func needCC(t *testing.T) {
+	t.Helper()
+	if _, err := cc.Command(); err != nil {
+		t.Skip(err)
+	}
+}
+
+func TestRun(t *testing.T) {
+	needCC(t)
+	path := writeFile(t, "fn main() {\n    println(\"sum: {1 + 2}\")\n}\n")
+	code, out, errOut := runCLI("run", path)
+	if code != exitOK || out != "sum: 3\n" {
+		t.Errorf("code %d, stdout %q, stderr %q", code, out, errOut)
+	}
+	path = writeFile(t, "fn main() {\n    let xs = [1]\n    println(xs[3])\n}\n")
+	code, _, errOut = runCLI("run", path)
+	if code != exitError || !strings.Contains(errOut, "index 3 is out of range") || !strings.Contains(errOut, "main.vx:3") {
+		t.Errorf("runtime error: code %d, stderr %q", code, errOut)
+	}
+	path = writeFile(t, "fn main() {\n    let n: int = \"x\"\n}\n")
+	if code, _, errOut := runCLI("run", path); code != exitError || !strings.Contains(errOut, "expected int, found string") {
+		t.Errorf("type error: code %d, stderr %q", code, errOut)
+	}
+}
+
+func TestBuild(t *testing.T) {
+	needCC(t)
+	path := writeFile(t, "fn main() {\n    println(\"built\")\n}\n")
+	exe := filepath.Join(t.TempDir(), "app")
+	code, out, errOut := runCLI("build", path, "-o", exe)
+	if code != exitOK || out != "Built "+exe+"\n" {
+		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
+	}
+	got, err := exec.Command(exe).Output()
+	if err != nil || string(got) != "built\n" {
+		t.Errorf("running the binary: %q, %v", got, err)
+	}
+	if code, _, _ := runCLI("build"); code != exitUsage {
+		t.Errorf("no file: code %d", code)
+	}
+}
+
+func TestEmitC(t *testing.T) {
+	path := writeFile(t, "fn main() {\n    println(\"hi\")\n}\n")
+	code, out, _ := runCLI("emit-c", path)
+	if code != exitOK || !strings.Contains(out, "static void fn_main(void)") || !strings.Contains(out, "int main(void)") {
+		t.Errorf("code %d, output:\n%s", code, out)
 	}
 }
