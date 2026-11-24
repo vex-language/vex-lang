@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 
 	"github.com/irshadio/vex-lang/compiler/ast"
@@ -22,6 +23,9 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 	case *ast.IntLit:
 		if want == Float {
 			return Float
+		}
+		if _, err := strconv.ParseInt(e.Value, 0, 64); err != nil {
+			c.errorAt(e, "the largest int is 9223372036854775807", "number %s is too big for int", e.Value)
 		}
 		return Int
 	case *ast.FloatLit:
