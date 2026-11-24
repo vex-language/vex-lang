@@ -70,14 +70,14 @@ Jump to the [language tour](#language-tour) below, or read the full reference in
 ## Where it's going: native UI
 
 ```swift
-component Counter {
-    state count = 0
+import "ui"
 
-    view {
-        Column(spacing: 12) {
-            Text("Count: {count}").size(24)
-            Button("Add") { count += 1 }
-        }
+struct Counter: View {
+    let count = State(0)
+
+    fn body() -> View => Column(spacing: 12) {
+        Text("Count: {count.value}").size(24)
+        Button("Add") { count.value += 1 }
     }
 }
 
@@ -86,7 +86,9 @@ fn main() {
 }
 ```
 
-When `count` changes, Vex rebuilds the view, compares it with the previous one, and updates only the native widgets that changed.
+When `count` changes, the view is rebuilt, compared with the previous one, and only the native widgets that changed are updated. This is a sketch, not final syntax.
+
+The UI framework will be a separate project, Vex UI, built once the language is complete, in the same way Flutter is built on Dart. The compiler has no UI keywords: the framework uses general features such as interfaces, generics and builder blocks. See [docs/design/architecture.md](docs/design/architecture.md).
 
 ## How it works
 

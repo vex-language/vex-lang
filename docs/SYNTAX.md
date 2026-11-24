@@ -328,15 +328,17 @@ let text = try load("data.txt")
 
 ### Mobile UI (v0.3+)
 
-```swift
-component Counter {
-    state count = 0
+The UI framework is a separate package built from general language features, with no UI keywords in the compiler. A sketch, not approved syntax (see [design/architecture.md](design/architecture.md)):
 
-    view {
-        Column(spacing: 12) {
-            Text("Count: {count}").size(24)
-            Button("Add") { count += 1 }
-        }
+```swift
+import "ui"
+
+struct Counter: View {
+    let count = State(0)
+
+    fn body() -> View => Column(spacing: 12) {
+        Text("Count: {count.value}").size(24)
+        Button("Add") { count.value += 1 }
     }
 }
 
