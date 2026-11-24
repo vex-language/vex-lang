@@ -58,6 +58,156 @@ func TestPrograms(t *testing.T) {
 		name, src, stdin, want string
 	}{
 		{"hello", `fn main() { println("Hello, world!") }`, "", "Hello, world!\n"},
+		{"enums", `enum Shape {
+    circle(radius: float)
+    rect(width: float, height: float)
+    empty
+
+    fn area() -> float => match self {
+        circle(r) => 3.14 * r * r
+        rect(w, h) => w * h
+        empty => 0.0
+    }
+
+    fn name() -> string => match self {
+        circle(_) => "circle"
+        rect(_, _) => "rect"
+        empty => "empty"
+    }
+
+    fn describe() -> string => "{name()} with area {area()}"
+
+    static fn square(side: float) -> Shape => .rect(width: side, height: side)
+}
+
+enum Dir { up, down, left, right }
+
+enum Result {
+    ok(value: int)
+    failed(reason: string)
+}
+
+fn turn(d: Dir) -> Dir => match d {
+    up => .right
+    right => .down
+    down => .left
+    left => .up
+}
+
+fn parse(text: string) -> Result {
+    if text == "" {
+        return .failed(reason: "empty input")
+    }
+    return .ok(value: int(text))
+}
+
+fn grade(score: int) -> string => match score {
+    100 => "perfect"
+    0 => "zero"
+    _ => "{score} points"
+}
+
+fn main() {
+    let shapes = [Shape.circle(radius: 1), .rect(width: 2, height: 3), Shape.empty, Shape.square(2)]
+    for s in shapes {
+        println(s.describe())
+    }
+    println(shapes)
+
+    var d = Dir.up
+    for i in 0..5 {
+        print(d, "")
+        d = turn(d)
+    }
+    println()
+    println(d == .right, d != Dir.up)
+
+    for text in ["42", ""] {
+        match parse(text) {
+            ok(v) => println("parsed", v)
+            failed(why) => {
+                println("error:", why)
+            }
+        }
+    }
+
+    println(grade(100), grade(0), grade(7))
+
+    var total = 0
+    for n in [1, 2, 3, 4, 5, 6] {
+        match n % 3 {
+            0 => continue
+            _ => total += n
+        }
+        if n == 5 { break }
+    }
+    println("total", total)
+    let flag = match total > 5 { true => "big", false => "small" }
+    println(flag)
+}`, "", "circle with area 3.14\nrect with area 6.0\nempty with area 0.0\nrect with area 4.0\n[Shape.circle(radius: 1.0), Shape.rect(width: 2.0, height: 3.0), Shape.empty, Shape.rect(width: 2.0, height: 2.0)]\nDir.up Dir.right Dir.down Dir.left Dir.up \ntrue true\nparsed 42\nerror: empty input\nperfect zero 7 points\ntotal 12\nbig\n"},
+		{"enum edge cases", `enum Dir { up, down }
+
+enum Tree {
+    leaf
+    node(left: Tree, value: int, right: Tree)
+
+    fn sum() -> int => match self {
+        leaf => 0
+        node(l, v, r) => l.sum() + v + r.sum()
+    }
+}
+
+struct Player {
+    name: string
+    facing: Dir
+}
+
+fn insert(t: Tree, v: int) -> Tree {
+    match t {
+        leaf => return .node(left: .leaf, value: v, right: .leaf)
+        node(l, x, r) => {
+            if v < x {
+                return .node(left: insert(l, v), value: x, right: r)
+            }
+            return .node(left: l, value: x, right: insert(r, v))
+        }
+    }
+}
+
+fn main() {
+    let dirs = [Dir.up, Dir.up]
+    println(dirs.contains(.down), dirs.contains(Dir.up))
+    let p = Player(name: "ana", facing: .down)
+    println(p, "facing {p.facing}")
+    let t = Tree.node(left: .node(left: .leaf, value: 1, right: .leaf), value: 2, right: .leaf)
+    println(t.sum())
+    var tree = Tree.leaf
+    for v in [5, 3, 8, 1] {
+        tree = insert(tree, v)
+    }
+    println(tree.sum(), tree)
+    let f = fn(d: Dir) -> string => match d { up => "^", down => "v" }
+    println(f(.up), f(p.facing))
+    let cmd = "go"
+    match cmd {
+        "stop" => println("stopping")
+        "go" => println("going")
+        _ => println("?")
+    }
+}`, "", "false true\nPlayer(name: \"ana\", facing: Dir.down) facing Dir.down\n3\n17 Tree.node(left: Tree.node(left: Tree.node(left: Tree.leaf, value: 1, right: Tree.leaf), value: 3, right: Tree.leaf), value: 5, right: Tree.node(left: Tree.leaf, value: 8, right: Tree.leaf))\n^ v\ngoing\n"},
+		{"match order and panic arms", `enum Op { add, neg }
+fn log(s: string) -> int {
+    print(s, "")
+    return 1
+}
+fn main() {
+    let o = Op.add
+    let n = log("a") + match o {
+        add => log("b")
+        neg => panic("no")
+    } + log("c")
+    println(n)
+}`, "", "a b c 3\n"},
 		{"print values", `fn main() {
     println(1, 2.5, true, "text", [1, 2], ["a", "b"], [[1.0], []])
     print("no newline")
@@ -361,6 +511,7 @@ func TestRuntimeErrors(t *testing.T) {
 		{"int too big", `println(int("99999999999999999999"))`, "can't convert \"99999999999999999999\" to int: the number is too big\n --> main.vx:2"},
 		{"float to int", "let big = 1e30\nprintln(int(big))", "can't convert 1e+30 to int: it's out of range\n --> main.vx:3"},
 		{"panic", `panic("something broke")`, "something broke\n --> main.vx:2"},
+		{"panic in match", "let n = match 3 {\n    1 => 1\n    _ => panic(\"bad number\")\n}", "bad number\n --> main.vx:4"},
 		{"assert", "assert(1 > 2)", "assertion failed\n --> main.vx:2"},
 		{"assert message", `assert(false, "math is broken")`, "assertion failed: math is broken\n --> main.vx:2"},
 		{"empty split", `println("a".split(""))`, "split separator can't be empty\n --> main.vx:2"},
@@ -399,18 +550,20 @@ func TestGeneratedCodeIsWarningFree(t *testing.T) {
 	if out, _ := exec.Command(command[0], "--version").Output(); !bytes.Contains(out, []byte("clang")) {
 		t.Skip("strict warning flags are tuned for clang")
 	}
-	src, err := os.ReadFile("../parser/testdata/tour.vx")
-	if err != nil {
-		t.Fatal(err)
-	}
-	dir := t.TempDir()
-	cfile := filepath.Join(dir, "main.c")
-	if err := os.WriteFile(cfile, []byte(generate(t, string(src))), 0o644); err != nil {
-		t.Fatal(err)
-	}
-	args := append(command[1:len(command):len(command)], "-std=gnu11", "-fwrapv", "-Wall", "-Wextra", "-Werror",
-		"-Wno-unused-function", "-Wno-unused-parameter", "-c", cfile, "-o", filepath.Join(dir, "main.o"))
-	if out, err := exec.Command(command[0], args...).CombinedOutput(); err != nil {
-		t.Fatalf("warnings in generated code:\n%s", out)
+	for _, path := range []string{"../parser/testdata/tour.vx", "../../examples/enums.vx", "../../examples/closures.vx"} {
+		src, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		dir := t.TempDir()
+		cfile := filepath.Join(dir, "main.c")
+		if err := os.WriteFile(cfile, []byte(generate(t, string(src))), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		args := append(command[1:len(command):len(command)], "-std=gnu11", "-fwrapv", "-Wall", "-Wextra", "-Werror",
+			"-Wno-unused-function", "-Wno-unused-parameter", "-c", cfile, "-o", filepath.Join(dir, "main.o"))
+		if out, err := exec.Command(command[0], args...).CombinedOutput(); err != nil {
+			t.Fatalf("warnings in code generated for %s:\n%s", path, out)
+		}
 	}
 }

@@ -162,6 +162,7 @@ The [examples](examples) folder has small complete programs, each with its expec
 | [sorting.vx](examples/sorting.vx) | Bubble sort and insertion sort, in place |
 | [structs.vx](examples/structs.vx) | Fields with defaults, methods, `static fn`, shared references |
 | [closures.vx](examples/closures.vx) | Closures, trailing blocks, functions returning functions, `filter` and `map` |
+| [enums.vx](examples/enums.vx) | Enums with values, methods, `match` and `.case` shorthand |
 | [input.vx](examples/input.vx) | Reading from the keyboard with `input()` |
 
 ```sh
@@ -260,6 +261,25 @@ let evens = nums.filter(fn(x) => x % 2 == 0)
 var taps = 0
 let add = Button(title: "Add") { taps += 1 }   // onTap: fn()
 add.onTap()                                    // taps is 1
+```
+
+**Enums and match.** Lowercase cases that can carry values, read with an exhaustive `match`.
+
+```swift
+enum Shape {
+    circle(radius: float)
+    rect(width: float, height: float)
+    empty
+
+    fn area() -> float => match self {
+        circle(r) => 3.14 * r * r
+        rect(w, h) => w * h
+        empty => 0.0
+    }
+}
+
+let s: Shape = .rect(width: 2, height: 3)
+println(s.area())                              // 6.0
 ```
 
 **Built-ins.** `print`, `println`, `input`, `int`, `float`, `str`, `panic` and `assert`.

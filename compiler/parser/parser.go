@@ -177,7 +177,7 @@ func (p *parser) syncDecl() {
 			depth++
 		case lexer.RBrace:
 			depth--
-		case lexer.Fn, lexer.Struct:
+		case lexer.Fn, lexer.Struct, lexer.Enum:
 			if depth <= 0 {
 				return
 			}
@@ -219,12 +219,14 @@ func (p *parser) decl() ast.Decl {
 		return p.funcDecl(false)
 	case lexer.Struct:
 		return p.structDecl()
+	case lexer.Enum:
+		return p.enumDecl()
 	case lexer.Static:
 		p.fail(t, "use static fn inside a struct", "'static' is only allowed inside a struct")
 	case lexer.Let, lexer.Var:
 		p.fail(t, "move it into a function such as fn main()", "variables must be declared inside a function")
 	}
-	p.fail(t, "code goes inside a function, e.g. fn main() { ... }", "expected 'fn' or 'struct', found %s", describe(t))
+	p.fail(t, "code goes inside a function, e.g. fn main() { ... }", "expected 'fn', 'struct' or 'enum', found %s", describe(t))
 	return nil
 }
 
@@ -302,6 +304,171 @@ func (p *parser) structDecl() *ast.StructDecl {
 	p.next()
 	s.Span = p.span(start)
 	return s
+}
+
+func (p *parser) enumDecl() *ast.EnumDecl {
+	start := p.tok().Pos
+	p.expect(lexer.Enum)
+	e := &ast.EnumDecl{Name: p.ident("an enum name")}
+	open := p.expect(lexer.LBrace)
+	for {
+		for p.at(lexer.Semi) || p.at(lexer.Comma) {
+			p.next()
+		}
+		if p.at(lexer.RBrace) {
+			break
+		}
+		if p.at(lexer.EOF) {
+			p.fail(open, "add a matching }", "unclosed enum body")
+		}
+		p.guard(func() { p.enumMember(e) }, p.syncStmt)
+	}
+	p.next()
+	e.Span = p.span(start)
+	return e
+}
+
+// Parses one case or method inside an enum body.
+func (p *parser) enumMember(e *ast.EnumDecl) {
+	t := p.tok()
+	switch t.Kind {
+	case lexer.Fn:
+		e.Methods = append(e.Methods, p.funcDecl(false))
+		return
+	case lexer.Static:
+		p.next()
+		if !p.at(lexer.Fn) {
+			p.fail(p.tok(), "", "expected 'fn' after 'static', found %s", describe(p.tok()))
+		}
+		e.Methods = append(e.Methods, p.funcDecl(true))
+		return
+	case lexer.Ident:
+	default:
+		p.fail(t, "", "expected a case or method, found %s", describe(t))
+	}
+	c := &ast.EnumCase{Name: p.ident("a case name")}
+	if p.at(lexer.Colon) {
+		p.fail(p.tok(), fmt.Sprintf("enum cases carry values in parentheses: %s(value: int)", c.Name.Name), "enum cases don't have a type")
+	}
+	if p.at(lexer.LParen) {
+		open := p.next()
+		p.list(open, lexer.RParen, func() {
+			name := p.ident("a value name")
+			if !p.at(lexer.Colon) {
+				p.fail(p.tok(), fmt.Sprintf("write it as %s: int", name.Name), "case value '%s' needs a type", name.Name)
+			}
+			p.next()
+			f := &ast.Field{Name: name, Type: p.typeExpr()}
+			if p.at(lexer.Assign) {
+				p.fail(p.tok(), "", "case values can't have default values")
+			}
+			f.Span = p.span(name.Start)
+			c.Fields = append(c.Fields, f)
+		})
+	}
+	c.Span = p.span(t.Pos)
+	if !p.at(lexer.Semi) && !p.at(lexer.Comma) && !p.at(lexer.RBrace) {
+		p.fail(p.tok(), "put each case on its own line", "expected end of case, found %s", describe(p.tok()))
+	}
+	e.Cases = append(e.Cases, c)
+}
+
+// Parses `match subject { pattern => body ... }`.
+func (p *parser) matchExpr() ast.Expr {
+	start := p.next().Pos
+	m := &ast.MatchExpr{}
+	saved := p.noTrailing
+	p.noTrailing = true
+	m.Subject = p.expr()
+	p.noTrailing = false
+	defer func() { p.noTrailing = saved }()
+	if !p.at(lexer.LBrace) {
+		hint := ""
+		if p.tok().IsAutoSemi() {
+			hint = "put { on the same line as match"
+		}
+		p.fail(p.tok(), hint, "expected '{' after the match subject, found %s", describe(p.tok()))
+	}
+	open := p.next()
+	for {
+		for p.at(lexer.Semi) || p.at(lexer.Comma) {
+			p.next()
+		}
+		if p.at(lexer.RBrace) {
+			break
+		}
+		if p.at(lexer.EOF) {
+			p.fail(open, "add a matching }", "unclosed match")
+		}
+		arm := &ast.MatchArm{Pattern: p.pattern()}
+		if !p.at(lexer.FatArrow) {
+			p.fail(p.tok(), "write pattern => result", "expected '=>' after the pattern, found %s", describe(p.tok()))
+		}
+		p.next()
+		switch p.tok().Kind {
+		case lexer.LBrace:
+			arm.Block = p.block()
+		case lexer.Return, lexer.Break, lexer.Continue:
+			st := p.stmt()
+			arm.Block = &ast.Block{Span: ast.Span{Start: st.Pos(), End: st.EndOffset()}, Stmts: []ast.Stmt{st}}
+		default:
+			st := p.simpleStmt()
+			if es, ok := st.(*ast.ExprStmt); ok {
+				arm.Expr = es.X
+			} else {
+				arm.Block = &ast.Block{Span: ast.Span{Start: st.Pos(), End: st.EndOffset()}, Stmts: []ast.Stmt{st}}
+			}
+		}
+		arm.Span = p.span(arm.Pattern.Pos())
+		if !p.at(lexer.Semi) && !p.at(lexer.Comma) && !p.at(lexer.RBrace) {
+			p.fail(p.tok(), "put each arm on its own line", "expected end of match arm, found %s", describe(p.tok()))
+		}
+		m.Arms = append(m.Arms, arm)
+	}
+	p.next()
+	m.Span = p.span(start)
+	return m
+}
+
+// Parses a match pattern: `_`, a literal, or a case with optional bindings.
+func (p *parser) pattern() ast.Pattern {
+	t := p.tok()
+	switch t.Kind {
+	case lexer.Ident:
+		p.next()
+		if t.Text == "_" {
+			return &ast.WildcardPattern{Span: p.span(t.Pos)}
+		}
+		cp := &ast.CasePattern{Name: &ast.Ident{Span: ast.Span{Start: t.Pos, End: t.End}, Name: t.Text}}
+		if p.at(lexer.LParen) {
+			open := p.next()
+			cp.Binds = []*ast.Ident{}
+			p.list(open, lexer.RParen, func() { cp.Binds = append(cp.Binds, p.ident("a name to bind")) })
+		}
+		cp.Span = p.span(t.Pos)
+		return cp
+	case lexer.Int, lexer.Float, lexer.String, lexer.True, lexer.False, lexer.Minus:
+		v := p.literalPattern()
+		return &ast.LiteralPattern{Span: ast.Span{Start: t.Pos, End: v.EndOffset()}, Value: v}
+	case lexer.Dot:
+		p.fail(t, "write the case name without the dot", "patterns don't start with '.'")
+	}
+	p.fail(t, "for example circle(r), 0, \"yes\" or _", "expected a pattern, found %s", describe(t))
+	return nil
+}
+
+// Parses the value of a literal pattern.
+func (p *parser) literalPattern() ast.Expr {
+	t := p.tok()
+	if t.Kind == lexer.Minus {
+		p.next()
+		if k := p.tok().Kind; k != lexer.Int && k != lexer.Float {
+			p.fail(p.tok(), "", "expected a number after '-' in a pattern, found %s", describe(p.tok()))
+		}
+		x := p.primary()
+		return &ast.UnaryExpr{Span: ast.Span{Start: t.Pos, End: x.EndOffset()}, Op: lexer.Minus, X: x}
+	}
+	return p.primary()
 }
 
 // Parses one field or method inside a struct body.
@@ -459,7 +626,7 @@ func (p *parser) stmt() ast.Stmt {
 	case lexer.Return:
 		p.next()
 		r := &ast.ReturnStmt{}
-		if !p.at(lexer.Semi) && !p.at(lexer.RBrace) {
+		if !p.at(lexer.Semi) && !p.at(lexer.RBrace) && !p.at(lexer.Comma) {
 			r.Value = p.expr()
 		}
 		r.Span = p.span(t.Pos)
@@ -480,6 +647,8 @@ func (p *parser) stmt() ast.Stmt {
 		}
 	case lexer.Struct:
 		p.fail(t, "declare it at the top level of the file", "structs can't be declared inside functions")
+	case lexer.Enum:
+		p.fail(t, "declare it at the top level of the file", "enums can't be declared inside functions")
 	case lexer.Else:
 		p.fail(t, "", "'else' without a matching 'if'")
 	case lexer.Ident:
@@ -618,7 +787,7 @@ func (p *parser) simpleStmt() ast.Stmt {
 func startsExpr(k lexer.Kind) bool {
 	switch k {
 	case lexer.Ident, lexer.Int, lexer.Float, lexer.String, lexer.StringHead, lexer.True, lexer.False,
-		lexer.LParen, lexer.LBracket, lexer.Minus, lexer.Not, lexer.Fn:
+		lexer.LParen, lexer.LBracket, lexer.Minus, lexer.Not, lexer.Fn, lexer.Match, lexer.Dot:
 		return true
 	}
 	return false
@@ -753,6 +922,12 @@ func (p *parser) primary() ast.Expr {
 		return x
 	case lexer.Fn:
 		return p.funcLit()
+	case lexer.Match:
+		return p.matchExpr()
+	case lexer.Dot:
+		p.next()
+		name := p.ident("a case name after '.'")
+		return &ast.ImplicitMember{Span: p.span(t.Pos), Name: name}
 	case lexer.LBracket:
 		open := p.next()
 		list := &ast.ListLit{}

@@ -26,12 +26,19 @@ type memberSig struct {
 	result Type
 }
 
-func (c *checker) call(e *ast.CallExpr) Type {
+func (c *checker) call(e *ast.CallExpr, want Type) Type {
 	switch fn := e.Fn.(type) {
 	case *ast.Ident:
 		return c.callName(e, fn)
 	case *ast.MemberExpr:
 		return c.callMember(e, fn)
+	case *ast.ImplicitMember:
+		en := c.implicitEnum(fn, want)
+		if en == nil {
+			c.checkArgs(e)
+			return Invalid
+		}
+		return c.caseCall(e, en, fn.Name, "."+fn.Name.Name)
 	}
 	return c.callValue(e)
 }
@@ -83,6 +90,28 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident) Type {
 			return Invalid
 		}
 	}
+	if c.fn != nil && c.fn.Enum != nil {
+		if m := c.fn.Enum.Method(name); m != nil {
+			if !m.Static && c.self == nil {
+				c.checkArgs(e)
+				c.errorAt(id, "static methods have no instance to call it on", "static method %s can't call method '%s'", c.fn.Name, name)
+				return Invalid
+			}
+			c.info.Uses[id] = m
+			kind := StaticCall
+			if !m.Static {
+				kind = MethodCall
+				c.use(c.self)
+			}
+			c.info.Calls[e] = &Call{Kind: kind, Func: m, Args: c.bind(e, paramSlots(m), m.Name)}
+			return m.Result
+		}
+	}
+	if en := c.enums[name]; en != nil {
+		c.checkArgs(e)
+		c.errorAt(id, fmt.Sprintf("create it from a case, e.g. %s.%s", en.Name, en.Cases[0].Name), "enums are created from one of their cases")
+		return Invalid
+	}
 	if builtinFuncs[name] {
 		return c.callBuiltin(e, name)
 	}
@@ -121,6 +150,18 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident) Type {
 // Checks a call of the form `x.name(...)`.
 func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 	name := m.Name.Name
+	if en := c.enumRef(m.X); en != nil {
+		if method := en.Method(name); method != nil {
+			if !method.Static {
+				c.checkArgs(e)
+				c.errorAt(m.Name, fmt.Sprintf("call it on a value, e.g. shape.%s(), or declare it static fn", name), "'%s' needs a %s value", name, en.Name)
+				return Invalid
+			}
+			c.info.Calls[e] = &Call{Kind: StaticCall, Func: method, Args: c.bind(e, paramSlots(method), en.Name+"."+name)}
+			return method.Result
+		}
+		return c.caseCall(e, en, m.Name, en.Name+"."+name)
+	}
 	if s := c.structRef(m.X); s != nil {
 		method := s.Method(name)
 		switch {
@@ -158,6 +199,21 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 		case method.Static:
 			c.checkArgs(e)
 			c.errorAt(m.Name, fmt.Sprintf("call it on the type: %s.%s()", s.Name, name), "'%s' is a static method", name)
+			return Invalid
+		}
+		c.info.Calls[e] = &Call{Kind: MethodCall, Func: method, Recv: m.X, Args: c.bind(e, paramSlots(method), name)}
+		return method.Result
+	}
+	if en, ok := recv.(*Enum); ok {
+		method := en.Method(name)
+		switch {
+		case method == nil:
+			c.checkArgs(e)
+			c.errorAt(m.Name, didYouMean(name, enumNames(en)), "%s has no method '%s'", en.Name, name)
+			return Invalid
+		case method.Static:
+			c.checkArgs(e)
+			c.errorAt(m.Name, fmt.Sprintf("call it on the type: %s.%s()", en.Name, name), "'%s' is a static method", name)
 			return Invalid
 		}
 		c.info.Calls[e] = &Call{Kind: MethodCall, Func: method, Recv: m.X, Args: c.bind(e, paramSlots(method), name)}

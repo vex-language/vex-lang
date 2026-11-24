@@ -41,6 +41,8 @@ const (
 	Break
 	Continue
 	Struct
+	Enum
+	Match
 	Static
 	True
 	False
@@ -99,6 +101,8 @@ var keywords = map[string]Kind{
 	"continue": Continue,
 	"struct":   Struct,
 	"static":   Static,
+	"enum":     Enum,
+	"match":    Match,
 	"true":     True,
 	"false":    False,
 }

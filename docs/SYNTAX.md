@@ -168,6 +168,61 @@ let evens = nums.filter(fn(x) => x % 2 == 0)
 let labels = nums.map(fn(x) => "#{x}")      // [string]
 ```
 
+## Enums and match
+
+An enum is a value that is one of several cases. Cases are lowercase, and each may carry values, named like parameters. Enums can have methods, just like structs.
+
+```swift
+enum Shape {
+    circle(radius: float)
+    rect(width: float, height: float)
+    empty
+
+    fn area() -> float => match self {
+        circle(r) => 3.14 * r * r
+        rect(w, h) => w * h
+        empty => 0.0
+    }
+
+    static fn square(side: float) -> Shape => .rect(width: side, height: side)
+}
+
+enum Light { red, yellow, green }
+
+let a = Shape.circle(radius: 2)
+let b: Shape = .rect(width: 2, height: 3)    // the enum name can be left out
+let c = Shape.empty                          // cases without values aren't called
+println(a.area(), b)                         // 12.56 Shape.rect(width: 2.0, height: 3.0)
+```
+
+- `.case` works wherever the enum is expected: a typed `let`, an argument, a `return`, a list of that enum, or a `==` comparison.
+- The values a case carries are read with `match`, not with `.`.
+- Enum values never change after they are created.
+- `==` and `!=` work on enums whose cases carry no values, like `Light`.
+
+**match** picks the first arm whose pattern fits and runs it. It works on enums, `int`, `bool` and `string`.
+
+```swift
+match shape {
+    circle(r) => println("circle of radius {r}")
+    rect(w, _) => {                    // _ ignores a value
+        println("rect {w} wide")
+    }
+    empty => return
+}
+
+let message = match code {             // a match can be a value
+    200 => "ok"
+    404 => "not found"
+    _ => "error {code}"                // _ matches anything
+}
+```
+
+- A match must handle every case, or end with `_`. On `int` and `string` it always needs `_`.
+- Bindings follow the order of the case's values: `rect(w, h)`.
+- Used as a value, every arm needs an expression of the same type; an arm that calls `panic(...)` is allowed too.
+- Used as a statement, an arm can be a block or a single statement like `return`, `break` or `count += 1`.
+
 ## Built-ins
 
 | Name | Description |
@@ -181,13 +236,13 @@ let labels = nums.map(fn(x) => "#{x}")      // [string]
 
 ## Types
 
-The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, structs and function types `fn(T) -> R`.
+The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, structs, enums and function types `fn(T) -> R`.
 
 - `let x = ...` takes its type from the value. An empty list needs the type written: `let xs: [int] = []`.
 - Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.
 - `int` and `float` never mix silently: `count * price` is an error until one side is converted with `float(count)` or `int(price)`.
 - Strings join with `+` only to other strings. Use interpolation for anything else: `"{count} items"`.
-- `==` and `!=` compare `int`, `float`, `bool` and `string`; `<`, `<=`, `>`, `>=` also work on these except `bool`.
+- `==` and `!=` compare `int`, `float`, `bool`, `string` and enums whose cases carry no values; `<`, `<=`, `>`, `>=` also work on these except `bool`.
 - Conditions must be `bool`: write `if xs.len > 0`, not `if xs`.
 - Structs are shared references: after `let b = a`, changing `b.name` also changes `a.name`. `let` stops the name being reassigned, not the fields being changed.
 - A name can be declared again in an inner block, which hides the outer one; declaring it twice in the same block is an error.

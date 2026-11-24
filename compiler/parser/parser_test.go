@@ -168,6 +168,44 @@ func TestClosures(t *testing.T) {
 	}
 }
 
+func TestEnumsAndMatch(t *testing.T) {
+	f, errs := parse(t, `enum Shape {
+    circle(radius: float)
+    rect(width: float, height: float), empty
+
+    fn area() -> float => match self {
+        circle(r) => 3.14 * r * r
+        rect(w, h) => w * h
+        empty => 0.0
+    }
+    static fn unit() -> Shape => .rect(width: 1, height: 1)
+}
+fn main() {}`)
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	want := `(enum Shape (case circle radius: float) (case rect width: float height: float) case empty ` +
+		`(fn area -> float (=> (match self (circle(r) => (* (* 3.14 r) r)) (rect(w, h) => (* w h)) (empty => 0.0)))) ` +
+		`(static fn unit -> Shape (=> (call .rect (width: 1) (height: 1)))))`
+	if got := ast.Sexpr(f.Decls[0]); got != want {
+		t.Errorf("\n got: %s\nwant: %s", got, want)
+	}
+	cases := []struct{ src, want string }{
+		{"match n {\n    0 => zero()\n    -1 => minus()\n}", "(match n (0 => (call zero)) (-1 => (call minus)))"},
+		{"match s { \"y\" => yes(), _ => {\n    no()\n} }", "(match s (\"y\" => (call yes)) (_ => (block (call no))))"},
+		{"let x = match ok { true => 1, false => 0 }", "(let x (match ok (true => 1) (false => 0)))"},
+		{"match f(x) {\n    some(_, v) => use(v)\n}", "(match (call f x) (some(_, v) => (call use v)))"},
+		{"let d: Dir = .up", "(let d: Dir .up)"},
+		{"go(.left, to: .right)", "(call go .left (to: .right))"},
+	}
+	for _, c := range cases {
+		got := body(t, c.src)
+		if want := "(block " + c.want + ")"; got != want {
+			t.Errorf("%s\n got: %s\nwant: %s", c.src, got, want)
+		}
+	}
+}
+
 func TestLineBreaksInsideBrackets(t *testing.T) {
 	src := `let users = [
     User(
@@ -270,7 +308,7 @@ func TestErrors(t *testing.T) {
 		pos, msg  string
 		hint      string
 	}{
-		{"code at top level", "println(1)", "1:1", "expected 'fn' or 'struct', found 'println'", "code goes inside a function, e.g. fn main() { ... }"},
+		{"code at top level", "println(1)", "1:1", "expected 'fn', 'struct' or 'enum', found 'println'", "code goes inside a function, e.g. fn main() { ... }"},
 		{"variable at top level", "let x = 1", "1:1", "variables must be declared inside a function", "move it into a function such as fn main()"},
 		{"static at top level", "static fn f() {}", "1:1", "'static' is only allowed inside a struct", "use static fn inside a struct"},
 		{"keyword as name", "fn for() {}", "1:4", "expected a function name, found 'for'", "for is a keyword; choose another name"},
@@ -303,6 +341,13 @@ func TestErrors(t *testing.T) {
 		{"closure default", "fn main() {\n let f = fn(x = 1) {}\n}", "2:15", "closure parameters can't have default values", ""},
 		{"closure without body", "fn main() {\n let f = fn(x)\n}", "2:15", "expected '{' or '=>' to start the closure body, found end of line", ""},
 		{"unclosed block", "fn main() {\n f()", "1:11", "unclosed block", "add a matching }"},
+		{"enum in function", "fn main() {\n enum E { a }\n}", "2:2", "enums can't be declared inside functions", "declare it at the top level of the file"},
+		{"case with type", "enum E {\n a: int\n}", "2:3", "enum cases don't have a type", "enum cases carry values in parentheses: a(value: int)"},
+		{"case value type", "enum E {\n a(x)\n}", "2:5", "case value 'x' needs a type", "write it as x: int"},
+		{"match brace", "fn main() {\n match x\n {}\n}", "2:9", "expected '{' after the match subject, found end of line", "put { on the same line as match"},
+		{"match arrow", "fn main() {\n match x { a -> 1 }\n}", "2:14", "expected '=>' after the pattern, found '->'", "write pattern => result"},
+		{"dotted pattern", "fn main() {\n match x { .a => 1 }\n}", "2:12", "patterns don't start with '.'", "write the case name without the dot"},
+		{"bad pattern", "fn main() {\n match x { [1] => 1 }\n}", "2:12", "expected a pattern, found '['", "for example circle(r), 0, \"yes\" or _"},
 		{"empty parens", "fn main() {\n f(())\n}", "2:5", "expected an expression inside ( )", ""},
 	}
 	for _, c := range cases {
