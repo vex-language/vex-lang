@@ -59,10 +59,10 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 - [x] **V-045** Call clang with `-fwrapv -O2`; respect the `$CC` environment variable (S)
 
 ### 1.6 Tests, examples, docs
-- [ ] **V-050** Golden tests: `examples/*.vx` + `*.out`, run by `go test` (S)
-- [ ] **V-051** Error tests: `tests/errors/*.vx` with an expected message (S)
-- [ ] **V-052** Examples: hello, fibonacci, structs/methods, prime sieve, sorting, input (S)
-- [ ] **V-053** `README.md`: install, CLI, language tour (M)
+- [x] **V-050** Golden tests: `examples/*.vx` + `*.out`, run by `go test` (S)
+- [x] **V-051** Error tests: `tests/errors/*.vx` with an expected message (S)
+- [x] **V-052** Examples: hello, fibonacci, structs/methods, prime sieve, sorting, input (S)
+- [x] **V-053** `README.md`: install, CLI, language tour (M)
 
 **Phase 1 done when:** all examples run, all tests pass, and `vex build` produces a standalone binary.
 
