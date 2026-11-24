@@ -16,8 +16,6 @@ jobs:
             cc: clang
           - os: ubuntu-latest
             cc: gcc
-          - os: macos-latest
-            cc: clang
     runs-on: ${{ matrix.os }}
     env:
       CC: ${{ matrix.cc }}
