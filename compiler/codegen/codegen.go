@@ -138,7 +138,7 @@ func Generate(info *types.Info, srcName string) string {
 	g.b.WriteString(g.lams.String())
 	g.line("")
 	g.line("int main(void) {")
-	g.line("    vx_gc_init(__builtin_frame_address(0));")
+	g.line("    vx_init(__builtin_frame_address(0));")
 	g.line("    vx_file = %s;", cQuote(srcName))
 	g.line("    fn_main();")
 	g.line("    return 0;")
@@ -520,7 +520,9 @@ func (g *gen) block(header string, b *ast.Block) {
 // Returns a condition for `if (...)`, without a redundant outer pair of
 // parentheses.
 func cond(c string) string {
-	if !strings.HasPrefix(c, "(") || !strings.HasSuffix(c, ")") {
+	// A statement expression `({ ... })` keeps its parentheses, and a
+	// string literal may hold unbalanced ones, so neither is touched.
+	if !strings.HasPrefix(c, "(") || !strings.HasSuffix(c, ")") || strings.HasPrefix(c, "({") || strings.Contains(c, `"`) {
 		return c
 	}
 	depth := 0
