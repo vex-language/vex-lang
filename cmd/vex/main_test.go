@@ -91,3 +91,26 @@ func TestTokensUsage(t *testing.T) {
 		t.Errorf("missing file: code %d, stderr %q", code, errOut)
 	}
 }
+
+func TestAST(t *testing.T) {
+	path := writeFile(t, "fn main() {\n    let x = 1 + 2\n}\n")
+	code, out, errOut := runCLI("ast", path)
+	if code != exitOK {
+		t.Fatalf("code %d, stderr %q", code, errOut)
+	}
+	want := "file\n  fn main\n    block\n      let x\n        +\n          1\n          2\n"
+	if out != want {
+		t.Errorf("output\n got:\n%s\nwant:\n%s", out, want)
+	}
+}
+
+func TestASTReportsSyntaxErrors(t *testing.T) {
+	path := writeFile(t, "fn main() {\n    if a = 1 {}\n}\n")
+	code, _, errOut := runCLI("ast", path)
+	if code != exitError || !strings.Contains(errOut, "use == to compare in a condition") {
+		t.Errorf("code %d, stderr %q", code, errOut)
+	}
+	if code, _, _ := runCLI("ast"); code != exitUsage {
+		t.Errorf("no file: code %d, want %d", code, exitUsage)
+	}
+}
