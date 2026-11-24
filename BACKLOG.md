@@ -17,8 +17,8 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 
 ### 1.1 Project setup
 - [x] **V-001** Repo layout, `go.mod`, `.gitignore`, git init (S)
-- [ ] **V-002** `vex` CLI skeleton: `run`, `build`, `emit-c`, `version`, `help` (S)
-- [ ] **V-003** Error type with file:line:col, a source snippet, a caret and an optional hint (S)
+- [x] **V-002** `vex` CLI skeleton: `version`, `help`; `run`, `build`, `emit-c` arrive with V-045 (S)
+- [x] **V-003** Error type with file:line:col, a source snippet, a caret and an optional hint (S)
 
 ### 1.2 Lexer
 - [ ] **V-010** Tokens: identifiers, keywords, int/float/string/bool literals, operators (M)

@@ -1,3 +1,3 @@
-module vex
+module github.com/irshadio/vex-lang
 
-go 1.23.2
+go 1.23
