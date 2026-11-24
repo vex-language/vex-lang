@@ -119,7 +119,7 @@ The compiler is written in Go. It turns Vex source into portable C, then uses th
 ```sh
 git clone https://github.com/irshadio/vex-lang.git
 cd vex-lang
-go build -o vex .
+go build -o vex ./cmd/vex
 ```
 
 **Usage**
@@ -156,6 +156,7 @@ The detailed task list lives in [BACKLOG.md](BACKLOG.md).
 ## Project layout
 
 ```
+cmd/vex/       the vex command
 compiler/      lexer, parser, type checker, C code generator, runtime
 examples/      sample programs with expected output
 tests/         compiler tests, including programs that must fail
