@@ -75,7 +75,7 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-100** Enums with data plus `match` (exhaustive) (L)
 - [ ] **V-101** Optionals `User?` with `if let`, `??` and `?.`; no null crashes (L)
 - [ ] **V-102** Errors: `throws` functions, `try`, `catch` (L)
-- [ ] **V-103** Closures / lambdas, needed for UI event handlers (L)
+- [x] **V-103** Closures / lambdas, needed for UI event handlers (L)
 - [ ] **V-104** Generics for functions and structs (XL)
 - [ ] **V-105** Modules and imports (`import "ui"`), multi-file projects (L)
 - [ ] **V-106** Maps `[string: int]` (M)
@@ -169,3 +169,6 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-24 | `==` only on `int`, `float`, `bool`, `string` for v0.1 |
 | 2026-11-24 | Generated C uses GNU statement expressions (clang and gcc); arguments run left to right in source order |
 | 2026-11-24 | Runtime errors exit with code 1 and print `file:line` |
+| 2026-11-24 | Closures use `fn` syntax (`fn(x: int) => x * 2`); function types `fn(int) -> int`; parameter types inferred from context |
+| 2026-11-24 | Closures capture by reference; captured `var`s move to the heap; each loop iteration has its own variable |
+| 2026-11-24 | A trailing block is a `fn()` closure passed as the last argument |
