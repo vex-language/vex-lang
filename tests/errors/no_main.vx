@@ -1,0 +1,8 @@
+// A program needs a main function.
+
+fn start() {
+    println("hi")
+}
+
+// Expected errors:
+// error: 1:1: no main function

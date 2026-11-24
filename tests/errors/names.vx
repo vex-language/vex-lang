@@ -1,0 +1,19 @@
+// Unknown and duplicate names.
+
+fn greet(name: string) {
+    println("Hi, {name}")
+}
+
+fn main() {
+    let count = 1
+    let count = 2
+    println(cout)
+    gret("Ann")
+    let p: Pont = 0
+}
+
+// Expected errors:
+// error: 9:9: 'count' is already declared on line 8
+// error: 10:13: unknown name 'cout'
+// error: 11:5: unknown function 'gret'
+// error: 12:12: unknown type 'Pont'

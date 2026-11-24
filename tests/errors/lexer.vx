@@ -1,0 +1,12 @@
+// Mistakes the lexer catches.
+
+fn main() {
+    let name = 'Ann'
+    let ok = true & false
+    let price = 1__000
+}
+
+// Expected errors:
+// error: 4:16: single quotes are not used for strings
+// error: 5:19: unexpected character '&'
+// error: 6:18: misplaced digit separator in 1__000
