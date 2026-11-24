@@ -179,7 +179,7 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 		return method.Result
 	}
 
-	recv := c.expr(m.X, nil)
+	recv := c.recv(m)
 	if s, ok := recv.(*Struct); ok {
 		method := s.Method(name)
 		switch {

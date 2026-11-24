@@ -1,0 +1,13 @@
+Lena reports to Omar, lena@example.com
+Omar reports to Maya, no email
+Maya reports to nobody, maya@example.com
+Zed: not found
+Maya nil
+Lena's manager is Omar
+'31' -> 31
+'' -> nil
+'4 2' -> nil
+'27' -> 27
+total: 58
+true
+Lena

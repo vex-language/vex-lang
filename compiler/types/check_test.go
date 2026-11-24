@@ -388,6 +388,49 @@ fn main() {}`)
 	}
 }
 
+func TestOptionals(t *testing.T) {
+	info, errs := checkMain(t, `
+struct User {
+    name: string
+    boss: User? = nil
+}
+fn find(id: int) -> User? => nil
+fn first(xs: [int]) -> int? {
+    if xs.len == 0 { return nil }
+    return xs[0]
+}`, `
+    let a = find(1)
+    let b = a?.name
+    let c = a?.boss?.name ?? "none"
+    let d: float? = 2
+    let e = first([1]) ?? 0
+    let f = a == nil
+    let g: [int?] = [1, nil]
+    let h = find(1) ?? find(2)
+    let i: fn()? = nil
+    let j = a?.name?.upper()
+    if let u = a {
+        let k = u.name
+    }
+    guard let w = find(3) else { return }
+    let l = w.boss
+`)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	want := map[string]string{
+		"a": "User?", "b": "string?", "c": "string", "d": "float?", "e": "int", "f": "bool",
+		"g": "[int?]", "h": "User?", "i": "fn()?", "j": "string?", "u": "User", "k": "string",
+		"w": "User", "l": "User?",
+	}
+	got := varTypes(info)
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("%s: got %s, want %s", name, got[name], w)
+		}
+	}
+}
+
 func TestErrors(t *testing.T) {
 	cases := []struct {
 		name, decls, body string
@@ -488,6 +531,12 @@ func TestErrors(t *testing.T) {
 		{"map void", "", "let r = [1].map(fn(x) { println(x) })", "2:17", "map needs a function that returns a value", ""},
 		{"filter type", "", "let r = [1].filter(fn(x) => x)", "2:29", "closure result: expected bool, found int", ""},
 		{"compare closures", "", "let f = fn() {}\nlet b = f == f", "3:9", "values of type fn() can't be compared with ==", ""},
+
+		// Optionals.
+		{"guard break is not a return", "fn f() -> int {\n    while true {\n        guard let x = g() else { break }\n    }\n}\nfn g() -> int? => nil", "", "5:1", "missing return: f must return int", "add a return statement before the closing }"},
+		{"optional field read", "struct U {\n    n: int\n}", "let u: U? = nil\nlet x = u.n + 1", "6:11", "can't read 'n' from a U?: it may be nil", "use ?.n, or unwrap it first with if let"},
+		{"optional compare value", "", "let s: string? = nil\nlet b = s == \"x\"", "3:9", "can't compare string? with string", ""},
+		{"optional arithmetic", "", "let n: int? = 1\nlet m = n + 1", "3:9", "can't use '+' with int? and int", ""},
 
 		// Enums and match.
 		{"unknown case", shapeDecl, "let s = Shape.circel(radius: 1)", "22:15", "Shape has no case 'circel'", "did you mean 'circle'?"},

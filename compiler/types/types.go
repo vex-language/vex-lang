@@ -89,6 +89,19 @@ func (s *Struct) Method(name string) *Func {
 	return nil
 }
 
+// An optional type: a value of [Elem], or nil.
+type Optional struct {
+	Elem Type
+}
+
+// Returns the type as written, such as `User?` or `(fn() -> int)?`.
+func (o *Optional) String() string {
+	if f, ok := o.Elem.(*FuncType); ok && f.Result != Void && f.Result != nil {
+		return "(" + f.String() + ")?"
+	}
+	return o.Elem.String() + "?"
+}
+
 // An enum type: a value that is one of [Cases]. Like structs, enum values
 // are references, but they never change after they are created.
 type Enum struct {
@@ -264,6 +277,9 @@ func Identical(a, b Type) bool {
 	case *List:
 		b, ok := b.(*List)
 		return ok && Identical(a.Elem, b.Elem)
+	case *Optional:
+		b, ok := b.(*Optional)
+		return ok && Identical(a.Elem, b.Elem)
 	case *FuncType:
 		b, ok := b.(*FuncType)
 		if !ok || len(a.Params) != len(b.Params) || !Identical(a.Result, b.Result) {
@@ -375,6 +391,15 @@ type Info struct {
 
 	// The [Func] for each declaration, including methods.
 	FuncOf map[*ast.FuncDecl]*Func
+
+	// Values of a type used where its optional is expected, such as 5
+	// passed as an int?; each is stored as a present value.
+	Wraps map[ast.Expr]*Optional
+
+	// Optional chains (`x?.name`, `x?.f()`). The value is true when the
+	// member's own value must be wrapped in an optional, false when it
+	// already is one or has no value.
+	Chains map[ast.Expr]bool
 
 	// Enum cases used as values without a call: `Shape.empty`, `.up`.
 	CaseValues map[ast.Expr]*Case

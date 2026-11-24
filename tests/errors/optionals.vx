@@ -1,0 +1,45 @@
+// Optionals.
+
+struct User {
+    name: string
+}
+
+fn find(id: int) -> User? => nil
+
+fn main() {
+    let a = nil
+    let b: int = nil
+    let u = find(1)
+    println(u.name)
+    let n = 5
+    println("hi"?.len)
+    let c = n ?? 0
+    let d: int = find(2)
+    if let x = n {
+        println(x)
+    }
+    guard let y = find(3) else {
+        println("none")
+    }
+    let e = u == find(2)
+    let f = n == nil
+    u?.name = "x"
+    let g: string = u?.name
+    let h = u?.name ?? 3
+}
+
+
+// Expected errors:
+// error: 10:13: can't tell the type of nil
+// error: 11:18: nil can't be used as int, which always has a value
+// error: 13:15: can't read 'name' from a User?: it may be nil
+// error: 15:19: ?. is only for optional values, but this is string
+// error: 16:13: ?? needs an optional on the left, but this is int
+// error: 17:18: expected int, found User?
+// error: 18:16: if let needs an optional value, but this is int
+// error: 21:32: the else block of guard must leave, so 'y' always has a value after it
+// error: 24:13: values of type User? can't be compared with ==
+// error: 25:13: can't compare int with nil: only optional values can be nil
+// error: 26:5: can't assign through ?.
+// error: 27:21: expected string, found string?
+// error: 28:24: the default after ?? must be string, found int

@@ -73,7 +73,7 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 Goal: the language features real apps need before any UI work.
 
 - [x] **V-100** Enums with data plus `match` (exhaustive) (L)
-- [ ] **V-101** Optionals `User?` with `if let`, `??` and `?.`; no null crashes (L)
+- [x] **V-101** Optionals `User?` with `if let`, `??` and `?.`; no null crashes (L)
 - [ ] **V-102** Errors: `throws` functions, `try`, `catch` (L)
 - [x] **V-103** Closures / lambdas, needed for UI event handlers (L)
 - [ ] **V-104** Generics for functions and structs (XL)
@@ -175,3 +175,5 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-24 | Enum cases are lowercase and carry named values: `circle(radius: float)`; `.case` when the enum is known |
 | 2026-11-24 | `match` works on enums, `int`, `bool` and `string`; it must be exhaustive or end with `_`; bindings are positional |
 | 2026-11-24 | Enum values are immutable references; `==` only on enums whose cases carry no values |
+| 2026-11-24 | Optionals: `T?`, `nil`, `if let`, `guard let ... else`, `?.` and `??`; no force unwrap |
+| 2026-11-24 | Each step after an optional needs its own `?.` (`a?.b?.c`); optionals compare only with `nil` |

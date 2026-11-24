@@ -163,6 +163,7 @@ The [examples](examples) folder has small complete programs, each with its expec
 | [structs.vx](examples/structs.vx) | Fields with defaults, methods, `static fn`, shared references |
 | [closures.vx](examples/closures.vx) | Closures, trailing blocks, functions returning functions, `filter` and `map` |
 | [enums.vx](examples/enums.vx) | Enums with values, methods, `match` and `.case` shorthand |
+| [optionals.vx](examples/optionals.vx) | `T?`, `nil`, `if let`, `guard let`, `?.` and `??` |
 | [input.vx](examples/input.vx) | Reading from the keyboard with `input()` |
 
 ```sh
@@ -280,6 +281,18 @@ enum Shape {
 
 let s: Shape = .rect(width: 2, height: 3)
 println(s.area())                              // 6.0
+```
+
+**Optionals.** `T?` holds a value or `nil`, and must be checked before use, so there are no null crashes.
+
+```swift
+fn findUser(id: int) -> User? { ... }
+
+if let user = findUser(1) {
+    println(user.name)
+}
+guard let user = findUser(2) else { return }
+let boss = findUser(3)?.manager?.name ?? "nobody"
 ```
 
 **Built-ins.** `print`, `println`, `input`, `int`, `float`, `str`, `panic` and `assert`.

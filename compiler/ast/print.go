@@ -66,6 +66,11 @@ func TypeString(t TypeExpr) string {
 		return t.Name
 	case *ListType:
 		return "[" + TypeString(t.Elem) + "]"
+	case *OptionalType:
+		if f, ok := t.Elem.(*FuncType); ok && f.Result != nil {
+			return "(" + TypeString(t.Elem) + ")?"
+		}
+		return TypeString(t.Elem) + "?"
 	case *FuncType:
 		params := make([]string, len(t.Params))
 		for i, p := range t.Params {
@@ -195,7 +200,12 @@ func build(n Node) *tree {
 		if n.Else != nil {
 			els = build(n.Else)
 		}
+		if n.Bind != nil {
+			return branch("if let "+n.Bind.Name, buildExpr(n.Cond), build(n.Then), els)
+		}
 		return branch("if", buildExpr(n.Cond), build(n.Then), els)
+	case *GuardStmt:
+		return branch("guard let "+n.Bind.Name, buildExpr(n.Value), build(n.Else))
 	case *WhileStmt:
 		return branch("while", buildExpr(n.Cond), build(n.Body))
 	case *ForStmt:
@@ -229,6 +239,8 @@ func buildExpr(e Expr) *tree {
 		return leaf(e.Value)
 	case *BoolLit:
 		return leaf(strconv.FormatBool(e.Value))
+	case *NilLit:
+		return leaf("nil")
 	case *StringLit:
 		return leaf(strconv.Quote(e.Value))
 	case *InterpolatedString:
@@ -288,6 +300,9 @@ func buildExpr(e Expr) *tree {
 	case *IndexExpr:
 		return branch("index", buildExpr(e.X), buildExpr(e.Index))
 	case *MemberExpr:
+		if e.Optional {
+			return branch("?.", buildExpr(e.X), leaf(e.Name.Name))
+		}
 		return branch(".", buildExpr(e.X), leaf(e.Name.Name))
 	}
 	return leaf(fmt.Sprintf("<%T>", e))

@@ -44,8 +44,10 @@ const (
 	Enum
 	Match
 	Static
+	Guard
 	True
 	False
+	Nil
 	keywordsEnd
 
 	LParen
@@ -61,6 +63,9 @@ const (
 	DotDotEq
 	Arrow
 	FatArrow
+	Question
+	QuestionDot
+	QuestionQuestion
 
 	Plus
 	Minus
@@ -103,6 +108,8 @@ var keywords = map[string]Kind{
 	"static":   Static,
 	"enum":     Enum,
 	"match":    Match,
+	"guard":    Guard,
+	"nil":      Nil,
 	"true":     True,
 	"false":    False,
 }
@@ -113,6 +120,8 @@ var operators = []struct {
 	kind Kind
 }{
 	{"..=", DotDotEq},
+	{"?.", QuestionDot},
+	{"??", QuestionQuestion},
 	{"..", DotDot},
 	{"->", Arrow},
 	{"=>", FatArrow},
@@ -146,6 +155,7 @@ var operators = []struct {
 	{"=", Assign},
 	{"<", Lt},
 	{">", Gt},
+	{"?", Question},
 }
 
 var kindNames = map[Kind]string{
