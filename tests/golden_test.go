@@ -42,8 +42,21 @@ func compile(path string) (string, error) {
 	return codegen.Generate(info, filepath.Base(path)), nil
 }
 
-// Runs each examples/NAME.vx with NAME.in as input, if present, and
-// compares what it prints with NAME.out.
+var stressComment = regexp.MustCompile(`(?m)^// stress: (\d+)$`)
+
+// Returns how often the program at [path] collects under GC stress: on
+// every allocation unless a `// stress: N` comment says otherwise.
+func stressInterval(path string) string {
+	src, _ := os.ReadFile(path)
+	if m := stressComment.FindSubmatch(src); m != nil {
+		return string(m[1])
+	}
+	return "1"
+}
+
+// Runs each examples/NAME.vx and run/NAME.vx with NAME.in as input, if
+// present, and compares what it prints with NAME.out, also while the
+// collector runs far more often than usual.
 func TestExamples(t *testing.T) {
 	if _, err := cc.Command(); err != nil {
 		t.Skip(err)
@@ -52,6 +65,8 @@ func TestExamples(t *testing.T) {
 	if len(paths) == 0 {
 		t.Fatal("no examples found")
 	}
+	more, _ := filepath.Glob("run/*.vx")
+	paths = append(paths, more...)
 	for _, path := range paths {
 		name := strings.TrimSuffix(filepath.Base(path), ".vx")
 		base := strings.TrimSuffix(path, ".vx")
@@ -90,7 +105,7 @@ func TestExamples(t *testing.T) {
 			}
 
 			stress := exec.Command(exe)
-			stress.Env = append(os.Environ(), "VEX_GC_STRESS=1")
+			stress.Env = append(os.Environ(), "VEX_GC_STRESS="+stressInterval(path))
 			if in, err := os.ReadFile(base + ".in"); err == nil {
 				stress.Stdin = bytes.NewReader(in)
 			}

@@ -1,0 +1,2 @@
+go test fuzz v1
+string("enum Shape{A0000000(A:A0ATTTTToat),empty}enum A{}fn B(){A00000000000\nlet s=Shape.empty A00\nA00%match A{A0000=>0,A00000(A)=>0}A000}")

@@ -1,0 +1,84 @@
+// Live data must survive many collections while garbage is created around
+// it. Every check is an assert; the program prints "ok" at the end.
+//
+// stress: 20011
+
+struct Node {
+    id: int
+    label: string
+    next: Node? = nil
+    kids: [Node] = []
+}
+
+enum Box {
+    full(items: [string], node: Node)
+    empty
+}
+
+fn build(n: int) -> Node? {
+    var head: Node? = nil
+    for i in 0..n {
+        head = Node(id: i, label: "node {i}", next: head)
+        let junk = "garbage {i} {i * 2} {i * 3}".split(" ")
+        assert(junk.len == 4)
+    }
+    return head
+}
+
+fn count(head: Node?) -> int {
+    var n = 0
+    var cur = head
+    while cur != nil {
+        n += 1
+        cur = cur?.next
+    }
+    return n
+}
+
+fn main() {
+    let list = build(200000)
+    assert(count(list) == 200000)
+    assert((list?.label ?? "") == "node 199999")
+
+    // A wide tree built while closures, enums and strings churn.
+    let root = Node(id: -1, label: "root")
+    var keep: [Box] = []
+    var handlers: [fn() -> int] = []
+    for i in 0..50000 {
+        let kid = Node(id: i, label: "kid {i}")
+        root.kids.push(kid)
+        let box = Box.full(items: ["a{i}", "b{i}"], node: kid)
+        if i % 10 == 0 {
+            keep.push(box)
+            handlers.push(fn() => kid.id + kid.label.len)
+        }
+        let throwaway = Box.full(items: ["x", "y", "z"], node: Node(id: 0, label: "tmp"))
+        match throwaway {
+            full(items, _) => assert(items.len == 3)
+            empty => assert(false)
+        }
+    }
+    assert(root.kids.len == 50000 && keep.len == 5000 && handlers.len == 5000)
+    var sum = 0
+    for i, k in root.kids {
+        assert(k.id == i && k.label == "kid {i}")
+        sum += k.id
+    }
+    assert(sum == 50000 * 49999 / 2)
+    for i, b in keep {
+        match b {
+            full(items, node) => assert(items[0] == "a{i * 10}" && items[1] == "b{i * 10}" && node.id == i * 10)
+            empty => assert(false)
+        }
+    }
+    assert(handlers[4999]() == 49990 + "kid 49990".len)
+
+    // A list growing past many reallocations keeps its strings.
+    var words: [string] = []
+    for i in 0..100000 {
+        words.push("w{i}")
+    }
+    assert(words[0] == "w0" && words[99999] == "w99999" && words[54321] == "w54321")
+    assert(count(list) == 200000)
+    println("ok")
+}
