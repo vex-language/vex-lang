@@ -1,0 +1,22 @@
+// Functions must return a value on every path.
+
+fn sign(n: int) -> int {
+    if n > 0 {
+        return 1
+    } else if n < 0 {
+        return -1
+    }
+}
+
+fn log(msg: string) {
+    return msg
+}
+
+fn main() {
+    break
+}
+
+// Expected errors:
+// error: 9:1: missing return: sign must return int
+// error: 12:12: log doesn't return a value
+// error: 16:5: break can only be used inside a loop

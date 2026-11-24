@@ -1,0 +1,19 @@
+// let, parameters and loop variables can't be reassigned.
+
+fn double(n: int) -> int {
+    n *= 2
+    return n
+}
+
+fn main() {
+    let limit = 10
+    limit = 20
+    for i in 0..limit {
+        i += 1
+    }
+}
+
+// Expected errors:
+// error: 4:5: can't change parameter 'n'
+// error: 10:5: can't change 'limit': it's declared with let
+// error: 12:9: can't change loop variable 'i'

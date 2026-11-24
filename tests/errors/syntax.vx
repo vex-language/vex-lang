@@ -1,0 +1,23 @@
+// Syntax mistakes. The parser reports each one and keeps going.
+
+fn main() {
+    count := 0
+    if count = 1 {
+        println("one")
+    }
+    else {
+        println("other")
+    }
+    let total
+    println("a" "b")
+}
+
+fn noType(x) {}
+
+// Expected errors:
+// error: 4:5: missing 'let' or 'var' before 'count'
+// error: 5:14: use == to compare in a condition
+// error: 8:5: 'else' must be on the same line as the closing }
+// error: 11:14: 'let total' needs a value
+// error: 12:17: expected ',' or ')', found a string
+// error: 15:12: parameter 'x' needs a type

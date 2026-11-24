@@ -1,0 +1,48 @@
+// Run: vex run examples/structs.vx
+
+/// A bank account with a running history.
+struct Account {
+    owner: string
+    balance: float = 0.0
+    history: [string] = []
+
+    fn deposit(amount: float) {
+        balance += amount
+        history.push("+{amount}")
+    }
+
+    fn withdraw(amount: float) -> bool {
+        if amount > balance {
+            history.push("declined {amount}")
+            return false
+        }
+        balance -= amount
+        history.push("-{amount}")
+        return true
+    }
+
+    fn summary() -> string => "{owner}: {balance}"
+
+    static fn opening(owner: string) -> Account {
+        let account = Account(owner: owner)
+        account.deposit(10.0)
+        return account
+    }
+}
+
+fn main() {
+    let ann = Account.opening("Ann")
+    ann.deposit(50.5)
+    ann.withdraw(20)
+    if !ann.withdraw(500) {
+        println("Not enough money for that")
+    }
+    println(ann.summary())
+    println("History: {ann.history}")
+
+    // Structs are shared: both names refer to the same account.
+    let same = ann
+    same.deposit(1)
+    println(ann.summary())
+    println(ann)
+}

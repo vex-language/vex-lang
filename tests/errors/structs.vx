@@ -1,0 +1,24 @@
+// Struct constructors, fields and methods.
+
+struct User {
+    name: string
+    age: int = 18
+
+    fn greet() -> string => "Hi, {name}"
+    static fn guest() -> User => User(name: "Guest", age: age)
+}
+
+fn main() {
+    let a = User(age: 30)
+    let u = User(name: "Ann")
+    println(u.nam)
+    println(User.greet())
+    println(u.guest())
+}
+
+// Expected errors:
+// error: 8:59: static method guest can't use field 'age'
+// error: 12:13: missing argument 'name' in call to User
+// error: 14:15: User has no field 'nam'
+// error: 15:18: 'greet' needs a User value
+// error: 16:15: 'guest' is a static method

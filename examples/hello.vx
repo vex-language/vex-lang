@@ -1,0 +1,5 @@
+// Run: vex run examples/hello.vx
+
+fn main() {
+    println("Hello, world!")
+}

@@ -1,0 +1,20 @@
+// Named and default arguments.
+
+fn greet(name: string, greeting: string = "Hi") {
+    println("{greeting}, {name}")
+}
+
+fn main() {
+    greet()
+    greet("Ann", "Hello", "!")
+    greet("Ann", greting: "Yo")
+    greet(greeting: "Yo", "Ann")
+    greet(42)
+}
+
+// Expected errors:
+// error: 8:5: missing argument 'name' in call to greet
+// error: 9:27: too many arguments: greet takes 2 arguments
+// error: 10:18: greet has no parameter 'greting'
+// error: 11:27: unnamed argument after a named one
+// error: 12:11: argument 'name': expected string, found int

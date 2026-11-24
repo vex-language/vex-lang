@@ -1,0 +1,22 @@
+// Type mismatches, with hints for the usual fixes.
+
+fn main() {
+    let count = 3
+    println("Items: " + count)
+    let price = 2.5
+    let total = count * price
+    let flag: bool = 1
+    if count {
+        println("yes")
+    }
+    let empty = []
+    let mixed = [1, "two"]
+}
+
+// Expected errors:
+// error: 5:13: can't use '+' with string and int
+// error: 7:17: can't use '*' with int and float
+// error: 8:22: expected bool, found int
+// error: 9:8: if condition must be bool, found int
+// error: 12:17: can't tell the type of an empty list
+// error: 13:21: list item 2: expected int, found string

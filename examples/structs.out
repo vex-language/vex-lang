@@ -1,0 +1,5 @@
+Not enough money for that
+Ann: 40.5
+History: ["+10.0", "+50.5", "-20.0", "declined 500.0"]
+Ann: 41.5
+Account(owner: "Ann", balance: 41.5, history: ["+10.0", "+50.5", "-20.0", "declined 500.0", "+1.0"])
