@@ -2,9 +2,14 @@
 package main
 
 import (
+	"errors"
 	"fmt"
 	"io"
 	"os"
+	"strconv"
+
+	"github.com/irshadio/vex-lang/compiler/diag"
+	"github.com/irshadio/vex-lang/compiler/lexer"
 )
 
 // The toolchain version, set at build time with
@@ -30,6 +35,7 @@ var commands []command
 
 func init() {
 	commands = []command{
+		{"tokens", "<file>", "Print the tokens of a source file", runTokens},
 		{"version", "", "Print the Vex version", runVersion},
 		{"help", "[command]", "Show help", runHelp},
 	}
@@ -87,4 +93,77 @@ func printUsage(w io.Writer) {
 		fmt.Fprintf(w, "  %-22s %s\n", c.name+" "+c.args, c.short)
 	}
 	fmt.Fprint(w, "\nRun 'vex help <command>' for details.\n")
+}
+
+func runTokens(args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "Usage: vex tokens <file>")
+		return exitUsage
+	}
+	f, err := readSource(args[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "vex: %v\n", err)
+		return exitError
+	}
+	toks, err := lexer.Tokenize(f)
+	if err != nil {
+		return report(f, err, stderr)
+	}
+	for _, t := range toks {
+		text := t.Text
+		switch {
+		case t.IsAutoSemi():
+			text = "newline"
+		case t.Kind == lexer.EOF:
+			text = ""
+		case t.Kind >= lexer.String && t.Kind <= lexer.StringTail:
+			text = strconv.Quote(t.Value)
+		}
+		fmt.Fprintf(stdout, "%-8s %-18s %s\n", t.Pos, t.Kind, text)
+	}
+	return exitOK
+}
+
+// Prints compile errors from [err] for source file [f] and returns the
+// exit code to use.
+func report(f *diag.File, err error, stderr io.Writer) int {
+	var list diag.List
+	if !errors.As(err, &list) {
+		fmt.Fprintf(stderr, "vex: %v\n", err)
+		return exitError
+	}
+	list.Sort()
+	color := useColor(stderr)
+	for i, d := range list {
+		if i > 0 {
+			fmt.Fprintln(stderr)
+		}
+		fmt.Fprint(stderr, diag.Format(f, d, color))
+	}
+	if len(list) > 1 {
+		fmt.Fprintf(stderr, "\n%d errors\n", len(list))
+	}
+	return exitError
+}
+
+// Reports whether [w] is a terminal that should get coloured output.
+func useColor(w io.Writer) bool {
+	if os.Getenv("NO_COLOR") != "" {
+		return false
+	}
+	file, ok := w.(*os.File)
+	if !ok {
+		return false
+	}
+	info, err := file.Stat()
+	return err == nil && info.Mode()&os.ModeCharDevice != 0
+}
+
+// Reads the source file at [path] into a [diag.File].
+func readSource(path string) (*diag.File, error) {
+	src, err := os.ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return diag.NewFile(path, string(src)), nil
 }

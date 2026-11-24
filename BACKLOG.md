@@ -21,11 +21,11 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 - [x] **V-003** Error type with file:line:col, a source snippet, a caret and an optional hint (S)
 
 ### 1.2 Lexer
-- [ ] **V-010** Tokens: identifiers, keywords, int/float/string/bool literals, operators (M)
-- [ ] **V-011** Automatic statement end at newline (Go-style rules) (S)
-- [ ] **V-012** Comments `//`, `///` and `/* */`, string escapes, `1_000` digit separators (S)
-- [ ] **V-013** String interpolation tokens: `"Hi {name}, {count + 1}"` with nesting (M)
-- [ ] **V-014** Lexer unit tests (S)
+- [x] **V-010** Tokens: identifiers, keywords, int/float/string/bool literals, operators (M)
+- [x] **V-011** Automatic statement end at newline (Go-style rules) (S)
+- [x] **V-012** Comments `//`, `///` and `/* */`, string escapes, `1_000` digit separators (S)
+- [x] **V-013** String interpolation tokens: `"Hi {name}, {count + 1}"` with nesting (M)
+- [x] **V-014** Lexer unit tests (S)
 
 ### 1.3 Parser and AST
 - [ ] **V-020** AST node types for declarations, statements and expressions (S)

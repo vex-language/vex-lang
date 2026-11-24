@@ -21,7 +21,27 @@ let price: float = 9.99     // explicit type
 println("Hello, {name}! Count is {count + 1}")
 ```
 
-A new line ends a statement. A line ending with an operator, `,` or an opening bracket continues on the next line.
+A new line ends a statement. A line ending with an operator, `,` or an opening bracket continues on the next line, and so does a line that starts with `.member`, which keeps chains readable:
+
+```swift
+Text("Count: {count}")
+    .size(24)
+    .color(blue)
+```
+
+## Literals and comments
+
+```swift
+let count = 1_000_000        // `_` separates digits
+let mask = 0xFF              // also 0b1010 and 0o17
+let ratio = 2.5e-3
+let text = "Tab\tquote\" brace\{ smile \u{1F600}"
+
+/// Doc comment for the next declaration.
+/* Block comments /* can nest */ too. */
+```
+
+Escapes: `\n` `\t` `\r` `\\` `\"` `\{` `\}` and `\u{...}`. Strings stay on one line.
 
 ## Functions
 
