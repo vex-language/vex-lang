@@ -1,0 +1,9 @@
+Hello, Vex!
+double(21) = 42
+[Add] tapped
+[Add] tapped
+taps = 32
+addFive(10) = 15
+counter: 1 2 3
+passed: [42, 88, 56]
+labels: ["42 pts", "88 pts", "56 pts"]
