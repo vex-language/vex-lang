@@ -58,6 +58,124 @@ func TestPrograms(t *testing.T) {
 		name, src, stdin, want string
 	}{
 		{"hello", `fn main() { println("Hello, world!") }`, "", "Hello, world!\n"},
+		{"optionals", `struct User {
+    name: string
+    boss: User? = nil
+
+    fn greet() -> string => "hi {name}"
+}
+
+fn find(id: int) -> User? {
+    if id == 1 {
+        return User(name: "ann", boss: User(name: "bob"))
+    }
+    return nil
+}
+
+fn main() {
+    let a = find(1)
+    let b = find(2)
+    let n: int? = 5
+    let f: float? = 2
+    let none: string? = nil
+    println(a?.name ?? "nobody", b?.name ?? "nobody")
+    println(a?.boss?.name, b?.boss?.name, a?.greet())
+    println(n, f, none, n ?? 0, none ?? "empty")
+    println(a == nil, b == nil, nil != a)
+    if let u = a {
+        println("found", u.name)
+    }
+    if let u = b {
+        println("never")
+    } else if let m = n {
+        println("n is", m)
+    } else {
+        println("no")
+    }
+    for id in [1, 2] {
+        guard let u = find(id) else {
+            println("no user", id)
+            continue
+        }
+        println(u.greet())
+    }
+    let xs: [int?] = [1, nil, 3]
+    var total = 0
+    for x in xs {
+        total += x ?? 100
+    }
+    println(xs, total)
+    var later: User? = nil
+    later = a
+    println(later?.name?.upper(), later?.name?.len)
+}`, "", "ann nobody\nbob nil hi ann\n5 2.0 nil 5 empty\nfalse true true\nfound ann\nn is 5\nhi ann\nno user 2\n[1, nil, 3] 104\nANN 3\n"},
+		{"optional edge cases", `struct Node {
+    value: int
+    next: Node? = nil
+
+    fn log() {
+        println("node", value)
+    }
+}
+
+enum Event {
+    tap(label: string?)
+    none
+}
+
+fn greet(name: string? = nil) -> string => "hello {name ?? "stranger"}"
+
+fn length(head: Node?) -> int {
+    var n = 0
+    var cur = head
+    while cur != nil {
+        n += 1
+        cur = cur?.next
+    }
+    return n
+}
+
+fn pick(i: int) -> int? => match i {
+    0 => nil
+    _ => i * 10
+}
+
+fn tick(s: string) -> int? {
+    print(s, "")
+    return 1
+}
+
+fn main() {
+    let list = Node(value: 1, next: Node(value: 2, next: Node(value: 3)))
+    println(length(list), length(nil))
+    list.next?.log()
+    let empty: Node? = nil
+    empty?.log()
+    println(greet(), greet(name: "ann"), "{empty?.value}")
+
+    var handler: fn()? = nil
+    println(handler == nil)
+    handler = fn() { println("handled") }
+    if let h = handler {
+        h()
+    }
+    let label = fn(e: Event) -> string => match e {
+        tap(l) => l ?? "unlabelled"
+        none => "-"
+    }
+    println(label(.tap(label: "ok")), label(.tap(label: nil)), label(.none))
+    println(pick(0), pick(4), pick(0) ?? pick(2) ?? 0)
+
+    var count: int? = nil
+    count = 3
+    println(count, (count ?? 0) + 1)
+    println(tick("a") ?? 0, tick("b") ?? tick("c") ?? 9)
+    let words: [string?] = ["x", nil]
+    println(words, words[1] ?? "?")
+    var maybe = words[0]
+    maybe = nil
+    println(maybe)
+}`, "", "3 0\nnode 2\nhello stranger hello ann nil\ntrue\nhandled\nok unlabelled -\nnil 40 20\n3 4\na b 1 1\n[\"x\", nil] ?\nnil\n"},
 		{"enums", `enum Shape {
     circle(radius: float)
     rect(width: float, height: float)
@@ -550,7 +668,7 @@ func TestGeneratedCodeIsWarningFree(t *testing.T) {
 	if out, _ := exec.Command(command[0], "--version").Output(); !bytes.Contains(out, []byte("clang")) {
 		t.Skip("strict warning flags are tuned for clang")
 	}
-	for _, path := range []string{"../parser/testdata/tour.vx", "../../examples/enums.vx", "../../examples/closures.vx"} {
+	for _, path := range []string{"../parser/testdata/tour.vx", "../../examples/enums.vx", "../../examples/closures.vx", "../../examples/optionals.vx"} {
 		src, err := os.ReadFile(path)
 		if err != nil {
 			t.Fatal(err)
@@ -561,7 +679,7 @@ func TestGeneratedCodeIsWarningFree(t *testing.T) {
 			t.Fatal(err)
 		}
 		args := append(command[1:len(command):len(command)], "-std=gnu11", "-fwrapv", "-Wall", "-Wextra", "-Werror",
-			"-Wno-unused-function", "-Wno-unused-parameter", "-c", cfile, "-o", filepath.Join(dir, "main.o"))
+			"-Wno-unused-function", "-Wno-unused-parameter", "-Wno-unused-variable", "-c", cfile, "-o", filepath.Join(dir, "main.o"))
 		if out, err := exec.Command(command[0], args...).CombinedOutput(); err != nil {
 			t.Fatalf("warnings in code generated for %s:\n%s", path, out)
 		}

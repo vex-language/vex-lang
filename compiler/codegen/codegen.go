@@ -40,12 +40,22 @@ type gen struct {
 
 	// Named functions used as values, which need a wrapper.
 	fnValues map[*types.Func]bool
+
+	// Optional types, which each need a C struct, by name.
+	opts map[string]*types.Optional
+
+	// While an optional chain is generated: C code standing for its
+	// receiver, and the chains being generated.
+	recvs    map[ast.Expr]string
+	chaining map[ast.Expr]bool
 }
 
 // Returns the C source of the program described by [info]. [srcName] is
 // the file name shown in runtime errors.
 func Generate(info *types.Info, srcName string) string {
-	g := &gen{info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{}}
+	g := &gen{info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{},
+		opts: map[string]*types.Optional{}, recvs: map[ast.Expr]string{}, chaining: map[ast.Expr]bool{}}
+	g.collectOptionals()
 	for _, t := range info.Types {
 		g.needRepr(t)
 	}
@@ -92,6 +102,9 @@ func Generate(info *types.Info, srcName string) string {
 	for _, e := range info.Enums {
 		g.line("typedef struct %s %s;", enumName(e), enumName(e))
 	}
+	for _, name := range sortedKeys(g.opts) {
+		g.line("typedef struct { bool has; %s; } %s;", decl(g.opts[name].Elem, "v"), name)
+	}
 	for _, s := range info.Structs {
 		g.line("struct %s {", structName(s))
 		for _, f := range s.Fields {
@@ -113,6 +126,9 @@ func Generate(info *types.Info, srcName string) string {
 	}
 	for _, name := range g.reprNames() {
 		g.line("static vx_str repr_%s(%s);", name, decl(g.reprs[name], "v"))
+		if showsInline(g.reprs[name]) {
+			g.line("static vx_str show_%s(%s);", name, decl(g.reprs[name], "v"))
+		}
 	}
 	for _, f := range info.Funcs {
 		g.line("static %s;", g.signature(f, false))
@@ -164,6 +180,8 @@ func ctype(t types.Type) string {
 		return "vx_fn"
 	case *types.Enum:
 		return enumName(t) + " *"
+	case *types.Optional:
+		return "opt_" + mangle(t.Elem)
 	}
 	switch t {
 	case types.Int:
@@ -216,6 +234,8 @@ func mangle(t types.Type) string {
 		return fmt.Sprintf("S%d%s", len(t.Name), t.Name)
 	case *types.Enum:
 		return fmt.Sprintf("E%d%s", len(t.Name), t.Name)
+	case *types.Optional:
+		return "O_" + mangle(t.Elem)
 	case *types.FuncType:
 		parts := []string{fmt.Sprintf("F%d", len(t.Params))}
 		for _, p := range t.Params {
@@ -359,6 +379,11 @@ func (g *gen) needRepr(t types.Type) {
 				g.needRepr(f.Type)
 			}
 		}
+	case *types.Optional:
+		if _, ok := g.reprs[mangle(t)]; !ok {
+			g.reprs[mangle(t)] = t
+			g.needRepr(t.Elem)
+		}
 	case *types.Enum:
 		if _, ok := g.reprs[mangle(t)]; !ok {
 			g.reprs[mangle(t)] = t
@@ -384,7 +409,7 @@ func (g *gen) reprNames() []string {
 // strings quoted.
 func repr(t types.Type, x string) string {
 	switch t := t.(type) {
-	case *types.List, *types.Struct, *types.Enum:
+	case *types.List, *types.Struct, *types.Enum, *types.Optional:
 		return fmt.Sprintf("repr_%s(%s)", mangle(t), x)
 	case *types.FuncType:
 		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
@@ -408,7 +433,17 @@ func show(t types.Type, x string) string {
 	if t == types.String {
 		return x
 	}
+	if showsInline(t) {
+		return fmt.Sprintf("show_%s(%s)", mangle(t), x)
+	}
 	return repr(t, x)
+}
+
+// Reports whether printing [t] on its own differs from showing it inside a
+// list: a `string?` prints without quotes.
+func showsInline(t types.Type) bool {
+	o, ok := t.(*types.Optional)
+	return ok && o.Elem == types.String
 }
 
 func (g *gen) repr(name string, t types.Type) {
@@ -433,6 +468,14 @@ func (g *gen) repr(name string, t types.Type) {
 			g.line("    s = vx_str_concat(s, %s);", repr(f.Type, "v->f_"+f.Name))
 		}
 		g.line("    return vx_str_concat(s, VX_LIT(\")\"));")
+	case *types.Optional:
+		g.line("    return v.has ? %s : VX_LIT(\"nil\");", repr(t.Elem, "v.v"))
+		if showsInline(t) {
+			g.line("}")
+			g.line("")
+			g.line("static vx_str show_%s(%s) {", name, decl(t, "v"))
+			g.line("    return v.has ? v.v : VX_LIT(\"nil\");")
+		}
 	case *types.Enum:
 		g.line("    switch (v->tag) {")
 		for _, cs := range t.Cases {
@@ -511,6 +554,14 @@ func (g *gen) stmt(s ast.Stmt) {
 		}
 	case *ast.AssignStmt:
 		g.assign(s)
+	case *ast.GuardStmt:
+		tmp := g.temp()
+		g.line("%s = %s;", decl(g.info.Types[s.Value], tmp), g.expr(s.Value))
+		g.line("if (!%s.has) {", tmp)
+		g.body(s.Else)
+		g.line("}")
+		v := g.info.Defs[s.Bind]
+		g.line("%s = %s.v;", decl(v.Type, g.declare(v)), tmp)
 	case *ast.ExprStmt:
 		if m, ok := s.X.(*ast.MatchExpr); ok && g.info.Matches[m].Stmt {
 			g.matchStmt(m)
@@ -547,11 +598,23 @@ func (g *gen) body(b *ast.Block) {
 
 // Writes an if statement, with `else if` chains on the closing brace line.
 func (g *gen) ifStmt(s *ast.IfStmt) {
+	if s.Bind != nil {
+		g.ifLet(s)
+		return
+	}
 	g.line("if (%s) {", cond(g.expr(s.Cond)))
 	for {
 		g.body(s.Then)
 		switch e := s.Else.(type) {
 		case *ast.IfStmt:
+			if e.Bind != nil {
+				g.line("} else {")
+				g.ind++
+				g.ifLet(e)
+				g.ind--
+				g.line("}")
+				return
+			}
 			g.line("} else if (%s) {", cond(g.expr(e.Cond)))
 			s = e
 			continue
@@ -836,7 +899,7 @@ func (g *gen) orderedBy(es []ast.Expr, rank []int, render func(cs []string) stri
 			continue
 		}
 		cs[i] = g.temp()
-		fmt.Fprintf(&b, "%s = %s; ", decl(g.info.Types[e], cs[i]), g.expr(e))
+		fmt.Fprintf(&b, "%s = %s; ", decl(g.typeOf(e), cs[i]), g.expr(e))
 	}
 	b.WriteString(render(cs))
 	b.WriteString("; })")
@@ -844,6 +907,20 @@ func (g *gen) orderedBy(es []ast.Expr, rank []int, render func(cs []string) stri
 }
 
 func (g *gen) expr(e ast.Expr) string {
+	if s, ok := g.recvs[e]; ok {
+		return s
+	}
+	if o := g.info.Wraps[e]; o != nil {
+		return fmt.Sprintf("((%s){true, %s})", ctype(o), g.value(e))
+	}
+	if wrap, ok := g.info.Chains[e]; ok && !g.chaining[e] {
+		return g.chain(e, wrap)
+	}
+	return g.value(e)
+}
+
+// Returns the C code of [e] itself, before any conversion to an optional.
+func (g *gen) value(e ast.Expr) string {
 	t := g.info.Types[e]
 	switch e := e.(type) {
 	case *ast.IntLit:
@@ -889,9 +966,20 @@ func (g *gen) expr(e ast.Expr) string {
 		})
 	case *ast.UnaryExpr:
 		return "(" + op(e.Op) + g.expr(e.X) + ")"
+	case *ast.NilLit:
+		return "((" + ctype(t) + "){0})"
 	case *ast.BinaryExpr:
 		if e.Op == lexer.AndAnd || e.Op == lexer.OrOr {
 			return fmt.Sprintf("(%s %s %s)", g.expr(e.X), op(e.Op), g.expr(e.Y))
+		}
+		if e.Op == lexer.QuestionQuestion {
+			return g.coalesce(e)
+		}
+		if _, isNil := e.Y.(*ast.NilLit); isNil && (e.Op == lexer.Eq || e.Op == lexer.NotEq) {
+			return g.nilTest(e.Op, e.X)
+		}
+		if _, isNil := e.X.(*ast.NilLit); isNil && (e.Op == lexer.Eq || e.Op == lexer.NotEq) {
+			return g.nilTest(e.Op, e.Y)
 		}
 		operand := g.info.Types[e.X]
 		return g.ordered([]ast.Expr{e.X, e.Y}, func(cs []string) string {
