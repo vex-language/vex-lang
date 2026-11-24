@@ -302,6 +302,92 @@ fn main() {}`)
 	}
 }
 
+const shapeDecl = `
+enum Shape {
+    circle(radius: float)
+    rect(width: float, height: float)
+    empty
+
+    fn area() -> float => match self {
+        circle(r) => 3.14 * r * r
+        rect(w, h) => w * h
+        empty => 0.0
+    }
+    fn isRound() -> bool => match self {
+        circle(_) => true
+        _ => false
+    }
+    fn describe() -> string => "area {area()}"
+    static fn unit() -> Shape => .rect(width: 1, height: 1)
+}
+enum Dir { up, down }
+`
+
+func TestEnums(t *testing.T) {
+	info, errs := checkMain(t, shapeDecl+`
+fn turn(d: Dir) -> Dir => match d {
+    up => .down
+    down => .up
+}
+fn grade(n: int) -> string => match n {
+    100 => "perfect"
+    0 => "zero"
+    _ => "ok"
+}`, `
+    let a = Shape.circle(radius: 2)
+    let b: Shape = .rect(width: 2, height: 3)
+    let c = Shape.empty
+    let d = Shape.unit()
+    let e = a.area()
+    let f = [a, b, c, .empty]
+    let g = turn(.up) == Dir.down
+    let h = match a {
+        circle(r) => r
+        _ => 0.0
+    }
+    match b {
+        rect(w, _) => {
+            println(w)
+        }
+        circle(r) => println(r)
+        empty => println("none")
+    }
+    let i = match true { true => "y", false => "n" }
+    let j = match "x" { "x" => 1, _ => panic("no") }
+`)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	want := map[string]string{
+		"a": "Shape", "b": "Shape", "c": "Shape", "d": "Shape", "e": "float",
+		"f": "[Shape]", "g": "bool", "h": "float", "i": "string", "j": "int",
+	}
+	got := varTypes(info)
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("%s: got %s, want %s", name, got[name], w)
+		}
+	}
+	if len(info.Enums) != 2 || len(info.Matches) != 8 {
+		t.Errorf("got %d enums and %d matches", len(info.Enums), len(info.Matches))
+	}
+}
+
+func TestMatchTerminates(t *testing.T) {
+	_, errs := check(t, shapeDecl+`
+fn size(s: Shape) -> int {
+    match s {
+        circle(_) => { return 1 }
+        rect(_, _) => { return 2 }
+        empty => panic("empty")
+    }
+}
+fn main() {}`)
+	if errs != nil {
+		t.Fatal(errs)
+	}
+}
+
 func TestErrors(t *testing.T) {
 	cases := []struct {
 		name, decls, body string
@@ -402,6 +488,33 @@ func TestErrors(t *testing.T) {
 		{"map void", "", "let r = [1].map(fn(x) { println(x) })", "2:17", "map needs a function that returns a value", ""},
 		{"filter type", "", "let r = [1].filter(fn(x) => x)", "2:29", "closure result: expected bool, found int", ""},
 		{"compare closures", "", "let f = fn() {}\nlet b = f == f", "3:9", "values of type fn() can't be compared with ==", ""},
+
+		// Enums and match.
+		{"unknown case", shapeDecl, "let s = Shape.circel(radius: 1)", "22:15", "Shape has no case 'circel'", "did you mean 'circle'?"},
+		{"case needs values", shapeDecl, "let s = Shape.circle", "22:15", "case 'circle' carries values, so it must be called", "give its values: Shape.circle(radius: ...)"},
+		{"case without values called", shapeDecl, "let s = Shape.empty()", "22:15", "case 'empty' carries no values", "write it without (): Shape.empty"},
+		{"enum as value", shapeDecl, "let s = Shape", "22:9", "'Shape' is a type, not a value", "use one of its cases, e.g. Shape.circle"},
+		{"enum called", shapeDecl, "let s = Shape()", "22:9", "enums are created from one of their cases", "create it from a case, e.g. Shape.circle"},
+		{"implicit without type", shapeDecl, "let s = .empty", "22:9", "can't tell which enum '.empty' belongs to", "write the enum name, e.g. Shape.empty"},
+		{"implicit wrong type", "", "let n: int = .zero", "2:14", "'.zero' needs an enum here, but int is expected", ""},
+		{"read case value", shapeDecl, "let s = Shape.circle(radius: 1)\nprintln(s.radius)", "23:11", "Shape has no member 'radius'", "read the values a case carries with match, e.g. match v { circle(r) => r, ... }"},
+		{"missing case", shapeDecl, "let s = Shape.empty\nmatch s {\n    empty => println(0)\n}", "23:1", "match doesn't handle 'circle' and 'rect'", "add the missing arms, or _ => ..."},
+		{"missing one case", shapeDecl, "let s = Shape.empty\nmatch s {\n    empty => println(0)\n    rect(w, h) => println(w)\n}", "23:1", "match doesn't handle 'circle'", "add circle => ..., or _ => ..."},
+		{"duplicate arm", shapeDecl, "let s = Shape.empty\nmatch s {\n    empty => println(0)\n    empty => println(1)\n    _ => println(2)\n}", "25:5", "case 'empty' is already handled on line 24", "remove one of the arms"},
+		{"unreachable arm", shapeDecl, "let s = Shape.empty\nmatch s {\n    _ => println(0)\n    empty => println(1)\n}", "25:5", "this arm is never reached: _ on line 24 matches everything", "remove it, or move _ to the end"},
+		{"wrong bind count", shapeDecl, "let s = Shape.empty\nmatch s {\n    rect(w) => println(w)\n    _ => println(0)\n}", "24:5", "case 'rect' carries 2 values, found 1", "write rect(width, height), using _ for values you don't need"},
+		{"int needs wildcard", "", "match 3 {\n    1 => println(1)\n}", "2:1", "a match on int needs a _ arm for the other values", "add _ => ... as the last arm"},
+		{"bool missing", "", "match true {\n    true => println(1)\n}", "2:1", "match doesn't handle 'false'", "add false => ..., or _ => ..."},
+		{"arm types", "", "let x = match 1 {\n    1 => \"one\"\n    _ => 2\n}", "4:10", "match arms must have the same type: expected string, found int", `convert it with str(...) or "{...}"`},
+		{"block in value match", "", "let x = match 1 {\n    _ => { println(1) }\n}", "3:10", "a match used as a value needs an expression after =>", "use an expression, or use the match as a statement"},
+		{"match float", "", "match 1.5 {\n    _ => println(1)\n}", "2:7", "can't match on float values", "compare with if ... else instead"},
+		{"match list", "", "match [1] {\n    _ => println(1)\n}", "2:7", "can't match on a value of type [int]", "use if ... else instead"},
+		{"case on int", "", "match 1 {\n    one => println(1)\n    _ => println(2)\n}", "3:5", "'one' isn't a case: the match is on int", "match literal values such as 1 or \"yes\", or _"},
+		{"literal type", "", "match 1 {\n    \"a\" => println(1)\n    _ => println(2)\n}", "3:5", "pattern: expected int, found string", "parse it with int(...)"},
+		{"change binding", shapeDecl, "let s = Shape.empty\nmatch s {\n    circle(r) => { r = 1.0 }\n    _ => println(0)\n}", "24:20", "can't change 'r': names bound by a match pattern can't be changed", "copy it first: var myR = r"},
+		{"compare data enums", shapeDecl, "let b = Shape.empty == Shape.empty", "22:9", "values of type Shape can't be compared with ==", ""},
+		{"empty enum", "enum E {}", "", "1:6", "enum 'E' has no cases", "add cases, e.g. enum E { first, second }"},
+		{"duplicate case", "enum E {\n a\n a\n}", "", "3:2", "case 'a' is already declared on line 2", ""},
 
 		// Built-ins.
 		{"println void", "fn f() {}", "println(f())", "3:9", "this expression has no value to print", ""},

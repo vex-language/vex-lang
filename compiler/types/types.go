@@ -89,6 +89,59 @@ func (s *Struct) Method(name string) *Func {
 	return nil
 }
 
+// An enum type: a value that is one of [Cases]. Like structs, enum values
+// are references, but they never change after they are created.
+type Enum struct {
+	Name    string
+	Cases   []*Case
+	Methods []*Func
+	Decl    *ast.EnumDecl
+}
+
+// Returns the enum's name.
+func (e *Enum) String() string { return e.Name }
+
+// Returns the case called [name], or nil.
+func (e *Enum) Case(name string) *Case {
+	for _, c := range e.Cases {
+		if c.Name == name {
+			return c
+		}
+	}
+	return nil
+}
+
+// Returns the method called [name], or nil.
+func (e *Enum) Method(name string) *Func {
+	for _, m := range e.Methods {
+		if m.Name == name {
+			return m
+		}
+	}
+	return nil
+}
+
+// Reports whether no case carries values, so values can be compared with ==.
+func (e *Enum) Simple() bool {
+	for _, c := range e.Cases {
+		if len(c.Fields) > 0 {
+			return false
+		}
+	}
+	return true
+}
+
+// An enum case and the values it carries.
+type Case struct {
+	Name   string
+	Fields []*Field
+	Enum   *Enum
+
+	// The position of the case in its enum, used as its tag.
+	Index int
+	Decl  *ast.EnumCase
+}
+
 // A struct field.
 type Field struct {
 	Name    string
@@ -105,8 +158,10 @@ type Func struct {
 	Result Type
 	Decl   *ast.FuncDecl
 
-	// The struct a method belongs to, or nil for a top-level function.
+	// The struct or enum a method belongs to; both are nil for a
+	// top-level function.
 	Owner  *Struct
+	Enum   *Enum
 	Static bool
 }
 
@@ -116,6 +171,9 @@ func (f *Func) String() string {
 	b.WriteString("fn ")
 	if f.Owner != nil {
 		b.WriteString(f.Owner.Name + ".")
+	}
+	if f.Enum != nil {
+		b.WriteString(f.Enum.Name + ".")
 	}
 	b.WriteString(f.Name + "(")
 	for i, p := range f.Params {
@@ -165,7 +223,37 @@ const (
 	ParamVar
 	LoopVar
 	SelfVar
+
+	// A name bound by a match pattern.
+	PatternVar
 )
+
+// The checked meaning of a match.
+type Match struct {
+	// The enum matched on, or nil for int, bool and string subjects.
+	Enum *Enum
+
+	// One entry per arm, in order.
+	Arms []*MatchArm
+
+	// Set when the match is used as a statement, so its arms may be blocks
+	// and their values are dropped.
+	Stmt bool
+}
+
+// The checked meaning of one match arm.
+type MatchArm struct {
+	// The case the arm matches, or nil for `_` and literals.
+	Case *Case
+
+	// The variable bound to each of the case's values; nil entries are
+	// ignored with `_`.
+	Binds []*Var
+
+	// Set when the arm's expression never finishes (it calls panic), so
+	// it doesn't take part in the match's type.
+	NoValue bool
+}
 
 // Reports whether [a] and [b] are the same type. [Invalid] matches anything.
 func Identical(a, b Type) bool {
@@ -221,6 +309,9 @@ const (
 
 	// A call of a function value: `onTap()`, `handlers[0](x)`.
 	ValueCall
+
+	// Creating an enum value: `Shape.circle(radius: 1)`, `.rect(...)`.
+	CaseCall
 )
 
 // The checked meaning of a call expression.
@@ -232,6 +323,9 @@ type Call struct {
 
 	// The struct created, for ConstructorCall.
 	Struct *Struct
+
+	// The enum case created, for CaseCall.
+	Case *Case
 
 	// The built-in name, such as `println` or `push`.
 	Builtin string
@@ -281,6 +375,15 @@ type Info struct {
 
 	// The [Func] for each declaration, including methods.
 	FuncOf map[*ast.FuncDecl]*Func
+
+	// Enum cases used as values without a call: `Shape.empty`, `.up`.
+	CaseValues map[ast.Expr]*Case
+
+	// What each match does.
+	Matches map[*ast.MatchExpr]*Match
+
+	// Enums in source order.
+	Enums []*Enum
 
 	// The variables each closure uses from outside itself, in first-use
 	// order. A closure nested in another also lists what its inner

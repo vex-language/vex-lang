@@ -36,6 +36,7 @@ type checker struct {
 	info    *Info
 	errs    diag.List
 	structs map[string]*Struct
+	enums   map[string]*Enum
 	funcs   map[string]*Func
 
 	scope *scope
@@ -58,16 +59,19 @@ func Check(f *diag.File, file *ast.File) (info *Info, err error) {
 	c := &checker{
 		file: f,
 		info: &Info{
-			Types:    map[ast.Expr]Type{},
-			Uses:     map[*ast.Ident]any{},
-			Defs:     map[*ast.Ident]*Var{},
-			Calls:    map[*ast.CallExpr]*Call{},
-			Members:  map[*ast.MemberExpr]*Member{},
-			Selves:   map[*ast.FuncDecl]*Var{},
-			Captures: map[*ast.FuncLit][]*Var{},
-			FuncOf:   map[*ast.FuncDecl]*Func{},
+			Types:      map[ast.Expr]Type{},
+			Uses:       map[*ast.Ident]any{},
+			Defs:       map[*ast.Ident]*Var{},
+			Calls:      map[*ast.CallExpr]*Call{},
+			Members:    map[*ast.MemberExpr]*Member{},
+			Selves:     map[*ast.FuncDecl]*Var{},
+			Captures:   map[*ast.FuncLit][]*Var{},
+			CaseValues: map[ast.Expr]*Case{},
+			Matches:    map[*ast.MatchExpr]*Match{},
+			FuncOf:     map[*ast.FuncDecl]*Func{},
 		},
 		structs: map[string]*Struct{},
+		enums:   map[string]*Enum{},
 		funcs:   map[string]*Func{},
 	}
 	func() {
@@ -202,6 +206,11 @@ func (c *checker) collect(file *ast.File) {
 		}
 	}
 	for _, d := range file.Decls {
+		if ed, ok := d.(*ast.EnumDecl); ok {
+			c.declareEnum(ed)
+		}
+	}
+	for _, d := range file.Decls {
 		if fd, ok := d.(*ast.FuncDecl); ok {
 			c.declareFunc(fd)
 		}
@@ -209,8 +218,11 @@ func (c *checker) collect(file *ast.File) {
 	for _, s := range c.info.Structs {
 		c.structMembers(s)
 	}
+	for _, e := range c.info.Enums {
+		c.enumMembers(e)
+	}
 	for _, f := range c.info.Funcs {
-		if f.Owner == nil {
+		if f.Owner == nil && f.Enum == nil {
 			c.signature(f)
 		}
 	}
@@ -244,6 +256,9 @@ func (c *checker) declareFunc(fd *ast.FuncDecl) {
 		return
 	case c.structs[f.Name] != nil:
 		c.errorAt(fd.Name, "", "'%s' is already declared as a struct on line %d", f.Name, c.structs[f.Name].Decl.Pos().Line)
+		return
+	case c.enums[f.Name] != nil:
+		c.errorAt(fd.Name, "", "'%s' is already declared as an enum on line %d", f.Name, c.enums[f.Name].Decl.Pos().Line)
 		return
 	}
 	c.funcs[f.Name] = f
@@ -323,12 +338,18 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 		if s := c.structs[te.Name]; s != nil {
 			return s
 		}
+		if e := c.enums[te.Name]; e != nil {
+			return e
+		}
 		if te.Name == "void" {
 			c.errorAt(te, "leave out the return type for functions that return nothing", "'void' is not a type")
 			return Invalid
 		}
 		names := []string{"int", "float", "bool", "string"}
 		for n := range c.structs {
+			names = append(names, n)
+		}
+		for n := range c.enums {
 			names = append(names, n)
 		}
 		c.errorAt(te, didYouMean(te.Name, names), "unknown type '%s'", te.Name)
@@ -420,6 +441,10 @@ func (c *checker) funcBody(f *Func) {
 		c.self = &Var{Name: "self", Type: f.Owner, Kind: SelfVar, Decl: f.Decl.Name}
 		c.info.Selves[f.Decl] = c.self
 	}
+	if f.Enum != nil && !f.Static {
+		c.self = &Var{Name: "self", Type: f.Enum, Kind: SelfVar, Decl: f.Decl.Name}
+		c.info.Selves[f.Decl] = c.self
+	}
 	for i, p := range f.Decl.Params {
 		c.declare(p.Name, f.Params[i].Type, false, ParamVar)
 	}
@@ -463,12 +488,10 @@ func terminates(s ast.Stmt) bool {
 		lit, ok := s.Cond.(*ast.BoolLit)
 		return ok && lit.Value && !breaks(s.Body)
 	case *ast.ExprStmt:
-		call, ok := s.X.(*ast.CallExpr)
-		if !ok {
-			return false
+		if m, ok := s.X.(*ast.MatchExpr); ok {
+			return matchTerminates(m)
 		}
-		id, ok := call.Fn.(*ast.Ident)
-		return ok && id.Name == "panic"
+		return isPanic(s.X)
 	}
 	return false
 }
@@ -519,6 +542,10 @@ func (c *checker) stmt(s ast.Stmt) {
 	case *ast.AssignStmt:
 		c.assign(s)
 	case *ast.ExprStmt:
+		if m, ok := s.X.(*ast.MatchExpr); ok {
+			c.info.Types[m] = c.match(m, nil, true)
+			break
+		}
 		c.expr(s.X, nil)
 		if _, ok := s.X.(*ast.CallExpr); !ok {
 			c.errorAt(s.X, "store it with let, or remove it", "this value isn't used")
@@ -585,6 +612,8 @@ func (c *checker) assign(s *ast.AssignStmt) {
 				c.errorAt(x, "", "can't change loop variable '%s'", v.Name)
 			case SelfVar:
 				c.errorAt(x, "change its fields instead, e.g. self.name = ...", "can't assign to self")
+			case PatternVar:
+				c.errorAt(x, fmt.Sprintf("copy it first: var my%s = %s", capitalize(v.Name), v.Name), "can't change '%s': names bound by a match pattern can't be changed", v.Name)
 			}
 		}
 	case *ast.MemberExpr:

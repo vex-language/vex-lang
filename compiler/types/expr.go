@@ -53,13 +53,20 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		c.errorAt(e, "for i in 0..10 { ... }", "ranges can only be used in for loops")
 		return Invalid
 	case *ast.CallExpr:
-		return c.call(e)
+		return c.call(e, want)
 	case *ast.IndexExpr:
 		return c.index(e)
 	case *ast.MemberExpr:
 		return c.member(e)
 	case *ast.FuncLit:
 		return c.funcLit(e, want)
+	case *ast.ImplicitMember:
+		if en := c.implicitEnum(e, want); en != nil {
+			return c.caseValue(e, en, e.Name, "."+e.Name.Name)
+		}
+		return Invalid
+	case *ast.MatchExpr:
+		return c.match(e, want, false)
 	}
 	return Invalid
 }
@@ -106,6 +113,10 @@ func (c *checker) ident(id *ast.Ident) Type {
 	}
 	if s := c.structs[id.Name]; s != nil {
 		c.errorAt(id, fmt.Sprintf("create one with %s(...)", s.Name), "'%s' is a type, not a value", s.Name)
+		return Invalid
+	}
+	if en := c.enums[id.Name]; en != nil {
+		c.errorAt(id, fmt.Sprintf("use one of its cases, e.g. %s.%s", en.Name, en.Cases[0].Name), "'%s' is a type, not a value", en.Name)
 		return Invalid
 	}
 	if builtinTypes[id.Name] != nil {
@@ -229,6 +240,9 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 	if operandWant == nil && numeric(x) && x != Invalid {
 		operandWant = x
 	}
+	if en, ok := x.(*Enum); ok {
+		operandWant = en
+	}
 	y := c.expr(e.Y, operandWant)
 	if x == Int && y == Float && isIntConst(e.X) {
 		c.toFloat(e.X)
@@ -329,7 +343,12 @@ func precedenceOf(k lexer.Kind) int {
 }
 
 // Reports whether values of type [t] can be compared with `==`.
-func comparable(t Type) bool { return t == Int || t == Float || t == Bool || t == String }
+func comparable(t Type) bool {
+	if e, ok := t.(*Enum); ok {
+		return e.Simple()
+	}
+	return t == Int || t == Float || t == Bool || t == String
+}
 
 func (c *checker) index(e *ast.IndexExpr) Type {
 	x := c.expr(e.X, nil)
@@ -362,6 +381,9 @@ func (c *checker) structRef(e ast.Expr) *Struct {
 
 func (c *checker) member(e *ast.MemberExpr) Type {
 	name := e.Name.Name
+	if en := c.enumRef(e.X); en != nil {
+		return c.caseValue(e, en, e.Name, en.Name+"."+name)
+	}
 	if s := c.structRef(e.X); s != nil {
 		if s.Method(name) != nil {
 			c.errorAt(e.Name, fmt.Sprintf("call it: %s.%s()", s.Name, name), "method '%s' must be called", name)
@@ -372,6 +394,13 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 	}
 	x := c.expr(e.X, nil)
 	switch x := x.(type) {
+	case *Enum:
+		if x.Method(name) != nil {
+			c.errorAt(e.Name, fmt.Sprintf("call it: %s()", name), "method '%s' must be called", name)
+		} else {
+			c.errorAt(e.Name, "read the values a case carries with match, e.g. match v { circle(r) => r, ... }", "%s has no member '%s'", x.Name, name)
+		}
+		return Invalid
 	case *Struct:
 		if f := x.Field(name); f != nil {
 			c.info.Members[e] = &Member{Field: f}
