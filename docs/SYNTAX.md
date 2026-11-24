@@ -298,6 +298,10 @@ The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, s
 
 Run `vex check file.vx` to see type errors without building.
 
+## Memory
+
+Memory is managed automatically by a garbage collector: objects nobody can reach any more are freed, including ones that refer to each other in a cycle. There is nothing to free by hand and no `weak` keyword. See [design/memory.md](design/memory.md).
+
 ## Runtime errors
 
 Mistakes that can only be found while the program runs stop it with a message and the source line, and exit code 1:
