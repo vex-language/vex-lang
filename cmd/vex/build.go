@@ -28,6 +28,7 @@ func translate(path string, stderr io.Writer) (string, int) {
 	if err != nil {
 		return "", report(f, err, stderr)
 	}
+	warn(f, tree, stderr)
 	info, err := types.Check(f, tree)
 	if err != nil {
 		return "", report(f, err, stderr)

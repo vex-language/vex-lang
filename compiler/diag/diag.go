@@ -31,6 +31,9 @@ type Diagnostic struct {
 
 	// An optional suggestion shown next to the underline.
 	Hint string
+
+	// Set for a warning, which doesn't stop the program from building.
+	Warning bool
 }
 
 // Returns the diagnostic as `line:col: message`.
@@ -95,11 +98,11 @@ func (f *File) PosOf(offset int) Pos {
 }
 
 // Terminal colours used by [Format].
-type style struct{ err, accent, hint, reset string }
+type style struct{ err, warn, accent, hint, reset string }
 
 var (
 	plain   = style{}
-	colored = style{err: "\x1b[1;31m", accent: "\x1b[1;34m", hint: "\x1b[36m", reset: "\x1b[0m"}
+	colored = style{err: "\x1b[1;31m", warn: "\x1b[1;33m", accent: "\x1b[1;34m", hint: "\x1b[36m", reset: "\x1b[0m"}
 )
 
 // Formats [d] with the offending source line and an underline:
@@ -115,7 +118,11 @@ func Format(f *File, d Diagnostic, color bool) string {
 		s = colored
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "%serror%s: %s\n", s.err, s.reset, d.Message)
+	if d.Warning {
+		fmt.Fprintf(&b, "%swarning%s: %s\n", s.warn, s.reset, d.Message)
+	} else {
+		fmt.Fprintf(&b, "%serror%s: %s\n", s.err, s.reset, d.Message)
+	}
 
 	num := fmt.Sprint(d.Pos.Line)
 	pad := strings.Repeat(" ", len(num))

@@ -3,6 +3,7 @@ package parser
 
 import (
 	"fmt"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/irshadio/vex-lang/compiler/ast"
@@ -25,6 +26,7 @@ type parser struct {
 	p       int
 	lastEnd int
 	errs    diag.List
+	warns   diag.List
 
 	// Set while parsing an `if`, `while` or `for` header, where `{` starts
 	// the body instead of a trailing block.
@@ -42,6 +44,7 @@ func Parse(f *diag.File) (*ast.File, error) {
 	}
 	p := &parser{file: f, toks: toks}
 	file := p.parseFile()
+	file.Warnings = p.warns
 	if len(p.errs) > 0 {
 		return file, p.errs
 	}
@@ -621,7 +624,13 @@ func (p *parser) block() *ast.Block {
 // Checks that a statement is followed by a line break, `;` or `}`.
 func (p *parser) endStmt() {
 	switch t := p.tok(); t.Kind {
-	case lexer.Semi, lexer.RBrace:
+	case lexer.Semi:
+		if t.Text == ";" {
+			if next := p.peek(1); next.Pos.Line > t.Pos.Line || next.Kind == lexer.RBrace || next.Kind == lexer.EOF {
+				p.warn(t, "remove it", "a ; isn't needed at the end of a line")
+			}
+		}
+	case lexer.RBrace:
 	case lexer.DotDot, lexer.DotDotEq:
 		p.fail(t, "for i in 0..10 { ... }", "ranges can only be used in for loops")
 	case lexer.Else:
@@ -766,6 +775,39 @@ func (p *parser) forStmt() *ast.ForStmt {
 }
 
 // Parses the condition of an `if` or `while` and checks that the body follows.
+// Records a warning at token [t].
+func (p *parser) warn(t lexer.Token, hint, format string, args ...any) {
+	p.warns = append(p.warns, diag.Diagnostic{
+		Pos:     t.Pos,
+		Len:     max(1, utf8.RuneCountInString(p.file.Src[t.Pos.Offset:t.End])),
+		Message: fmt.Sprintf(format, args...),
+		Hint:    hint,
+		Warning: true,
+	})
+}
+
+// Warns when the condition of [keyword], tokens [first] to [last], is
+// wrapped in one needless pair of parentheses.
+func (p *parser) checkParens(keyword string, first, last int) {
+	if last <= first || p.toks[first].Kind != lexer.LParen || p.toks[last].Kind != lexer.RParen {
+		return
+	}
+	depth := 0
+	for i := first; i <= last; i++ {
+		switch p.toks[i].Kind {
+		case lexer.LParen:
+			depth++
+		case lexer.RParen:
+			depth--
+			if depth == 0 && i != last {
+				return
+			}
+		}
+	}
+	inner := strings.TrimSpace(p.file.Src[p.toks[first].End:p.toks[last].Pos.Offset])
+	p.warn(p.toks[first], fmt.Sprintf("write %s %s {", keyword, inner), "the %s condition doesn't need parentheses", keyword)
+}
+
 // Parses `guard let name = value else { ... }`.
 func (p *parser) guardStmt() *ast.GuardStmt {
 	start := p.next().Pos
@@ -798,7 +840,9 @@ func (p *parser) header(keyword string) ast.Expr {
 	saved := p.noTrailing
 	p.noTrailing = true
 	defer func() { p.noTrailing = saved }()
+	first := p.p
 	cond := p.expr()
+	p.checkParens(keyword, first, p.p-1)
 	if p.at(lexer.Assign) {
 		// Report the mistake but read it as `==` so the rest of the
 		// statement, including any `else`, still parses.
@@ -939,6 +983,9 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			name := p.ident("a member name")
 			x = &ast.MemberExpr{Span: p.span(x.Pos()), X: x, Name: name, Optional: opt}
 		case lexer.Question:
+			if next := p.peek(1); startsExpr(next.Kind) && !next.IsAutoSemi() {
+				p.fail(p.tok(), "write match cond { true => a, false => b }", "Vex has no ? : operator")
+			}
 			p.fail(p.tok(), "use ?. to read a member, or ?? to give a default", "unexpected '?'")
 		default:
 			return x

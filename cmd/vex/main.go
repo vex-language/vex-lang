@@ -117,6 +117,7 @@ func runCheck(args []string, stdout, stderr io.Writer) int {
 	if err != nil {
 		return report(f, err, stderr)
 	}
+	warn(f, tree, stderr)
 	if _, err := types.Check(f, tree); err != nil {
 		return report(f, err, stderr)
 	}
@@ -173,6 +174,14 @@ func runTokens(args []string, stdout, stderr io.Writer) int {
 
 // Prints compile errors from [err] for source file [f] and returns the
 // exit code to use.
+// Prints the warnings found in [tree].
+func warn(f *diag.File, tree *ast.File, stderr io.Writer) {
+	color := useColor(stderr)
+	for _, d := range tree.Warnings {
+		fmt.Fprintln(stderr, diag.Format(f, d, color))
+	}
+}
+
 func report(f *diag.File, err error, stderr io.Writer) int {
 	var list diag.List
 	if !errors.As(err, &list) {

@@ -1,6 +1,7 @@
 package parser
 
 import (
+	"fmt"
 	"os"
 	"strings"
 	"testing"
@@ -165,6 +166,36 @@ func TestClosures(t *testing.T) {
 	want := "(fn apply param f: fn(int) -> int param x: int -> fn() -> int (=> (fn (=> (call f x)))))"
 	if got := ast.Sexpr(f.Decls[0]); got != want {
 		t.Errorf("\n got: %s\nwant: %s", got, want)
+	}
+}
+
+func TestWarnings(t *testing.T) {
+	f, err := Parse(diag.NewFile("main.vx", `fn main() {
+    let a = 1;
+    let b = 2; let c = 3
+    if (a > 0) {
+        println(a);
+    }
+    while (a < 0) {}
+    if (a > 0) && (b > 0) {}
+    if ((a)) {}
+}`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []string
+	for _, w := range f.Warnings {
+		got = append(got, fmt.Sprintf("%s %s | %s", w.Pos, w.Message, w.Hint))
+	}
+	want := []string{
+		"2:14 a ; isn't needed at the end of a line | remove it",
+		"4:8 the if condition doesn't need parentheses | write if a > 0 {",
+		"5:19 a ; isn't needed at the end of a line | remove it",
+		"7:11 the while condition doesn't need parentheses | write while a < 0 {",
+		"9:8 the if condition doesn't need parentheses | write if (a) {",
+	}
+	if strings.Join(got, "\n") != strings.Join(want, "\n") {
+		t.Errorf("\n got: %s\nwant: %s", strings.Join(got, "\n      "), strings.Join(want, "\n      "))
 	}
 }
 
@@ -363,6 +394,7 @@ func TestErrors(t *testing.T) {
 		{"closure without body", "fn main() {\n let f = fn(x)\n}", "2:15", "expected '{' or '=>' to start the closure body, found end of line", ""},
 		{"unclosed block", "fn main() {\n f()", "1:11", "unclosed block", "add a matching }"},
 		{"double optional", "fn f(x: int??) {}", "1:12", "a type can only be optional once", "one ? is enough"},
+		{"ternary", "fn main() {\n let n = ok ? 1 : 2\n}", "2:13", "Vex has no ? : operator", "write match cond { true => a, false => b }"},
 		{"lone question", "fn main() {\n let n = x?\n}", "2:11", "unexpected '?'", "use ?. to read a member, or ?? to give a default"},
 		{"if var", "fn main() {\n if var x = y {}\n}", "2:5", "'if var' isn't supported", "write if let; copy it into a var inside the block"},
 		{"if let no value", "fn main() {\n if let x {}\n}", "2:11", "expected '=' after 'if let x', found '{'", "write if let x = optionalValue { ... }"},
