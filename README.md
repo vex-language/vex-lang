@@ -178,4 +178,11 @@ Colours: Ocean Blue `#2563EB`, Sky `#38BDF8`, Deep `#1E3A8A`. The wordmark is se
 
 ## License
 
-No license has been chosen yet. All rights reserved until one is added.
+Vex is licensed under either of
+
+- [Apache License, Version 2.0](LICENSE-APACHE)
+- [MIT License](LICENSE-MIT)
+
+at your option, with the [Runtime Library Exception](LICENSE-RUNTIME-EXCEPTION): programs compiled with Vex may be distributed without attribution, even though parts of the Vex runtime are built into them.
+
+Unless you explicitly state otherwise, any contribution you intentionally submit for inclusion in Vex, as defined in the Apache-2.0 license, shall be dual licensed as above, without any additional terms or conditions.
