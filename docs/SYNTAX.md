@@ -168,6 +168,55 @@ let evens = nums.filter(fn(x) => x % 2 == 0)
 let labels = nums.map(fn(x) => "#{x}")      // [string]
 ```
 
+## Optionals
+
+A type ending in `?` holds either a value or `nil`. Values of every other type always exist, so there are no null crashes: Vex makes you check before using an optional.
+
+```swift
+struct User {
+    name: string
+    manager: User? = nil
+}
+
+fn findUser(id: int) -> User? {
+    if id == 1 { return User(name: "Ann") }
+    return nil
+}
+
+let user = findUser(1)                    // User?
+let age: int? = 31                        // a plain value becomes an optional where one is expected
+var picked: User? = nil                   // nil needs a known type
+```
+
+Ways to get the value out:
+
+```swift
+if let u = findUser(1) {                  // u is a User inside the block
+    println(u.name)
+} else {
+    println("not found")
+}
+
+fn greet(id: int) {
+    guard let u = findUser(id) else {     // the else block must return, break, continue or panic
+        return
+    }
+    println("hi {u.name}")                // u is a User from here on
+}
+
+let name = findUser(2)?.name ?? "guest"   // ?. gives nil if the left side is nil; ?? gives a default
+let boss = user?.manager?.name            // string?: each step after an optional needs ?.
+user?.greet()                             // runs only when user isn't nil
+
+if user == nil { ... }                    // optionals compare only with nil
+```
+
+- `x ?? fallback` only runs `fallback` when `x` is nil. Chains like `a ?? b ?? 0` try each in turn.
+- `user.name` on a `User?` is an error. Use `user?.name`, `if let` or `guard let`.
+- There's no force unwrap: every optional is checked.
+- `?` comes last in a type: `[int?]` is a list of optional ints, and `[int]?` is an optional list. Write `(fn() -> int)?` for an optional function that returns a value; `fn()?` needs no parentheses.
+- Optionals print as their value or `nil`.
+
 ## Enums and match
 
 An enum is a value that is one of several cases. Cases are lowercase, and each may carry values, named like parameters. Enums can have methods, just like structs.
@@ -236,7 +285,7 @@ let message = match code {             // a match can be a value
 
 ## Types
 
-The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, structs, enums and function types `fn(T) -> R`.
+The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, structs, enums, function types `fn(T) -> R` and optionals `T?`.
 
 - `let x = ...` takes its type from the value. An empty list needs the type written: `let xs: [int] = []`.
 - Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.
@@ -262,15 +311,9 @@ These cover list indexes out of range, `pop()` on an empty list, division by zer
 
 ## Planned
 
-### Optionals and errors (v0.2)
+### Errors (v0.2)
 
 ```swift
-fn findUser(id: int) -> User? { ... }
-
-if let user = findUser(5) {
-    println(user.name)
-}
-
 fn load(path: string) -> string throws { ... }
 let text = try load("data.txt")
 ```
