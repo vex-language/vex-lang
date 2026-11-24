@@ -4,12 +4,15 @@
 #include <inttypes.h>
 #include <math.h>
 #include <setjmp.h>
+#include <signal.h>
 #include <stdarg.h>
 #include <stdbool.h>
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <sys/resource.h>
+#include <unistd.h>
 
 // An immutable UTF-8 string. [ptr] is not NUL-terminated.
 typedef struct {
@@ -366,6 +369,49 @@ static void vx_gc_init(void *base) {
     if (stress) vx_gc_stress = vx_gc_countdown = (size_t)strtoull(stress, NULL, 10);
     const char *stats = getenv("VEX_GC_STATS");
     if (stats && *stats && strcmp(stats, "0") != 0) atexit(vx_gc_report);
+}
+
+// --- Startup ---
+
+static size_t vx_stack_limit;
+static char vx_signal_stack[64 * 1024];
+
+// Turns a crash just below the stack into a readable error: it means the
+// program ran out of stack, almost always through endless recursion.
+static void vx_on_fault(int sig, siginfo_t *info, void *ctx) {
+    (void)ctx;
+    uintptr_t addr = (uintptr_t)info->si_addr, base = (uintptr_t)vx_stack_base;
+    if (addr < base && base - addr <= vx_stack_limit + ((size_t)1 << 20)) {
+        fflush(stdout);
+        static const char msg[] = "error: stack overflow: too many nested function calls, "
+                                  "probably a function that calls itself without stopping\n";
+        ssize_t n = write(STDERR_FILENO, msg, sizeof(msg) - 1);
+        (void)n;
+        _exit(1);
+    }
+    // Anything else is a real crash: let it happen as usual.
+    signal(sig, SIG_DFL);
+}
+
+static void vx_catch_stack_overflow(void) {
+    struct rlimit rl;
+    vx_stack_limit = getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY
+        ? (size_t)rl.rlim_cur : (size_t)1 << 30;
+    stack_t ss = {.ss_sp = vx_signal_stack, .ss_size = sizeof(vx_signal_stack)};
+    if (sigaltstack(&ss, NULL) != 0) return;
+    struct sigaction sa;
+    memset(&sa, 0, sizeof(sa));
+    sa.sa_sigaction = vx_on_fault;
+    sa.sa_flags = SA_SIGINFO | SA_ONSTACK;
+    sigemptyset(&sa.sa_mask);
+    sigaction(SIGSEGV, &sa, NULL);
+    sigaction(SIGBUS, &sa, NULL);
+}
+
+// Prepares the runtime; [base] is the top of the stack.
+static void vx_init(void *base) {
+    vx_gc_init(base);
+    vx_catch_stack_overflow();
 }
 
 // --- Strings ---
