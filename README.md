@@ -161,6 +161,7 @@ The [examples](examples) folder has small complete programs, each with its expec
 | [primes.vx](examples/primes.vx) | Sieve of Eratosthenes over a million numbers |
 | [sorting.vx](examples/sorting.vx) | Bubble sort and insertion sort, in place |
 | [structs.vx](examples/structs.vx) | Fields with defaults, methods, `static fn`, shared references |
+| [closures.vx](examples/closures.vx) | Closures, trailing blocks, functions returning functions, `filter` and `map` |
 | [input.vx](examples/input.vx) | Reading from the keyboard with `input()` |
 
 ```sh
@@ -179,7 +180,7 @@ let tags: [string] = []     // an empty list needs its type
 count += 1
 ```
 
-**Types.** `int` and `float` are 64-bit; `bool`, `string`, lists `[T]` and structs complete the set. Numbers never convert silently: write `float(count)` or `int(price)`. Text joins with interpolation: `"{count} items"`.
+**Types.** `int` and `float` are 64-bit; `bool`, `string`, lists `[T]`, structs and function types `fn(T) -> R` complete the set. Numbers never convert silently: write `float(count)` or `int(price)`. Text joins with interpolation: `"{count} items"`.
 
 **Functions.** Parameters have types, `-> T` gives the result, and `=>` makes a one-liner. Arguments can be named and have defaults.
 
@@ -250,6 +251,17 @@ println(ann)                 // User(name: "Ann", age: 31)
 println(User.guest().age)    // 18
 ```
 
+**Closures.** Functions without a name, written like `fn` declarations. They capture variables by reference, and a trailing block passes one as the last argument.
+
+```swift
+let double = fn(x: int) -> int => x * 2
+let evens = nums.filter(fn(x) => x % 2 == 0)
+
+var taps = 0
+let add = Button(title: "Add") { taps += 1 }   // onTap: fn()
+add.onTap()                                    // taps is 1
+```
+
 **Built-ins.** `print`, `println`, `input`, `int`, `float`, `str`, `panic` and `assert`.
 
 **Errors.** The compiler explains mistakes and suggests a fix:
@@ -282,7 +294,7 @@ This includes golden tests: every program in [examples](examples) is compiled an
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, modules | Planned |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, modules | In progress |
 | 3 | v0.3 | UI core: `component`, `state`, `view`, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |
