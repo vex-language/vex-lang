@@ -121,6 +121,53 @@ println(User.guest())         // User(name: "Guest", age: 18)
 
 Fields and methods are reachable inside methods without `self.`; `self` is available when needed.
 
+## Closures
+
+A closure is a function without a name, written like a function declaration. Function types are written `fn(int) -> bool`, or `fn()` for a function that takes and returns nothing.
+
+```swift
+let double = fn(x: int) -> int => x * 2
+let greet = fn(name: string) {
+    println("Hi, {name}")
+}
+
+fn apply(f: fn(int) -> int, x: int) -> int => f(x)
+
+apply(double, 5)               // named functions are values too
+apply(fn(x) => x + 1, 5)       // parameter types come from fn(int) -> int
+```
+
+- Parameter types can be left out where the expected function type gives them; otherwise write them.
+- The result type is taken from `-> T`, the expected type, the `=>` expression, or the first `return`.
+- Closures capture variables by reference: changing a captured `var` inside the closure changes it outside too, and the variable lives as long as the closure.
+- Each loop iteration has its own loop variable, so closures made in a loop each keep their own value.
+- Call function values with unnamed arguments: `f(1, 2)`.
+
+**Trailing blocks.** A `{ ... }` block after a call is passed as its last argument, which must have type `fn()`:
+
+```swift
+fn repeat(times: int, action: fn()) {
+    for i in 0..times { action() }
+}
+
+var count = 0
+repeat(3) { count += 1 }       // count is 3
+
+struct Button {
+    title: string
+    onTap: fn()
+}
+let add = Button(title: "Add") { count += 1 }
+add.onTap()
+```
+
+**Lists.** `filter` keeps the items a function accepts; `map` turns each item into a new value.
+
+```swift
+let evens = nums.filter(fn(x) => x % 2 == 0)
+let labels = nums.map(fn(x) => "#{x}")      // [string]
+```
+
 ## Built-ins
 
 | Name | Description |
@@ -129,12 +176,12 @@ Fields and methods are reachable inside methods without `self.`; `self` is avail
 | `input(prompt)` | Read a line from standard input; the prompt is optional |
 | `int(x)`, `float(x)`, `str(x)` | Convert between types |
 | `panic(msg)`, `assert(cond, msg)` | Stop the program with a message; `assert`'s message is optional |
-| `list.len`, `.push(x)`, `.pop()`, `.contains(x)` | List members |
+| `list.len`, `.push(x)`, `.pop()`, `.contains(x)`, `.filter(f)`, `.map(f)` | List members |
 | `s.len`, `.upper()`, `.lower()`, `.contains(x)`, `.split(sep)` | String members |
 
 ## Types
 
-The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]` and structs.
+The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, structs and function types `fn(T) -> R`.
 
 - `let x = ...` takes its type from the value. An empty list needs the type written: `let xs: [int] = []`.
 - Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.

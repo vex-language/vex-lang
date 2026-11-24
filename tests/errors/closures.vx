@@ -1,0 +1,33 @@
+// Closures and function values.
+
+fn apply(f: fn(int) -> int, x: int) -> int => f(x)
+
+fn onTap(handler: fn()) {
+    handler()
+}
+
+fn main() {
+    let unknown = fn(x) => x
+    apply(fn(a, b) => a, 1)
+    apply(fn(x) => "text", 1)
+    let f = fn(x: int) => x
+    f()
+    f(x: 1)
+    onTap(fn() {}) {}
+    let n = 1
+    n()
+    for i in 0..3 {
+        let g = fn() { break }
+    }
+}
+
+
+// Expected errors:
+// error: 10:22: can't tell the type of parameter 'x'
+// error: 11:11: expected a function with 1 parameter, found one with 2
+// error: 12:20: closure result: expected int, found string
+// error: 14:5: expected 1 argument for fn(int) -> int, found 0
+// error: 15:7: function values don't have parameter names
+// error: 16:20: the last argument of onTap is given twice: in the call and as a trailing block
+// error: 18:5: 'n' is an int, not a function
+// error: 20:24: break can only be used inside a loop

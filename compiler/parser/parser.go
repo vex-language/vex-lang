@@ -352,8 +352,19 @@ func (p *parser) typeExpr() ast.TypeExpr {
 	case lexer.Ident:
 		p.next()
 		return &ast.NamedType{Span: p.span(t.Pos), Name: t.Text}
+	case lexer.Fn:
+		p.next()
+		ft := &ast.FuncType{}
+		open := p.expect(lexer.LParen)
+		p.list(open, lexer.RParen, func() { ft.Params = append(ft.Params, p.typeExpr()) })
+		if p.at(lexer.Arrow) {
+			p.next()
+			ft.Result = p.typeExpr()
+		}
+		ft.Span = p.span(t.Pos)
+		return ft
 	}
-	p.fail(t, "for example int, string or [int]", "expected a type, found %s", describe(t))
+	p.fail(t, "for example int, string, [int] or fn(int) -> bool", "expected a type, found %s", describe(t))
 	return nil
 }
 
@@ -462,7 +473,11 @@ func (p *parser) stmt() ast.Stmt {
 	case lexer.LBrace:
 		return p.block()
 	case lexer.Fn:
-		p.fail(t, "declare it at the top level of the file", "functions can't be declared inside other functions")
+		if p.peek(1).Kind == lexer.Ident {
+			name := p.peek(1).Text
+			p.fail(t, fmt.Sprintf("declare it at the top level, or store a closure: let %s = fn(...) { ... }", name),
+				"functions can't be declared inside other functions")
+		}
 	case lexer.Struct:
 		p.fail(t, "declare it at the top level of the file", "structs can't be declared inside functions")
 	case lexer.Else:
@@ -603,7 +618,7 @@ func (p *parser) simpleStmt() ast.Stmt {
 func startsExpr(k lexer.Kind) bool {
 	switch k {
 	case lexer.Ident, lexer.Int, lexer.Float, lexer.String, lexer.StringHead, lexer.True, lexer.False,
-		lexer.LParen, lexer.LBracket, lexer.Minus, lexer.Not:
+		lexer.LParen, lexer.LBracket, lexer.Minus, lexer.Not, lexer.Fn:
 		return true
 	}
 	return false
@@ -736,6 +751,8 @@ func (p *parser) primary() ast.Expr {
 		p.noTrailing = saved
 		p.expect(lexer.RParen)
 		return x
+	case lexer.Fn:
+		return p.funcLit()
 	case lexer.LBracket:
 		open := p.next()
 		list := &ast.ListLit{}
@@ -745,6 +762,44 @@ func (p *parser) primary() ast.Expr {
 	}
 	p.fail(t, "", "expected an expression, found %s", describe(t))
 	return nil
+}
+
+// Parses a closure: `fn(x: int) -> int => x * 2` or `fn() { ... }`.
+func (p *parser) funcLit() ast.Expr {
+	start := p.next().Pos
+	lit := &ast.FuncLit{}
+	if p.at(lexer.Ident) {
+		p.fail(p.tok(), "closures have no name; store one with let name = fn(...) { ... }", "expected '(' after 'fn' in an expression")
+	}
+	open := p.expect(lexer.LParen)
+	p.list(open, lexer.RParen, func() {
+		name := p.ident("a parameter name")
+		param := &ast.Param{Name: name}
+		if p.at(lexer.Colon) {
+			p.next()
+			param.Type = p.typeExpr()
+		}
+		if p.at(lexer.Assign) {
+			p.fail(p.tok(), "", "closure parameters can't have default values")
+		}
+		param.Span = p.span(name.Start)
+		lit.Params = append(lit.Params, param)
+	})
+	if p.at(lexer.Arrow) {
+		p.next()
+		lit.Result = p.typeExpr()
+	}
+	switch {
+	case p.at(lexer.FatArrow):
+		p.next()
+		lit.ExprBody = p.expr()
+	case p.at(lexer.LBrace):
+		lit.Body = p.block()
+	default:
+		p.fail(p.tok(), "", "expected '{' or '=>' to start the closure body, found %s", describe(p.tok()))
+	}
+	lit.Span = p.span(start)
+	return lit
 }
 
 // Parses `"text {expr} text"` from its head token to its tail token.

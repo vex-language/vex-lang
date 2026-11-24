@@ -198,6 +198,110 @@ func TestMissingReturnAnalysis(t *testing.T) {
 	}
 }
 
+func TestClosures(t *testing.T) {
+	info, errs := checkMain(t, `
+fn apply(f: fn(int) -> int, x: int) -> int => f(x)
+fn double(x: int) -> int => x * 2
+fn repeat(times: int, action: fn()) {
+    for i in 0..times { action() }
+}
+fn adder(n: int) -> fn(int) -> int => fn(x) => x + n
+struct Button {
+    title: string
+    onTap: fn()
+    fn tap() { onTap() }
+}`, `
+    let a = fn(x: int) -> int => x * 2
+    let b = fn(x: int) => x > 0
+    let c = fn() { println("hi") }
+    let d: fn(int, int) -> int = fn(x, y) => x + y
+    let e = apply(fn(x) => x + 1, 5)
+    let f = apply(double, 5)
+    let g = adder(10)(5)
+    let h = [1, 2, 3].map(fn(x) => "{x}")
+    let i = [1, 2, 3].filter(fn(x) => x > 1)
+    let j = fn(x: int) {
+        if x > 0 {
+            return
+        }
+    }
+    let k = fn(n: int) {
+        return n * 2
+    }
+    var count = 0
+    repeat(3) { count += 1 }
+    let btn = Button(title: "Add") { count += 1 }
+    btn.tap()
+    btn.onTap()
+    let handlers = [fn() {}, c]
+    handlers[0]()
+    let l = [1.5].map(fn(x) {
+        return x > 1.0
+    })
+`)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	want := map[string]string{
+		"a": "fn(int) -> int", "b": "fn(int) -> bool", "c": "fn()", "d": "fn(int, int) -> int",
+		"e": "int", "f": "int", "g": "int", "h": "[string]", "i": "[int]", "j": "fn(int)",
+		"k": "fn(int) -> int", "btn": "Button", "handlers": "[fn()]", "l": "[bool]",
+	}
+	got := varTypes(info)
+	for name, w := range want {
+		if got[name] != w {
+			t.Errorf("%s: got %s, want %s", name, got[name], w)
+		}
+	}
+	for id, v := range info.Defs {
+		if id.Name == "count" && (!v.Captured || !v.Boxed()) {
+			t.Errorf("count: captured %v, boxed %v; want both", v.Captured, v.Boxed())
+		}
+		if id.Name == "c" && v.Boxed() {
+			t.Error("c is a let and doesn't need a box")
+		}
+	}
+}
+
+func TestNestedCapturesPassThrough(t *testing.T) {
+	info, errs := checkMain(t, "", `
+    var total = 0
+    let outer = fn() {
+        let inner = fn() { total += 1 }
+        inner()
+    }
+    outer()
+`)
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	if len(info.Captures) != 2 {
+		t.Fatalf("got %d closures with captures, want 2", len(info.Captures))
+	}
+	for lit, vars := range info.Captures {
+		if len(vars) != 1 || vars[0].Name != "total" {
+			t.Errorf("closure at %s captures %v, want [total]", lit.Pos(), vars)
+		}
+	}
+}
+
+func TestMethodClosureCapturesSelf(t *testing.T) {
+	info, errs := check(t, `
+struct Counter {
+    n: int = 0
+    fn incrementer() -> fn() => fn() { n += 1 }
+}
+fn main() {}`)
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	for _, vars := range info.Captures {
+		if len(vars) != 1 || vars[0].Kind != SelfVar {
+			t.Errorf("captures %v, want self", vars)
+		}
+	}
+}
+
 func TestErrors(t *testing.T) {
 	cases := []struct {
 		name, decls, body string
@@ -264,8 +368,8 @@ func TestErrors(t *testing.T) {
 		{"positional after named", "fn f(a: int, b: int) {}", "f(a: 1, 2)", "3:9", "unnamed argument after a named one", "put unnamed arguments first"},
 		{"argument type", "fn f(a: float) {}", "f(\"x\")", "3:3", "argument 'a': expected float, found string", "parse it with float(...)"},
 		{"bad default", "fn f(a: int = \"x\") {}", "", "1:15", "default of 'a': expected int, found string", "parse it with int(...)"},
-		{"call a variable", "", "let f = 1\nf()", "3:1", "'f' is a int, not a function", ""},
-		{"trailing block", "fn f() {}", "f() { }", "3:5", "trailing blocks are reserved for UI components", "pass the values as arguments instead"},
+		{"call a variable", "", "let f = 1\nf()", "3:1", "'f' is an int, not a function", ""},
+		{"trailing block", "fn f() {}", "f() { }", "3:5", "f takes no arguments, so it can't take a trailing block", ""},
 
 		// Structs.
 		{"missing field", userDecl, "let u = User(age: 3)", "18:9", "missing argument 'name' in call to User", "e.g. User(name: ...)"},
@@ -276,8 +380,28 @@ func TestErrors(t *testing.T) {
 		{"static method on value", userDecl, `User(name: "a").guest()`, "18:17", "'guest' is a static method", "call it on the type: User.guest()"},
 		{"field in static", "struct S {\n n: int\n static fn f() -> int => n\n}", "", "3:26", "static method f can't use field 'n'", "static methods have no instance; pass the value in as a parameter"},
 		{"self in function", "fn f() { println(self) }", "", "1:18", "'self' can only be used inside a method", ""},
+		{"static method value", "struct S {\n static fn make() -> S => S()\n}", "let f = S.make", "5:11", "method 'make' must be called", "call it: S.make()"},
 		{"self cycle", "struct Node {\n next: Node\n}", "", "2:8", "struct 'Node' contains itself through field 'next', so it could never be created", "use a list instead, e.g. children: [Node]"},
 		{"duplicate field", "struct S {\n a: int\n a: int\n}", "", "3:2", "field 'a' is already declared on line 2", ""},
+
+		// Closures.
+		{"untyped param", "", "let f = fn(x) => x", "2:12", "can't tell the type of parameter 'x'", "write its type: fn(x: int) ..."},
+		{"closure arity", "fn apply(f: fn(int) -> int) {}", "apply(fn(a, b) => a)", "3:7", "expected a function with 1 parameter, found one with 2", ""},
+		{"closure result", "fn apply(f: fn(int) -> int) {}", `apply(fn(x) => "s")`, "3:16", "closure result: expected int, found string", "parse it with int(...)"},
+		{"closure type", "", "let f: fn(int) -> int = fn(x: string) => 1", "2:25", "expected fn(int) -> int, found fn(string) -> int", ""},
+		{"void closure returns", "", "let f = fn() {\n    let g: fn() = fn() { return 1 }\n}", "3:33", "this closure doesn't return a value", "declare the result type: fn(...) -> int { ... }"},
+		{"closure missing return", "", "let f = fn(x: int) -> int {\n    if x > 0 { return 1 }\n}", "4:1", "missing return: the closure must return int", "add a return statement before the closing }"},
+		{"break in closure", "", "for i in 0..3 {\n    let f = fn() { break }\n}", "3:20", "break can only be used inside a loop", ""},
+		{"call non-function", "", "let n = 1\nlet x = [n][0]()", "3:9", "a value of type int can't be called", ""},
+		{"value call arity", "", "let f = fn(x: int) => x\nf()", "3:1", "expected 1 argument for fn(int) -> int, found 0", ""},
+		{"value call named", "", "let f = fn(x: int) => x\nf(x: 1)", "3:3", "function values don't have parameter names", "pass the arguments in order"},
+		{"value call type", "", "let f = fn(x: int) => x\nf(\"a\")", "3:3", "argument 1: expected int, found string", "parse it with int(...)"},
+		{"trailing needs fn", "fn f(n: int) {}", "f() { }", "3:5", "a trailing block needs the last parameter of f to be fn(), but 'n' is int", ""},
+		{"trailing twice", "fn f(cb: fn()) {}", "f(fn() {}) { }", "3:12", "the last argument of f is given twice: in the call and as a trailing block", ""},
+		{"trailing on builtin", "", "println(1) { }", "2:12", "println doesn't take a trailing block", ""},
+		{"map void", "", "let r = [1].map(fn(x) { println(x) })", "2:17", "map needs a function that returns a value", ""},
+		{"filter type", "", "let r = [1].filter(fn(x) => x)", "2:29", "closure result: expected bool, found int", ""},
+		{"compare closures", "", "let f = fn() {}\nlet b = f == f", "3:9", "values of type fn() can't be compared with ==", ""},
 
 		// Built-ins.
 		{"println void", "fn f() {}", "println(f())", "3:9", "this expression has no value to print", ""},

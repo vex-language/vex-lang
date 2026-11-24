@@ -39,6 +39,25 @@ type List struct{ Elem Type }
 // Returns the type in source form, such as `[int]`.
 func (l *List) String() string { return "[" + l.Elem.String() + "]" }
 
+// A function type such as `fn(int) -> bool`.
+type FuncType struct {
+	Params []Type
+	Result Type
+}
+
+// Returns the type in source form, such as `fn(int) -> bool`.
+func (f *FuncType) String() string {
+	params := make([]string, len(f.Params))
+	for i, p := range f.Params {
+		params[i] = p.String()
+	}
+	s := "fn(" + strings.Join(params, ", ") + ")"
+	if f.Result != Void && f.Result != nil {
+		s += " -> " + f.Result.String()
+	}
+	return s
+}
+
 // A struct type. Structs are reference types: copies share the same fields.
 type Struct struct {
 	Name    string
@@ -126,7 +145,17 @@ type Var struct {
 	Mutable bool
 	Kind    VarKind
 	Decl    ast.Node
+
+	// Set when a closure uses the variable.
+	Captured bool
+
+	// The closure the variable is declared in, or nil for a function body.
+	lit *ast.FuncLit
 }
+
+// Reports whether the variable must live on the heap, so that closures
+// and the enclosing function share changes to it.
+func (v *Var) Boxed() bool { return v.Captured && v.Mutable }
 
 // What declared a [Var].
 type VarKind uint8
@@ -143,9 +172,21 @@ func Identical(a, b Type) bool {
 	if a == Invalid || b == Invalid {
 		return true
 	}
-	if la, ok := a.(*List); ok {
-		lb, ok := b.(*List)
-		return ok && Identical(la.Elem, lb.Elem)
+	switch a := a.(type) {
+	case *List:
+		b, ok := b.(*List)
+		return ok && Identical(a.Elem, b.Elem)
+	case *FuncType:
+		b, ok := b.(*FuncType)
+		if !ok || len(a.Params) != len(b.Params) || !Identical(a.Result, b.Result) {
+			return false
+		}
+		for i := range a.Params {
+			if !Identical(a.Params[i], b.Params[i]) {
+				return false
+			}
+		}
+		return true
 	}
 	return a == b
 }
@@ -177,6 +218,9 @@ const (
 
 	// A built-in member of a list or string: `nums.push(4)`.
 	MemberBuiltinCall
+
+	// A call of a function value: `onTap()`, `handlers[0](x)`.
+	ValueCall
 )
 
 // The checked meaning of a call expression.
@@ -191,6 +235,9 @@ type Call struct {
 
 	// The built-in name, such as `println` or `push`.
 	Builtin string
+
+	// The function value called, for ValueCall.
+	Callee ast.Expr
 
 	// The receiver of a method or member built-in; nil for a method called
 	// on the implicit `self` inside another method.
@@ -214,8 +261,9 @@ type Info struct {
 	// The type of every expression.
 	Types map[ast.Expr]Type
 
-	// What each identifier in an expression refers to: a [*Var], or a
-	// [*Field] or [*Func] of the implicit `self`.
+	// What each identifier in an expression refers to: a [*Var], a
+	// [*Field] or [*Func] of the implicit `self`, or a top-level [*Func]
+	// used as a value.
 	Uses map[*ast.Ident]any
 
 	// The variable each declaration introduces (let, var, params, loops).
@@ -233,4 +281,9 @@ type Info struct {
 
 	// The [Func] for each declaration, including methods.
 	FuncOf map[*ast.FuncDecl]*Func
+
+	// The variables each closure uses from outside itself, in first-use
+	// order. A closure nested in another also lists what its inner
+	// closures need, so it can pass them on.
+	Captures map[*ast.FuncLit][]*Var
 }

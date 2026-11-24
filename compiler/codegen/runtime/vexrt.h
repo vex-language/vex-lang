@@ -26,6 +26,12 @@ typedef struct {
     char *data;
 } vx_list;
 
+// A function value: a closure's code and the variables it captured.
+typedef struct {
+    void *fn;
+    void *env;
+} vx_fn;
+
 // The source file name used in runtime error messages.
 static const char *vx_file = "main.vx";
 

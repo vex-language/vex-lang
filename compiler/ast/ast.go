@@ -123,8 +123,18 @@ type ListType struct {
 	Elem TypeExpr
 }
 
+// A function type: `fn(int, string) -> bool`.
+type FuncType struct {
+	Span
+	Params []TypeExpr
+
+	// Nil when the function returns nothing.
+	Result TypeExpr
+}
+
 func (*NamedType) typeNode() {}
 func (*ListType) typeNode()  {}
+func (*FuncType) typeNode()  {}
 
 // --- Statements ---
 
@@ -304,6 +314,20 @@ type MemberExpr struct {
 	Name *Ident
 }
 
+// A closure: `fn(x: int) -> int => x * 2` or `fn() { ... }`.
+//
+// Parameter types may be left out where the expected function type gives
+// them. A trailing block passed to a call becomes a FuncLit with no
+// parameters during checking.
+type FuncLit struct {
+	Span
+	Params   []*Param
+	Result   TypeExpr
+	Body     *Block
+	ExprBody Expr
+}
+
+func (*FuncLit) exprNode()            {}
 func (*Ident) exprNode()              {}
 func (*IntLit) exprNode()             {}
 func (*FloatLit) exprNode()           {}

@@ -58,6 +58,8 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		return c.index(e)
 	case *ast.MemberExpr:
 		return c.member(e)
+	case *ast.FuncLit:
+		return c.funcLit(e, want)
 	}
 	return Invalid
 }
@@ -66,6 +68,7 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 func (c *checker) ident(id *ast.Ident) Type {
 	if v := c.lookupVar(id.Name); v != nil {
 		c.info.Uses[id] = v
+		c.use(v)
 		return v.Type
 	}
 	if id.Name == "self" {
@@ -74,6 +77,7 @@ func (c *checker) ident(id *ast.Ident) Type {
 			return Invalid
 		}
 		c.info.Uses[id] = c.self
+		c.use(c.self)
 		return c.self.Type
 	}
 	if owner := c.ownStruct(); owner != nil {
@@ -84,6 +88,7 @@ func (c *checker) ident(id *ast.Ident) Type {
 				return Invalid
 			}
 			c.info.Uses[id] = f
+			c.use(c.self)
 			return f.Type
 		}
 		if owner.Method(id.Name) != nil {
@@ -91,9 +96,13 @@ func (c *checker) ident(id *ast.Ident) Type {
 			return Invalid
 		}
 	}
-	if c.funcs[id.Name] != nil {
-		c.errorAt(id, fmt.Sprintf("call it: %s()", id.Name), "functions can't be used as values yet")
-		return Invalid
+	if f := c.funcs[id.Name]; f != nil {
+		c.info.Uses[id] = f
+		ft := &FuncType{Result: f.Result}
+		for _, p := range f.Params {
+			ft.Params = append(ft.Params, p.Type)
+		}
+		return ft
 	}
 	if s := c.structs[id.Name]; s != nil {
 		c.errorAt(id, fmt.Sprintf("create one with %s(...)", s.Name), "'%s' is a type, not a value", s.Name)
