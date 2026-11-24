@@ -81,6 +81,7 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-106** Maps `[string: int]` (M)
 - [x] **V-107** Memory management: tracing GC, stage 1 mark and sweep ([design](docs/design/memory.md)) (XL)
 - [x] **V-113** Hardening: fuzzing, sanitizers, Linux and macOS CI, feature-combination tests (M)
+- [x] **V-114** Hardening 2: random program generator with known output, stack overflow errors, independent review (M)
 - [ ] **V-111** GC stage 2: precise roots and object layouts (L)
 - [ ] **V-112** GC stage 3: generational collection, returning memory to the OS (XL)
 - [ ] **V-108** Standard library: strings, math, time, files (L)

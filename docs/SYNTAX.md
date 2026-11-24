@@ -311,7 +311,7 @@ error: index 5 is out of range for a list of length 3
  --> main.vx:12
 ```
 
-These cover list indexes out of range, `pop()` on an empty list, division by zero, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Int arithmetic wraps around on overflow.
+These cover list indexes out of range, `pop()` on an empty list, division by zero, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Int arithmetic wraps around on overflow.
 
 ## Planned
 

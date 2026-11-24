@@ -333,6 +333,9 @@ go test ./tests -run '^$' -fuzz FuzzCompiler -fuzztime 5m
 # Programs that pass the type checker must produce C that compiles.
 go test ./tests -run '^$' -fuzz FuzzGeneratedC -fuzztime 5m
 
+# Random valid programs whose exact output is known in advance.
+go test ./tests -run TestGeneratedPrograms -programs 200
+
 # Run every test program under AddressSanitizer and UndefinedBehaviorSanitizer.
 ASAN_OPTIONS=detect_stack_use_after_return=0 \
 VEX_CFLAGS="-fsanitize=address,undefined -fno-sanitize-recover=all" \
