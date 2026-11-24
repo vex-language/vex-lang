@@ -12,6 +12,7 @@ import (
 	"github.com/irshadio/vex-lang/compiler/diag"
 	"github.com/irshadio/vex-lang/compiler/lexer"
 	"github.com/irshadio/vex-lang/compiler/parser"
+	"github.com/irshadio/vex-lang/compiler/types"
 )
 
 // The toolchain version, set at build time with
@@ -37,6 +38,7 @@ var commands []command
 
 func init() {
 	commands = []command{
+		{"check", "<file>", "Check a source file for errors", runCheck},
 		{"ast", "<file>", "Print the syntax tree of a source file", runAST},
 		{"tokens", "<file>", "Print the tokens of a source file", runTokens},
 		{"version", "", "Print the Vex version", runVersion},
@@ -96,6 +98,27 @@ func printUsage(w io.Writer) {
 		fmt.Fprintf(w, "  %-22s %s\n", c.name+" "+c.args, c.short)
 	}
 	fmt.Fprint(w, "\nRun 'vex help <command>' for details.\n")
+}
+
+func runCheck(args []string, stdout, stderr io.Writer) int {
+	if len(args) != 1 {
+		fmt.Fprintln(stderr, "Usage: vex check <file>")
+		return exitUsage
+	}
+	f, err := readSource(args[0])
+	if err != nil {
+		fmt.Fprintf(stderr, "vex: %v\n", err)
+		return exitError
+	}
+	tree, err := parser.Parse(f)
+	if err != nil {
+		return report(f, err, stderr)
+	}
+	if _, err := types.Check(f, tree); err != nil {
+		return report(f, err, stderr)
+	}
+	fmt.Fprintf(stdout, "%s: no errors\n", f.Name)
+	return exitOK
 }
 
 func runAST(args []string, stdout, stderr io.Writer) int {

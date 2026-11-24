@@ -114,3 +114,15 @@ func TestASTReportsSyntaxErrors(t *testing.T) {
 		t.Errorf("no file: code %d, want %d", code, exitUsage)
 	}
 }
+
+func TestCheck(t *testing.T) {
+	path := writeFile(t, "fn main() {\n    let n = 3\n    println(n + \" items\")\n}\n")
+	code, _, errOut := runCLI("check", path)
+	if code != exitError || !strings.Contains(errOut, `"{n} items"`) {
+		t.Errorf("code %d, stderr %q", code, errOut)
+	}
+	path = writeFile(t, "fn main() {\n    println(\"hi\")\n}\n")
+	if code, out, errOut := runCLI("check", path); code != exitOK || !strings.HasSuffix(out, ": no errors\n") {
+		t.Errorf("code %d, stdout %q, stderr %q", code, out, errOut)
+	}
+}
