@@ -716,7 +716,8 @@ func TestStackOverflow(t *testing.T) {
 	}
 	out, errOut, code := run(t, `fn depth(n: int) -> int {
     if n < 0 { return 0 }
-    return depth(n + 1) * 2 + 1
+    // Two calls, so no compiler can turn the recursion into a loop.
+    return depth(n + 1) + depth(n - 1)
 }
 fn main() {
     println("start")
