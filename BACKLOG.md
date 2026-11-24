@@ -82,6 +82,8 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-107** Memory management: tracing GC, stage 1 mark and sweep ([design](docs/design/memory.md)) (XL)
 - [x] **V-113** Hardening: fuzzing, sanitizers, Linux and macOS CI, feature-combination tests (M)
 - [x] **V-114** Hardening 2: random program generator with known output, stack overflow errors, independent review (M)
+- [ ] **V-115** Print values through one growing buffer; deeply nested values print in quadratic time today (S)
+- [ ] **V-116** Unicode-aware strings: `upper`/`lower` beyond A–Z, and counting visible characters (grapheme clusters) (M)
 - [ ] **V-111** GC stage 2: precise roots and object layouts (L)
 - [ ] **V-112** GC stage 3: generational collection, returning memory to the OS (XL)
 - [ ] **V-108** Standard library: strings, math, time, files (L)
@@ -184,3 +186,5 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-24 | Speed is the top goal: runtime and allocator changes are benchmarked against the same program in Go |
 | 2026-11-24 | Memory: tracing GC (not reference counting), so closures capturing `self` need no `weak`; stage 1 is conservative mark and sweep with size-class pages |
 | 2026-11-24 | Harden before building more: every PR runs fuzzers, sanitizers and Linux/macOS CI |
+| 2026-11-24 | Warnings (which still build) for habits from C-style languages: `;` at line ends, parentheses around conditions |
+| 2026-11-24 | A loop over a list visits the items present when it started (like Go); removing items ends it early |

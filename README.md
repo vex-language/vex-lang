@@ -234,7 +234,7 @@ nums[0] = 10
 println(nums, nums.len, nums.contains(2))   // [10, 1, 2] 3 true
 ```
 
-**Strings.** `s.len` counts characters. Also `.upper()`, `.lower()`, `.contains(x)` and `.split(sep)`.
+**Strings.** `s.len` counts Unicode code points. Also `.upper()` and `.lower()` (A–Z only for now), `.contains(x)` and `.split(sep)`.
 
 **Structs.** Fields can have defaults, methods use fields directly, and `static fn` belongs to the type. Struct values are shared references.
 
