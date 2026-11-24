@@ -1,0 +1,70 @@
+/// A user of the app.
+struct User {
+    name: string
+    age: int = 18
+
+    /// Prints a greeting.
+    fn greet() {
+        println("Hi, I'm {name}")
+    }
+
+    fn isAdult() -> bool => age >= 18
+
+    static fn guest() -> User {
+        return User(name: "Guest")
+    }
+}
+
+fn add(a: int, b: int) -> int {
+    return a + b
+}
+
+fn square(x: int) -> int => x * x
+
+fn greet(name: string, greeting: string = "Hi") {
+    println("{greeting}, {name}!")
+}
+
+fn main() {
+    let name = "Vex"
+    var count = 0
+    let price: float = 9.99
+    let mask = 0xFF
+    println("Hello, {name}! Count is {count + 1}")
+
+    greet("Sam")
+    greet("Sam", greeting: "Welcome")
+
+    if count > 10 {
+        println("big")
+    } else if count > 5 {
+        println("medium")
+    } else {
+        println("small")
+    }
+
+    var nums = [1, 2, 3]
+    nums.push(4)
+    let empty: [string] = []
+
+    for i in 0..5 { println(i) }
+    for i in 1..=5 { println(i) }
+    for n in nums { count += n }
+    for i, n in nums {
+        println("{i}: {n}")
+    }
+
+    var running = true
+    while running {
+        count -= 1
+        if count <= 0 {
+            running = false
+            break
+        }
+    }
+
+    let u = User(name: "Ann", age: 30)
+    u.greet()
+    println(u.isAdult(), User.guest())
+    println(add(2, 3), square(4), price, mask, empty.len)
+}

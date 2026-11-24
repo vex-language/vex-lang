@@ -28,15 +28,15 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 - [x] **V-014** Lexer unit tests (S)
 
 ### 1.3 Parser and AST
-- [ ] **V-020** AST node types for declarations, statements and expressions (S)
-- [ ] **V-021** Top level: `fn`, `struct` with fields, default values, methods and `static fn` (M)
-- [ ] **V-022** Functions: typed parameters, default values, `-> Type`, one-line `=> expr` bodies (M)
-- [ ] **V-023** Statements: `let`, `var`, assignment and `+= -= *= /= %=`, `if/else if/else` without parentheses, `while`, `return`, `break`, `continue` (M)
-- [ ] **V-024** Loops: `for x in list`, `for i, x in list`, `for i in a..b`, `for i in a..=b` (S)
-- [ ] **V-025** Expressions with a Pratt parser: precedence, unary, call, index, member access, list literals `[1, 2]` (M)
-- [ ] **V-026** Call syntax shared by functions, constructors and future widgets: positional plus named arguments `User(name: "Ann")`, trailing blocks `f(x) { ... }` (M)
-- [ ] **V-027** Helpful messages for common mistakes, e.g. `else` on a new line, `;` or `()` around `if` conditions (S)
-- [ ] **V-028** Parser unit tests (S)
+- [x] **V-020** AST node types for declarations, statements and expressions (S)
+- [x] **V-021** Top level: `fn`, `struct` with fields, default values, methods and `static fn` (M)
+- [x] **V-022** Functions: typed parameters, default values, `-> Type`, one-line `=> expr` bodies (M)
+- [x] **V-023** Statements: `let`, `var`, assignment and `+= -= *= /= %=`, `if/else if/else` without parentheses, `while`, `return`, `break`, `continue` (M)
+- [x] **V-024** Loops: `for x in list`, `for i, x in list`, `for i in a..b`, `for i in a..=b` (S)
+- [x] **V-025** Expressions with a Pratt parser: precedence, unary, call, index, member access, list literals `[1, 2]` (M)
+- [x] **V-026** Call syntax shared by functions, constructors and future widgets: positional plus named arguments `User(name: "Ann")`, trailing blocks `f(x) { ... }` (M)
+- [x] **V-027** Helpful messages for common mistakes, e.g. `else` on a new line, `;` or `()` around `if` conditions (S)
+- [x] **V-028** Parser unit tests (S)
 
 ### 1.4 Type checker
 - [ ] **V-030** Types: `int`, `float`, `bool`, `string`, `[T]` lists, structs (S)
