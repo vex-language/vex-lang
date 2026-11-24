@@ -138,7 +138,7 @@ func (c *checker) ident(id *ast.Ident) Type {
 		return Invalid
 	}
 	if en := c.enums[id.Name]; en != nil {
-		c.errorAt(id, fmt.Sprintf("use one of its cases, e.g. %s.%s", en.Name, en.Cases[0].Name), "'%s' is a type, not a value", en.Name)
+		c.errorAt(id, caseHint("use one of its cases, e.g. ", en, true), "'%s' is a type, not a value", en.Name)
 		return Invalid
 	}
 	if builtinTypes[id.Name] != nil {
@@ -189,7 +189,20 @@ func (c *checker) listLit(e *ast.ListLit, want Type) Type {
 		}
 		return &List{Elem: elem}
 	}
+	// Without a written type, a nil among the items makes the list
+	// optional: [1, nil] is an [int?].
+	inferred := elem == nil
+	var leadingNils []ast.Expr
 	for i, x := range e.Elems {
+		if inferred && isNil(x) {
+			if elem == nil {
+				leadingNils = append(leadingNils, x)
+				continue
+			}
+			if _, ok := elem.(*Optional); !ok && elem != Invalid {
+				elem = c.makeOptional(e.Elems[:i], elem)
+			}
+		}
 		t := c.expr(x, elem)
 		if t == Void {
 			c.errorAt(x, "", "this expression has no value")
@@ -197,13 +210,38 @@ func (c *checker) listLit(e *ast.ListLit, want Type) Type {
 		}
 		if elem == nil || elem == Invalid {
 			elem = t
+			if len(leadingNils) > 0 && t != Invalid {
+				if _, ok := t.(*Optional); !ok {
+					elem = c.makeOptional(e.Elems[i:i+1], t)
+				}
+				for _, n := range leadingNils {
+					c.expr(n, elem)
+				}
+				leadingNils = nil
+			}
 			continue
 		}
 		if !Identical(elem, t) {
 			c.mismatch(x, elem, t, fmt.Sprintf("list item %d", i+1))
 		}
 	}
+	if len(leadingNils) > 0 {
+		c.expr(leadingNils[0], nil)
+		return Invalid
+	}
 	return &List{Elem: elem}
+}
+
+// Returns [t] made optional, storing the already checked [items] of type
+// [t] as present values.
+func (c *checker) makeOptional(items []ast.Expr, t Type) *Optional {
+	o := &Optional{Elem: t}
+	for _, x := range items {
+		if Identical(c.info.Types[x], t) && c.info.Types[x] != Invalid {
+			c.info.Wraps[x] = o
+		}
+	}
+	return o
 }
 
 func (c *checker) unary(e *ast.UnaryExpr, want Type) Type {
