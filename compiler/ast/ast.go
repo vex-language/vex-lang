@@ -152,8 +152,16 @@ type FuncType struct {
 }
 
 func (*NamedType) typeNode() {}
-func (*ListType) typeNode()  {}
-func (*FuncType) typeNode()  {}
+
+// An optional type: `User?`, which holds a User or nil.
+type OptionalType struct {
+	Span
+	Elem TypeExpr
+}
+
+func (*ListType) typeNode()     {}
+func (*OptionalType) typeNode() {}
+func (*FuncType) typeNode()     {}
 
 // --- Statements ---
 
@@ -195,6 +203,20 @@ type IfStmt struct {
 	Cond Expr
 	Then *Block
 	Else Stmt
+
+	// For `if let name = value`, the name bound when [Cond], an optional,
+	// holds a value.
+	Bind *Ident
+}
+
+// `guard let name = value else { ... }`: runs the else block, which must
+// leave, when [Value] is nil; otherwise binds [Bind] for the rest of the
+// block.
+type GuardStmt struct {
+	Span
+	Bind  *Ident
+	Value Expr
+	Else  *Block
 }
 
 // A `while` loop.
@@ -234,6 +256,7 @@ func (*LetStmt) stmtNode()      {}
 func (*AssignStmt) stmtNode()   {}
 func (*ExprStmt) stmtNode()     {}
 func (*IfStmt) stmtNode()       {}
+func (*GuardStmt) stmtNode()    {}
 func (*WhileStmt) stmtNode()    {}
 func (*ForStmt) stmtNode()      {}
 func (*ReturnStmt) stmtNode()   {}
@@ -258,6 +281,11 @@ type FloatLit struct {
 type BoolLit struct {
 	Span
 	Value bool
+}
+
+// The literal `nil`: no value, for an optional.
+type NilLit struct {
+	Span
 }
 
 // A string without interpolation; Value has escapes resolved.
@@ -331,6 +359,9 @@ type MemberExpr struct {
 	Span
 	X    Expr
 	Name *Ident
+
+	// Set for `x?.name`, which is nil when [X] is nil.
+	Optional bool
 }
 
 // A closure: `fn(x: int) -> int => x * 2` or `fn() { ... }`.
@@ -401,6 +432,7 @@ func (*LiteralPattern) patternNode()  {}
 
 func (*ImplicitMember) exprNode()     {}
 func (*MatchExpr) exprNode()          {}
+func (*NilLit) exprNode()             {}
 func (*FuncLit) exprNode()            {}
 func (*Ident) exprNode()              {}
 func (*IntLit) exprNode()             {}

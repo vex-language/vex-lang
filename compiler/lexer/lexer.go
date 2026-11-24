@@ -118,13 +118,14 @@ func (l *lexer) errorAt(start, length int, hint, format string, args ...any) {
 }
 
 // Inserts a statement end at a line break when the previous token can end
-// a statement, unless the next line continues it with `.member`.
+// a statement, unless the next line continues it with `.member`, `?.` or
+// `??`.
 func (l *lexer) lineBreak(at int) {
 	if len(l.toks) == 0 {
 		return
 	}
 	switch l.toks[len(l.toks)-1].Kind {
-	case Ident, Int, Float, String, StringTail, True, False, Return, Break, Continue, RParen, RBracket, RBrace:
+	case Ident, Int, Float, String, StringTail, True, False, Nil, Question, Return, Break, Continue, RParen, RBracket, RBrace:
 	default:
 		return
 	}
@@ -135,7 +136,8 @@ func (l *lexer) lineBreak(at int) {
 }
 
 // Reports whether the first code after offset [from] is `.` followed by
-// something other than another `.`, skipping blank lines and comments.
+// something other than another `.`, or `?.` or `??`, skipping blank lines
+// and comments.
 func (l *lexer) nextLineStartsWithDot(from int) bool {
 	i := from
 	for i < len(l.src) {
@@ -153,6 +155,9 @@ func (l *lexer) nextLineStartsWithDot(from int) bool {
 			}
 			i += end + 4
 		default:
+			if strings.HasPrefix(l.src[i:], "?.") || strings.HasPrefix(l.src[i:], "??") {
+				return true
+			}
 			return c == '.' && (i+1 >= len(l.src) || l.src[i+1] != '.')
 		}
 	}

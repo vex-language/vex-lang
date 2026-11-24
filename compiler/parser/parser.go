@@ -509,8 +509,29 @@ func (p *parser) member(s *ast.StructDecl) {
 }
 
 func (p *parser) typeExpr() ast.TypeExpr {
+	start := p.tok().Pos
+	te := p.baseType()
+	if p.at(lexer.QuestionQuestion) {
+		p.fail(p.tok(), "one ? is enough", "a type can only be optional once")
+	}
+	for p.at(lexer.Question) {
+		q := p.next()
+		if _, ok := te.(*ast.OptionalType); ok {
+			p.fail(q, "one ? is enough", "a type can only be optional once")
+		}
+		te = &ast.OptionalType{Span: p.span(start), Elem: te}
+	}
+	return te
+}
+
+func (p *parser) baseType() ast.TypeExpr {
 	t := p.tok()
 	switch t.Kind {
+	case lexer.LParen:
+		p.next()
+		inner := p.typeExpr()
+		p.expect(lexer.RParen)
+		return inner
 	case lexer.LBracket:
 		p.next()
 		elem := p.typeExpr()
@@ -623,6 +644,8 @@ func (p *parser) stmt() ast.Stmt {
 		return &ast.WhileStmt{Cond: cond, Body: p.block(), Span: p.span(t.Pos)}
 	case lexer.For:
 		return p.forStmt()
+	case lexer.Guard:
+		return p.guardStmt()
 	case lexer.Return:
 		p.next()
 		r := &ast.ReturnStmt{}
@@ -681,7 +704,19 @@ func (p *parser) letStmt() *ast.LetStmt {
 
 func (p *parser) ifStmt() *ast.IfStmt {
 	start := p.expect(lexer.If).Pos
-	s := &ast.IfStmt{Cond: p.header("if")}
+	s := &ast.IfStmt{}
+	if p.at(lexer.Let) || p.at(lexer.Var) {
+		if p.at(lexer.Var) {
+			p.errorAt(p.tok(), "write if let; copy it into a var inside the block", "'if var' isn't supported")
+		}
+		p.next()
+		s.Bind = p.ident("a name after 'if let'")
+		if !p.at(lexer.Assign) {
+			p.fail(p.tok(), fmt.Sprintf("write if let %s = optionalValue { ... }", s.Bind.Name), "expected '=' after 'if let %s', found %s", s.Bind.Name, describe(p.tok()))
+		}
+		p.next()
+	}
+	s.Cond = p.header("if")
 	s.Then = p.block()
 	if p.tok().IsAutoSemi() && p.peek(1).Kind == lexer.Else {
 		p.errorAt(p.peek(1), "write } else {", "'else' must be on the same line as the closing }")
@@ -731,6 +766,34 @@ func (p *parser) forStmt() *ast.ForStmt {
 }
 
 // Parses the condition of an `if` or `while` and checks that the body follows.
+// Parses `guard let name = value else { ... }`.
+func (p *parser) guardStmt() *ast.GuardStmt {
+	start := p.next().Pos
+	if !p.at(lexer.Let) {
+		p.fail(p.tok(), "write guard let name = optionalValue else { return }", "expected 'let' after 'guard', found %s", describe(p.tok()))
+	}
+	p.next()
+	g := &ast.GuardStmt{Bind: p.ident("a name after 'guard let'")}
+	if !p.at(lexer.Assign) {
+		p.fail(p.tok(), fmt.Sprintf("write guard let %s = optionalValue else { return }", g.Bind.Name), "expected '=' after 'guard let %s', found %s", g.Bind.Name, describe(p.tok()))
+	}
+	p.next()
+	saved := p.noTrailing
+	p.noTrailing = true
+	g.Value = p.expr()
+	p.noTrailing = saved
+	if !p.at(lexer.Else) {
+		p.fail(p.tok(), "add else { return } after the value", "expected 'else' after the guard value, found %s", describe(p.tok()))
+	}
+	p.next()
+	if !p.at(lexer.LBrace) {
+		p.fail(p.tok(), "", "expected '{' after 'else', found %s", describe(p.tok()))
+	}
+	g.Else = p.block()
+	g.Span = p.span(start)
+	return g
+}
+
 func (p *parser) header(keyword string) ast.Expr {
 	saved := p.noTrailing
 	p.noTrailing = true
@@ -787,7 +850,7 @@ func (p *parser) simpleStmt() ast.Stmt {
 func startsExpr(k lexer.Kind) bool {
 	switch k {
 	case lexer.Ident, lexer.Int, lexer.Float, lexer.String, lexer.StringHead, lexer.True, lexer.False,
-		lexer.LParen, lexer.LBracket, lexer.Minus, lexer.Not, lexer.Fn, lexer.Match, lexer.Dot:
+		lexer.LParen, lexer.LBracket, lexer.Minus, lexer.Not, lexer.Fn, lexer.Match, lexer.Dot, lexer.Nil:
 		return true
 	}
 	return false
@@ -804,10 +867,12 @@ func precedence(k lexer.Kind) int {
 		return 3
 	case lexer.Lt, lexer.LtEq, lexer.Gt, lexer.GtEq:
 		return 4
-	case lexer.Plus, lexer.Minus:
+	case lexer.QuestionQuestion:
 		return 5
-	case lexer.Star, lexer.Slash, lexer.Percent:
+	case lexer.Plus, lexer.Minus:
 		return 6
+	case lexer.Star, lexer.Slash, lexer.Percent:
+		return 7
 	}
 	return 0
 }
@@ -824,7 +889,12 @@ func (p *parser) binary(min int) ast.Expr {
 		}
 		p.next()
 		p.skipNewlines()
-		y := p.binary(prec + 1)
+		next := prec + 1
+		if k == lexer.QuestionQuestion {
+			// a ?? b ?? c groups as a ?? (b ?? c).
+			next = prec
+		}
+		y := p.binary(next)
 		if (prec == 3 || prec == 4) && precedence(p.tok().Kind) == prec {
 			p.fail(p.tok(), "use a < b && b < c", "comparisons can't be chained")
 		}
@@ -864,10 +934,12 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			p.noTrailing = saved
 			p.expect(lexer.RBracket)
 			x = &ast.IndexExpr{Span: p.span(x.Pos()), X: x, Index: idx}
-		case lexer.Dot:
-			p.next()
+		case lexer.Dot, lexer.QuestionDot:
+			opt := p.next().Kind == lexer.QuestionDot
 			name := p.ident("a member name")
-			x = &ast.MemberExpr{Span: p.span(x.Pos()), X: x, Name: name}
+			x = &ast.MemberExpr{Span: p.span(x.Pos()), X: x, Name: name, Optional: opt}
+		case lexer.Question:
+			p.fail(p.tok(), "use ?. to read a member, or ?? to give a default", "unexpected '?'")
 		default:
 			return x
 		}
@@ -902,6 +974,9 @@ func (p *parser) primary() ast.Expr {
 	case lexer.True, lexer.False:
 		p.next()
 		return &ast.BoolLit{Span: sp, Value: t.Kind == lexer.True}
+	case lexer.Nil:
+		p.next()
+		return &ast.NilLit{Span: sp}
 	case lexer.String:
 		p.next()
 		return &ast.StringLit{Span: sp, Value: t.Value}

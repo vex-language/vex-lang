@@ -168,6 +168,27 @@ func TestClosures(t *testing.T) {
 	}
 }
 
+func TestOptionals(t *testing.T) {
+	cases := []struct{ src, want string }{
+		{"let u: User? = nil", "(let u: User? nil)"},
+		{"let xs: [int?]? = nil", "(let xs: [int?]? nil)"},
+		{"var f: fn()? = nil", "(var f: fn()? nil)"},
+		{"var g: (fn() -> int)? = nil", "(var g: (fn() -> int)? nil)"},
+		{"let h: fn() -> int? = nil", "(let h: fn() -> int? nil)"},
+		{"let n = a?.b.c ?? d ?? 0", "(let n (?? (. (?. a b) c) (?? d 0)))"},
+		{"let m = x ?? 1 + 2 > 3", "(let m (> (?? x (+ 1 2)) 3))"},
+		{"let k = u?.greet(1)", "(let k (call (?. u greet) 1))"},
+		{"if let u = find(1) {\n    use(u)\n} else if let v = w {\n}", "(if let u (call find 1) (block (call use u)) (if let v w block))"},
+		{"guard let u = find(1) else { return }", "(guard let u (call find 1) (block return))"},
+		{"let s = name\n    ?.upper()\n    ?? \"\"", "(let s (?? (call (?. name upper)) \"\"))"},
+	}
+	for _, c := range cases {
+		if got, want := body(t, c.src), "(block "+c.want+")"; got != want {
+			t.Errorf("%s\n got: %s\nwant: %s", c.src, got, want)
+		}
+	}
+}
+
 func TestEnumsAndMatch(t *testing.T) {
 	f, errs := parse(t, `enum Shape {
     circle(radius: float)
@@ -341,6 +362,12 @@ func TestErrors(t *testing.T) {
 		{"closure default", "fn main() {\n let f = fn(x = 1) {}\n}", "2:15", "closure parameters can't have default values", ""},
 		{"closure without body", "fn main() {\n let f = fn(x)\n}", "2:15", "expected '{' or '=>' to start the closure body, found end of line", ""},
 		{"unclosed block", "fn main() {\n f()", "1:11", "unclosed block", "add a matching }"},
+		{"double optional", "fn f(x: int??) {}", "1:12", "a type can only be optional once", "one ? is enough"},
+		{"lone question", "fn main() {\n let n = x?\n}", "2:11", "unexpected '?'", "use ?. to read a member, or ?? to give a default"},
+		{"if var", "fn main() {\n if var x = y {}\n}", "2:5", "'if var' isn't supported", "write if let; copy it into a var inside the block"},
+		{"if let no value", "fn main() {\n if let x {}\n}", "2:11", "expected '=' after 'if let x', found '{'", "write if let x = optionalValue { ... }"},
+		{"guard without let", "fn main() {\n guard x else { return }\n}", "2:8", "expected 'let' after 'guard', found 'x'", "write guard let name = optionalValue else { return }"},
+		{"guard without else", "fn main() {\n guard let x = y { return }\n}", "2:18", "expected 'else' after the guard value, found '{'", "add else { return } after the value"},
 		{"enum in function", "fn main() {\n enum E { a }\n}", "2:2", "enums can't be declared inside functions", "declare it at the top level of the file"},
 		{"case with type", "enum E {\n a: int\n}", "2:3", "enum cases don't have a type", "enum cases carry values in parentheses: a(value: int)"},
 		{"case value type", "enum E {\n a(x)\n}", "2:5", "case value 'x' needs a type", "write it as x: int"},
