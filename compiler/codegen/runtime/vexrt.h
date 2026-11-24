@@ -473,6 +473,7 @@ static void vx_init(void *base) {
 static vx_str vx_str_new(const char *p, int64_t n) {
     char *buf = vx_alloc_atomic((size_t)n + 1);
     memcpy(buf, p, (size_t)n);
+    buf[n] = 0;
     return (vx_str){buf, n};
 }
 
@@ -661,35 +662,46 @@ static vx_str vx_str_quote(vx_str s) {
     return (vx_str){buf, n};
 }
 
-// Copies [s] into a NUL-terminated buffer, trimming surrounding spaces.
-static char *vx_cstr_trim(vx_str s) {
+// Copies [s] into a NUL-terminated buffer, trimming surrounding spaces, and
+// stores the trimmed length in [len].
+static char *vx_cstr_trim(vx_str s, int64_t *len) {
     int64_t a = 0, b = s.len;
     while (a < b && (s.ptr[a] == ' ' || s.ptr[a] == '\t' || s.ptr[a] == '\n' || s.ptr[a] == '\r')) a++;
     while (b > a && (s.ptr[b - 1] == ' ' || s.ptr[b - 1] == '\t' || s.ptr[b - 1] == '\n' || s.ptr[b - 1] == '\r')) b--;
     char *buf = vx_alloc_atomic((size_t)(b - a) + 1);
     memcpy(buf, s.ptr + a, (size_t)(b - a));
     buf[b - a] = '\0';
+    *len = b - a;
     return buf;
 }
 
 static int64_t vx_str_to_int(vx_str s, int line) {
-    char *c = vx_cstr_trim(s), *end;
+    int64_t n;
+    char *c = vx_cstr_trim(s, &n), *end;
     char *digits = c + (*c == '-' || *c == '+');
     if (*digits < '0' || *digits > '9') {
         vx_fail(line, "can't convert \"%.*s\" to int", (int)s.len, s.ptr);
     }
     errno = 0;
     long long v = strtoll(c, &end, 10);
-    if (*end != 0) vx_fail(line, "can't convert \"%.*s\" to int", (int)s.len, s.ptr);
+    // Checking against the length also catches a NUL inside the text.
+    if (end != c + n) vx_fail(line, "can't convert \"%.*s\" to int", (int)s.len, s.ptr);
     if (errno == ERANGE) vx_fail(line, "can't convert \"%s\" to int: the number is too big", c);
     return (int64_t)v;
 }
 
 static double vx_str_to_float(vx_str s, int line) {
-    char *c = vx_cstr_trim(s), *end;
-    if (*c == 0) goto bad;
+    int64_t n;
+    char *c = vx_cstr_trim(s, &n), *end;
+    // Only decimal numbers: strtod would also take hex, nan and inf.
+    bool digit = false;
+    for (int64_t i = 0; i < n; i++) {
+        if (c[i] >= '0' && c[i] <= '9') digit = true;
+        else if (!strchr(".eE+-", c[i]) || c[i] == 0) goto bad;
+    }
+    if (!digit) goto bad;
     double v = strtod(c, &end);
-    if (*end != 0) goto bad;
+    if (end != c + n || isinf(v)) goto bad;
     return v;
 bad:
     vx_fail(line, "can't convert \"%.*s\" to float", (int)s.len, s.ptr);
@@ -697,7 +709,8 @@ bad:
 
 static int64_t vx_float_to_int(double v, int line) {
     if (isnan(v) || v >= 9223372036854775808.0 || v < -9223372036854775808.0) {
-        vx_fail(line, "can't convert %s to int: it's out of range", vx_float_str(v).ptr);
+        vx_str f = vx_float_str(v);
+        vx_fail(line, "can't convert %.*s to int: it's out of range", (int)f.len, f.ptr);
     }
     return (int64_t)v;
 }
