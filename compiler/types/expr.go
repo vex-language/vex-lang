@@ -13,8 +13,24 @@ import (
 // Checks [e] and returns its type. [want] is the type the context expects,
 // or nil; it lets `[]` and int literals take their type from the context.
 func (c *checker) expr(e ast.Expr, want Type) Type {
-	t := c.exprType(e, want)
+	o, opt := want.(*Optional)
+	hint := want
+	if opt {
+		switch e.(type) {
+		case *ast.NilLit, *ast.MatchExpr:
+		default:
+			// Literals and closures take their type from the value inside.
+			hint = o.Elem
+		}
+	}
+	t := c.exprType(e, hint)
 	c.info.Types[e] = t
+	if opt && t != Invalid && t != Void {
+		if _, isOpt := t.(*Optional); !isOpt && Identical(t, o.Elem) {
+			c.info.Wraps[e] = o
+			return o
+		}
+	}
 	return t
 }
 
@@ -53,11 +69,17 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		c.errorAt(e, "for i in 0..10 { ... }", "ranges can only be used in for loops")
 		return Invalid
 	case *ast.CallExpr:
-		return c.call(e, want)
+		t := c.call(e, want)
+		if m, ok := e.Fn.(*ast.MemberExpr); ok {
+			return c.chain(e, m, t)
+		}
+		return t
+	case *ast.NilLit:
+		return c.nilLit(e, want)
 	case *ast.IndexExpr:
 		return c.index(e)
 	case *ast.MemberExpr:
-		return c.member(e)
+		return c.chain(e, e, c.member(e))
 	case *ast.FuncLit:
 		return c.funcLit(e, want)
 	case *ast.ImplicitMember:
@@ -223,6 +245,12 @@ func (c *checker) toFloat(e ast.Expr) {
 func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 	op := strings.Trim(e.Op.String(), "'")
 	switch e.Op {
+	case lexer.QuestionQuestion:
+		return c.coalesce(e)
+	case lexer.Eq, lexer.NotEq:
+		if isNil(e.X) || isNil(e.Y) {
+			return c.nilComparison(e)
+		}
 	case lexer.AndAnd, lexer.OrOr:
 		for _, x := range []ast.Expr{e.X, e.Y} {
 			if t := c.expr(x, Bool); !Identical(t, Bool) {
@@ -264,7 +292,11 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 		if !Identical(x, y) {
 			c.errorAt(e, conversionHint(x, y), "can't compare %s with %s", x, y)
 		} else if !comparable(x) {
-			c.errorAt(e, "", "values of type %s can't be compared with %s", x, op)
+			hint := ""
+			if _, ok := x.(*Optional); ok {
+				hint = "compare with nil, or unwrap it first with if let"
+			}
+			c.errorAt(e, hint, "values of type %s can't be compared with %s", x, op)
 		}
 		return Bool
 	case lexer.Lt, lexer.LtEq, lexer.Gt, lexer.GtEq:
@@ -392,7 +424,7 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		}
 		return Invalid
 	}
-	x := c.expr(e.X, nil)
+	x := c.recv(e)
 	switch x := x.(type) {
 	case *Enum:
 		if x.Method(name) != nil {

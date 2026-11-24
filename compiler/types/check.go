@@ -67,6 +67,8 @@ func Check(f *diag.File, file *ast.File) (info *Info, err error) {
 			Selves:     map[*ast.FuncDecl]*Var{},
 			Captures:   map[*ast.FuncLit][]*Var{},
 			CaseValues: map[ast.Expr]*Case{},
+			Wraps:      map[ast.Expr]*Optional{},
+			Chains:     map[ast.Expr]bool{},
 			Matches:    map[*ast.MatchExpr]*Match{},
 			FuncOf:     map[*ast.FuncDecl]*Func{},
 		},
@@ -134,6 +136,9 @@ func conversionHint(want, got Type) string {
 		return "parse it with float(...)"
 	case want == String && (got == Int || got == Float || got == Bool):
 		return `convert it with str(...) or "{...}"`
+	}
+	if o, ok := got.(*Optional); ok && Identical(o.Elem, want) && want != Invalid {
+		return "it may be nil: unwrap it with if let, or give a default with ?? value"
 	}
 	return ""
 }
@@ -322,6 +327,8 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 	switch te := te.(type) {
 	case *ast.ListType:
 		return &List{Elem: c.resolveType(te.Elem)}
+	case *ast.OptionalType:
+		return &Optional{Elem: c.resolveType(te.Elem)}
 	case *ast.FuncType:
 		ft := &FuncType{Result: Void}
 		for _, p := range te.Params {
@@ -509,6 +516,16 @@ func breaks(s ast.Stmt) bool {
 		}
 	case *ast.IfStmt:
 		return breaks(s.Then) || (s.Else != nil && breaks(s.Else))
+	case *ast.GuardStmt:
+		return breaks(s.Else)
+	case *ast.ExprStmt:
+		if m, ok := s.X.(*ast.MatchExpr); ok {
+			for _, a := range m.Arms {
+				if a.Block != nil && breaks(a.Block) {
+					return true
+				}
+			}
+		}
 	}
 	return false
 }
@@ -551,11 +568,26 @@ func (c *checker) stmt(s ast.Stmt) {
 			c.errorAt(s.X, "store it with let, or remove it", "this value isn't used")
 		}
 	case *ast.IfStmt:
-		c.cond(s.Cond, "if")
-		c.stmt(s.Then)
+		if s.Bind != nil {
+			elem := c.unwrapped(c.expr(s.Cond, nil), s.Cond, "if let")
+			c.push()
+			c.declare(s.Bind, elem, false, LocalVar)
+			c.stmt(s.Then)
+			c.pop()
+		} else {
+			c.cond(s.Cond, "if")
+			c.stmt(s.Then)
+		}
 		if s.Else != nil {
 			c.stmt(s.Else)
 		}
+	case *ast.GuardStmt:
+		elem := c.unwrapped(c.expr(s.Value, nil), s.Value, "guard let")
+		c.stmt(s.Else)
+		if !leaves(s.Else) {
+			c.errorAtPos(s.Else.Pos(), 1, "end it with return, break, continue or panic(...)", "the else block of guard must leave, so '%s' always has a value after it", s.Bind.Name)
+		}
+		c.declare(s.Bind, elem, false, LocalVar)
 	case *ast.WhileStmt:
 		c.cond(s.Cond, "while")
 		c.loops++
@@ -617,6 +649,9 @@ func (c *checker) assign(s *ast.AssignStmt) {
 			}
 		}
 	case *ast.MemberExpr:
+		if x.Optional {
+			c.errorAt(x, "unwrap it first with if let", "can't assign through ?.")
+		}
 		target = c.expr(x, nil)
 		if m := c.info.Members[x]; m != nil && m.Builtin != "" {
 			c.errorAt(x.Name, "", "%s can't be changed", m.Builtin)
