@@ -54,8 +54,8 @@ func TestTokens(t *testing.T) {
 		name, src, want string
 	}{
 		{"empty", "", "EOF"},
-		{"keywords", "fn let var if else while for in return break continue struct static true false",
-			"fn let var if else while for in return break continue struct static true false NL EOF"},
+		{"keywords", "fn let var if else while for in return break continue struct enum match static true false",
+			"fn let var if else while for in return break continue struct enum match static true false NL EOF"},
 		{"identifiers", "name _tmp user2 isAdult", "id:name id:_tmp id:user2 id:isAdult NL EOF"},
 		{"operators", "+ - * / % ! && || = += -= *= /= %= == != < <= > >= -> => . .. ..=",
 			"+ - * / % ! && || = += -= *= /= %= == != < <= > >= -> => . .. ..= EOF"},

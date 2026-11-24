@@ -106,8 +106,27 @@ type Field struct {
 	Default Expr
 }
 
+// An enum: a value that is one of several cases, each of which may carry
+// values.
+type EnumDecl struct {
+	Span
+	Name    *Ident
+	Cases   []*EnumCase
+	Methods []*FuncDecl
+}
+
+// An enum case: `circle(radius: float)` or `empty`.
+type EnumCase struct {
+	Span
+	Name *Ident
+
+	// The values the case carries; their defaults are always nil.
+	Fields []*Field
+}
+
 func (*FuncDecl) declNode()   {}
 func (*StructDecl) declNode() {}
+func (*EnumDecl) declNode()   {}
 
 // --- Types ---
 
@@ -327,6 +346,61 @@ type FuncLit struct {
 	ExprBody Expr
 }
 
+// A case of the enum the context expects: `.empty`, or `.rect(...)` when
+// called.
+type ImplicitMember struct {
+	Span
+	Name *Ident
+}
+
+// A match: `match shape { circle(r) => ..., _ => ... }`. Used as a
+// statement, arm bodies may be blocks.
+type MatchExpr struct {
+	Span
+	Subject Expr
+	Arms    []*MatchArm
+}
+
+// One arm of a match: a pattern and either an expression or a block.
+type MatchArm struct {
+	Span
+	Pattern Pattern
+	Expr    Expr
+	Block   *Block
+}
+
+// A pattern in a match arm.
+type Pattern interface {
+	Node
+	patternNode()
+}
+
+// The pattern `_`, which matches anything.
+type WildcardPattern struct {
+	Span
+}
+
+// A pattern naming an enum case: `empty`, or `circle(r)` binding the
+// case's values in order. A `_` binding ignores that value; [Binds] is nil
+// when there are no parentheses.
+type CasePattern struct {
+	Span
+	Name  *Ident
+	Binds []*Ident
+}
+
+// A literal pattern: `1`, `-1`, `"yes"`, `true`.
+type LiteralPattern struct {
+	Span
+	Value Expr
+}
+
+func (*WildcardPattern) patternNode() {}
+func (*CasePattern) patternNode()     {}
+func (*LiteralPattern) patternNode()  {}
+
+func (*ImplicitMember) exprNode()     {}
+func (*MatchExpr) exprNode()          {}
 func (*FuncLit) exprNode()            {}
 func (*Ident) exprNode()              {}
 func (*IntLit) exprNode()             {}

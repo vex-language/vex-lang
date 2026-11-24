@@ -80,6 +80,29 @@ func TypeString(t TypeExpr) string {
 	return "?"
 }
 
+// Returns [p] in source form, such as `circle(r, _)`.
+func PatternString(p Pattern) string {
+	switch p := p.(type) {
+	case *WildcardPattern:
+		return "_"
+	case *CasePattern:
+		if p.Binds == nil {
+			return p.Name.Name
+		}
+		names := make([]string, len(p.Binds))
+		for i, b := range p.Binds {
+			names[i] = b.Name
+		}
+		return p.Name.Name + "(" + strings.Join(names, ", ") + ")"
+	case *LiteralPattern:
+		if u, ok := p.Value.(*UnaryExpr); ok {
+			return "-" + Sexpr(u.X)
+		}
+		return Sexpr(p.Value)
+	}
+	return "?"
+}
+
 func op(k lexer.Kind) string { return strings.Trim(k.String(), "'") }
 
 // Builds the tree of a function declaration or closure.
@@ -124,6 +147,20 @@ func build(n Node) *tree {
 		t := branch("struct " + n.Name.Name)
 		for _, f := range n.Fields {
 			t.kids = append(t.kids, branch("field "+f.Name.Name+": "+TypeString(f.Type), buildExpr(f.Default)))
+		}
+		for _, m := range n.Methods {
+			t.kids = append(t.kids, build(m))
+		}
+		return t
+
+	case *EnumDecl:
+		t := branch("enum " + n.Name.Name)
+		for _, c := range n.Cases {
+			ct := branch("case " + c.Name.Name)
+			for _, f := range c.Fields {
+				ct.kids = append(ct.kids, leaf(f.Name.Name+": "+TypeString(f.Type)))
+			}
+			t.kids = append(t.kids, ct)
 		}
 		for _, m := range n.Methods {
 			t.kids = append(t.kids, build(m))
@@ -223,6 +260,18 @@ func buildExpr(e Expr) *tree {
 		return branch(label, buildExpr(e.Lo), buildExpr(e.Hi))
 	case *FuncLit:
 		return funcTree("fn", e.Params, e.Result, e.Body, e.ExprBody)
+	case *ImplicitMember:
+		return leaf("." + e.Name.Name)
+	case *MatchExpr:
+		t := branch("match", buildExpr(e.Subject))
+		for _, a := range e.Arms {
+			body := build(a.Block)
+			if a.Expr != nil {
+				body = buildExpr(a.Expr)
+			}
+			t.kids = append(t.kids, branch(PatternString(a.Pattern)+" =>", body))
+		}
+		return t
 	case *CallExpr:
 		t := branch("call", buildExpr(e.Fn))
 		for _, a := range e.Args {
