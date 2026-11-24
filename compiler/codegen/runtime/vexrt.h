@@ -251,7 +251,7 @@ static void vx_mark_stack(void) {
 static void vx_collect(void) {
     if (!vx_stack_base) return;
     vx_gc_count++;
-    qsort(vx_larges, vx_larges_len, sizeof(vx_large *), vx_large_cmp);
+    if (vx_larges_len > 1) qsort(vx_larges, vx_larges_len, sizeof(vx_large *), vx_large_cmp);
 
     vx_mark_stack();
     while (vx_gray_len > 0) {
