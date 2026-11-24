@@ -74,7 +74,7 @@ Some app work belongs to the language and toolchain, not the framework:
 
 - Cross-compiling the C output for iOS and Android (`arm64-apple-ios`, the NDK).
 - Line information in the generated C, so debuggers show `.vx` lines.
-- The formatter, the language server and the package manager.
+- The formatter, the language server and the package manager ([packages.md](packages.md)).
 - Hot reload support in the runtime (reloading code as a dynamic library).
 
 ## Order
