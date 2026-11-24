@@ -1,0 +1,27 @@
+// Run: vex run examples/input.vx
+// Reads a name and numbers from the keyboard, until an empty line.
+
+fn main() {
+    let name = input("What's your name? ")
+    println("Hi, {name}! Enter numbers, one per line. Leave a line empty to finish.")
+
+    var numbers: [float] = []
+    while true {
+        let line = input("> ")
+        if line == "" {
+            break
+        }
+        numbers.push(float(line))
+    }
+
+    if numbers.len == 0 {
+        println("No numbers entered.")
+        return
+    }
+    var total = 0.0
+    for n in numbers {
+        total += n
+    }
+    println("{name}, you entered {numbers.len} numbers.")
+    println("Sum: {total}, average: {total / float(numbers.len)}")
+}
