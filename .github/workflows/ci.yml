@@ -1,0 +1,62 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    name: test (${{ matrix.os }}, ${{ matrix.cc }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: ubuntu-latest
+            cc: clang
+          - os: ubuntu-latest
+            cc: gcc
+    runs-on: ${{ matrix.os }}
+    env:
+      CC: ${{ matrix.cc }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Format
+        run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -count=1 ./...
+
+  sanitizers:
+    name: sanitizers (ubuntu, clang)
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+      VEX_CFLAGS: -fsanitize=address,undefined -fno-sanitize-recover=all -fno-omit-frame-pointer
+      ASAN_OPTIONS: detect_stack_use_after_return=0:detect_leaks=0
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Test generated programs under ASan and UBSan
+        run: go test -count=1 ./compiler/codegen ./tests
+
+  fuzz:
+    name: fuzz
+    runs-on: ubuntu-latest
+    env:
+      CC: clang
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Fuzz the compiler
+        run: go test ./tests -run '^$' -fuzz FuzzCompiler -fuzztime 90s
+      - name: Fuzz generated C
+        run: go test ./tests -run '^$' -fuzz FuzzGeneratedC -fuzztime 90s

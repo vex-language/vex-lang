@@ -81,6 +81,18 @@ func (c *checker) enumRef(x ast.Expr) *Enum {
 	return c.enums[id.Name]
 }
 
+// Returns [prefix] followed by the first case of [e], qualified with the
+// enum name if [qualified], or "" when [e] has no cases.
+func caseHint(prefix string, e *Enum, qualified bool) string {
+	if len(e.Cases) == 0 {
+		return ""
+	}
+	if qualified {
+		return prefix + e.Name + "." + e.Cases[0].Name
+	}
+	return prefix + e.Cases[0].Name
+}
+
 // Returns the names of the cases and methods of [e], for suggestions.
 func enumNames(e *Enum) []string {
 	var names []string
@@ -217,7 +229,7 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 			key := ast.Sexpr(p.Value)
 			switch {
 			case en != nil:
-				c.errorAt(p, "match its cases, e.g. "+en.Cases[0].Name, "a literal can't match a %s value", en.Name)
+				c.errorAt(p, caseHint("match its cases, e.g. ", en, false), "a literal can't match a %s value", en.Name)
 			case subject == Invalid:
 			case !Identical(t, subject):
 				c.mismatch(p, subject, t, "pattern")

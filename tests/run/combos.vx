@@ -1,0 +1,151 @@
+// Features combined in unusual ways. Every check is an assert, so the
+// program only prints "ok" when all of them hold.
+
+struct Counter {
+    n: int = 0
+    history: [int] = []
+
+    fn bump(by: int) -> int {
+        n += by
+        history.push(n)
+        return n
+    }
+}
+
+enum Op {
+    add(amount: int)
+    run(action: fn() -> int)
+    many(ops: [Op])
+    stop
+}
+
+struct Item {
+    name: string
+    next: Item? = nil
+    tags: [string] = []
+
+    fn last() -> Item {
+        guard let n = next else { return self }
+        return n.last()
+    }
+}
+
+struct Log {
+    lines: [string] = []
+
+    fn add(s: string) -> int {
+        lines.push(s)
+        return lines.len
+    }
+
+    fn maybe(s: string, give: bool) -> int? {
+        lines.push(s)
+        if give { return lines.len }
+        return nil
+    }
+}
+
+fn apply(c: Counter, op: Op) -> int {
+    match op {
+        add(a) => return c.bump(a)
+        run(f) => return c.bump(f())
+        many(ops) => {
+            var last = c.n
+            for o in ops {
+                match o {
+                    stop => break
+                    _ => last = apply(c, o)
+                }
+            }
+            return last
+        }
+        stop => return c.n
+    }
+}
+
+fn chain(items: [Item?], i: int) -> string => items[i]?.next?.name ?? "-"
+
+fn main() {
+    // Closures capturing a struct, called from enum cases in a list.
+    let c = Counter()
+    var calls = 0
+    let ops = [
+        Op.add(amount: 2),
+        .run(action: fn() -> int {
+            calls += 1
+            return c.n * 10
+        }),
+        .many(ops: [.add(amount: 1), .stop, .add(amount: 100)]),
+        .stop,
+    ]
+    var results: [int] = []
+    for op in ops {
+        results.push(apply(c, op))
+    }
+    assert(results.len == 4 && results[0] == 2 && results[1] == 22 && results[2] == 23 && results[3] == 23)
+    assert(calls == 1 && c.history.len == 3)
+
+    // Optionals through lists, chains and recursion.
+    let tail = Item(name: "c")
+    let mid = Item(name: "b", next: tail, tags: ["x"])
+    let head = Item(name: "a", next: mid)
+    let items: [Item?] = [head, nil, mid, tail]
+    assert(chain(items, 0) == "b" && chain(items, 1) == "-" && chain(items, 2) == "c" && chain(items, 3) == "-")
+    assert(head.last().name == "c" && tail.last().name == "c")
+    assert((head.next?.next?.tags?.len ?? -1) == 0)
+    let lens = items.map(fn(i) => i?.name?.len ?? 0)
+    assert(lens[0] == 1 && lens[1] == 0)
+
+    // ?? and ?. evaluate left to right, each side at most once, and the
+    // fallback only when needed.
+    let log = Log()
+    let a = log.maybe("x", false) ?? log.maybe("y", true) ?? log.add("never")
+    assert(a == 2 && log.lines.len == 2 && log.lines[1] == "y")
+    let b = log.add("p") + (log.maybe("q", false) ?? log.add("r")) + log.add("s")
+    assert(b == 3 + 5 + 6 && log.lines[5] == "s")
+
+    // Match as a value inside interpolation, arguments and closures.
+    let pick = fn(n: int) -> string => match n % 3 {
+        0 => "fizz"
+        1 => match n > 3 { true => "big", false => "small" }
+        _ => "{n}"
+    }
+    assert("{pick(3)} {pick(4)} {pick(1)} {pick(5)}" == "fizz big small 5")
+
+    // Captured vars changed inside match arms and guard blocks.
+    var total = 0
+    var skipped = 0
+    let add = fn(x: int?) {
+        guard let v = x else {
+            skipped += 1
+            return
+        }
+        match v {
+            0 => total += 100
+            _ => total += v
+        }
+    }
+    for x in [1, nil, 0, 5, nil] {
+        add(x)
+    }
+    assert(total == 106 && skipped == 2)
+
+    // if let inside match arms, and closures made in a loop keeping their
+    // own loop variable.
+    var fns: [fn() -> int] = []
+    for i in 0..4 {
+        let o: int? = match i { 2 => nil, _ => i * i }
+        if let v = o {
+            fns.push(fn() => v + i)
+        } else {
+            fns.push(fn() => -1)
+        }
+    }
+    let got = fns.map(fn(f) => f())
+    assert(got[0] == 0 && got[1] == 2 && got[2] == -1 && got[3] == 12)
+
+    // Strings that contain braces and quotes survive printing.
+    let word: string? = "a\"b"
+    assert("{word ?? ""}!" == "a\"b!")
+    println("ok")
+}

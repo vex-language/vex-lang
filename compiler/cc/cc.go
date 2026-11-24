@@ -29,7 +29,8 @@ func Command() ([]string, error) {
 	return nil, errors.New("no C compiler found; install clang (on macOS: xcode-select --install) or set $CC")
 }
 
-// Compiles the C source [src] into the executable [out].
+// Compiles the C source [src] into the executable [out]. Flags in
+// `$VEX_CFLAGS` are added after the default ones, so they can override them.
 func Compile(src, out string) error {
 	command, err := Command()
 	if err != nil {
@@ -44,7 +45,8 @@ func Compile(src, out string) error {
 	if err := os.WriteFile(cfile, []byte(src), 0o644); err != nil {
 		return err
 	}
-	args := append(append(command[1:len(command):len(command)], flags...), "-o", out, cfile, "-lm")
+	args := append(append(command[1:len(command):len(command)], flags...), strings.Fields(os.Getenv("VEX_CFLAGS"))...)
+	args = append(args, "-o", out, cfile, "-lm")
 	cmd := exec.Command(command[0], args...)
 	var output bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &output, &output

@@ -414,6 +414,8 @@ fn first(xs: [int]) -> int? {
     }
     guard let w = find(3) else { return }
     let l = w.boss
+    let m = [1, nil, 3]
+    let n = [nil, nil, "x"]
 `)
 	if errs != nil {
 		t.Fatalf("unexpected errors:\n%v", errs)
@@ -421,7 +423,7 @@ fn first(xs: [int]) -> int? {
 	want := map[string]string{
 		"a": "User?", "b": "string?", "c": "string", "d": "float?", "e": "int", "f": "bool",
 		"g": "[int?]", "h": "User?", "i": "fn()?", "j": "string?", "u": "User", "k": "string",
-		"w": "User", "l": "User?",
+		"w": "User", "l": "User?", "m": "[int?]", "n": "[string?]",
 	}
 	got := varTypes(info)
 	for name, w := range want {
@@ -537,6 +539,8 @@ func TestErrors(t *testing.T) {
 		{"optional field read", "struct U {\n    n: int\n}", "let u: U? = nil\nlet x = u.n + 1", "6:11", "can't read 'n' from a U?: it may be nil", "use ?.n, or unwrap it first with if let"},
 		{"optional compare value", "", "let s: string? = nil\nlet b = s == \"x\"", "3:9", "can't compare string? with string", ""},
 		{"optional arithmetic", "", "let n: int? = 1\nlet m = n + 1", "3:9", "can't use '+' with int? and int", ""},
+
+		{"list of only nil", "", "let xs = [nil, nil]", "2:11", "can't tell the type of nil", "write the type, e.g. let user: User? = nil"},
 
 		// Enums and match.
 		{"unknown case", shapeDecl, "let s = Shape.circel(radius: 1)", "22:15", "Shape has no case 'circel'", "did you mean 'circle'?"},

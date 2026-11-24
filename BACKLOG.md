@@ -80,6 +80,7 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-105** Modules and imports (`import "ui"`), multi-file projects (L)
 - [ ] **V-106** Maps `[string: int]` (M)
 - [x] **V-107** Memory management: tracing GC, stage 1 mark and sweep ([design](docs/design/memory.md)) (XL)
+- [x] **V-113** Hardening: fuzzing, sanitizers, Linux and macOS CI, feature-combination tests (M)
 - [ ] **V-111** GC stage 2: precise roots and object layouts (L)
 - [ ] **V-112** GC stage 3: generational collection, returning memory to the OS (XL)
 - [ ] **V-108** Standard library: strings, math, time, files (L)
@@ -181,3 +182,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-24 | Each step after an optional needs its own `?.` (`a?.b?.c`); optionals compare only with `nil` |
 | 2026-11-24 | Speed is the top goal: runtime and allocator changes are benchmarked against the same program in Go |
 | 2026-11-24 | Memory: tracing GC (not reference counting), so closures capturing `self` need no `weak`; stage 1 is conservative mark and sweep with size-class pages |
+| 2026-11-24 | Harden before building more: every PR runs fuzzers, sanitizers and Linux/macOS CI |

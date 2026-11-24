@@ -31,7 +31,7 @@ Conservative marking can keep a dead object alive when an unrelated number happe
 | Variable | Effect |
 |---|---|
 | `VEX_GC_STATS=1` | Prints collections, total bytes allocated, the peak heap and the live heap at exit |
-| `VEX_GC_STRESS=1` | Collects on every allocation; the tests run every program this way to catch objects freed too early |
+| `VEX_GC_STRESS=N` | Collects every N allocations; `1` collects on every one. The tests run every program this way to catch objects freed too early |
 
 ### Benchmarks
 

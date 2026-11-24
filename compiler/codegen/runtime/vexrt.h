@@ -111,7 +111,8 @@ typedef struct {
 static vx_span *vx_gray;            // objects marked but not yet scanned
 static size_t vx_gray_len, vx_gray_cap;
 
-static bool vx_gc_stress;           // VEX_GC_STRESS: collect on every allocation
+static size_t vx_gc_stress;         // VEX_GC_STRESS=N: collect every N allocations
+static size_t vx_gc_countdown;
 static size_t vx_gc_count, vx_gc_total, vx_gc_peak;
 
 __attribute__((noreturn))
@@ -212,6 +213,9 @@ static void vx_gray_push(char *ptr, size_t size) {
     vx_gray[vx_gray_len++] = (vx_span){ptr, size};
 }
 
+// Reads whole stack frames and objects on purpose, so it isn't checked by
+// AddressSanitizer.
+__attribute__((no_sanitize_address))
 static void vx_mark_range(const char *lo, const char *hi) {
     uintptr_t start = ((uintptr_t)lo + sizeof(void *) - 1) & ~(uintptr_t)(sizeof(void *) - 1);
     for (uintptr_t a = start; a + sizeof(void *) <= (uintptr_t)hi; a += sizeof(void *)) {
@@ -234,7 +238,7 @@ static void vx_mark_range(const char *lo, const char *hi) {
     }
 }
 
-__attribute__((noinline))
+__attribute__((noinline, no_sanitize_address))
 static void vx_mark_stack(void) {
     // Spill callee-saved registers onto the stack so they are scanned too.
     jmp_buf regs;
@@ -247,7 +251,7 @@ static void vx_mark_stack(void) {
 static void vx_collect(void) {
     if (!vx_stack_base) return;
     vx_gc_count++;
-    qsort(vx_larges, vx_larges_len, sizeof(vx_large *), vx_large_cmp);
+    if (vx_larges_len > 1) qsort(vx_larges, vx_larges_len, sizeof(vx_large *), vx_large_cmp);
 
     vx_mark_stack();
     while (vx_gray_len > 0) {
@@ -304,7 +308,12 @@ static void *vx_alloc_large(size_t n, bool atomic) {
 }
 
 static void *vx_alloc_block(size_t n, bool atomic) {
-    if (vx_gc_stress || vx_heap_bytes + n > vx_gc_next) vx_collect();
+    if (vx_gc_stress && --vx_gc_countdown == 0) {
+        vx_gc_countdown = vx_gc_stress;
+        vx_collect();
+    } else if (vx_heap_bytes + n > vx_gc_next) {
+        vx_collect();
+    }
     void *p;
     if (n > VX_SMALL_MAX) {
         p = vx_alloc_large(n, atomic);
@@ -354,7 +363,7 @@ static void vx_gc_init(void *base) {
         vx_class_of[i] = (uint8_t)c;
     }
     const char *stress = getenv("VEX_GC_STRESS");
-    vx_gc_stress = stress && *stress && strcmp(stress, "0") != 0;
+    if (stress) vx_gc_stress = vx_gc_countdown = (size_t)strtoull(stress, NULL, 10);
     const char *stats = getenv("VEX_GC_STATS");
     if (stats && *stats && strcmp(stats, "0") != 0) atexit(vx_gc_report);
 }

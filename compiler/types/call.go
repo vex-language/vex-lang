@@ -109,7 +109,7 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident) Type {
 	}
 	if en := c.enums[name]; en != nil {
 		c.checkArgs(e)
-		c.errorAt(id, fmt.Sprintf("create it from a case, e.g. %s.%s", en.Name, en.Cases[0].Name), "enums are created from one of their cases")
+		c.errorAt(id, caseHint("create it from a case, e.g. ", en, true), "enums are created from one of their cases")
 		return Invalid
 	}
 	if builtinFuncs[name] {
