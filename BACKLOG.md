@@ -17,7 +17,7 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 
 ### 1.1 Project setup
 - [x] **V-001** Repo layout, `go.mod`, `.gitignore`, git init (S)
-- [x] **V-002** `vex` CLI skeleton: `version`, `help`; `run`, `build`, `emit-c` arrive with V-045 (S)
+- [x] **V-002** `vex` CLI skeleton: `version`, `help`; `run`, `build`, `emit-c` added with V-045 (S)
 - [x] **V-003** Error type with file:line:col, a source snippet, a caret and an optional hint (S)
 
 ### 1.2 Lexer
@@ -51,12 +51,12 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 - [x] **V-039** Clear type errors with hints, e.g. int + string suggests `"{count} items"`, int/float mix suggests `float()` (S)
 
 ### 1.5 C code generation and runtime
-- [ ] **V-040** C runtime: lists, strings, allocation, printing (M)
-- [ ] **V-041** Runtime safety: bounds checks, divide by zero, bad number parsing, empty `pop()`, all with file and line (S)
-- [ ] **V-042** Codegen: functions, defaults, named arguments, structs, methods, all statements and expressions (L)
-- [ ] **V-043** String interpolation codegen for every printable type (S)
-- [ ] **V-044** Printing lists and structs: `[1, 2]`, `User(name: "Ann", age: 30)` (S)
-- [ ] **V-045** Call clang with `-fwrapv -O2`; respect the `$CC` environment variable (S)
+- [x] **V-040** C runtime: lists, strings, allocation, printing (M)
+- [x] **V-041** Runtime safety: bounds checks, divide by zero, bad number parsing, empty `pop()`, all with file and line (S)
+- [x] **V-042** Codegen: functions, defaults, named arguments, structs, methods, all statements and expressions (L)
+- [x] **V-043** String interpolation codegen for every printable type (S)
+- [x] **V-044** Printing lists and structs: `[1, 2]`, `User(name: "Ann", age: 30)` (S)
+- [x] **V-045** Call clang with `-fwrapv -O2`; respect the `$CC` environment variable (S)
 
 ### 1.6 Tests, examples, docs
 - [ ] **V-050** Golden tests: `examples/*.vx` + `*.out`, run by `go test` (S)
@@ -167,3 +167,5 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-24 | Structs are shared references; `let` fixes the name, not the fields |
 | 2026-11-24 | No implicit int/float mixing; whole-number literals adapt to `float` where one is expected |
 | 2026-11-24 | `==` only on `int`, `float`, `bool`, `string` for v0.1 |
+| 2026-11-24 | Generated C uses GNU statement expressions (clang and gcc); arguments run left to right in source order |
+| 2026-11-24 | Runtime errors exit with code 1 and print `file:line` |
