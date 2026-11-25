@@ -72,7 +72,7 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 
 Goal: the language features real apps need before any UI work.
 
-**Progress:** 17 of 47 tasks done. The language has enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
+**Progress:** 19 of 47 tasks done. The language has enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, collection `if`/`for`/spread, builder blocks and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
 
 ### Done
 - [x] **V-100** Enums with data plus `match` (exhaustive) (L)
@@ -92,14 +92,14 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-129** Standard library: files, processes and environment (`vex:fs`, `vex:os`); `vex run` passes arguments (M)
 - [x] **V-131** Strings: `replace`, `trim`, `trimStart`, `trimEnd`, `startsWith`, `endsWith`, `indexOf`, `substring`, `chars`, `lines` (M)
 - [x] **V-108** Standard library: strings, math, time and files, delivered by V-127, V-129 and V-131 (L)
+- [x] **V-118** Builder blocks: a trailing `{ }` for a list parameter builds the list, one element per line, with `let`, `if`, `for` and `...`; `Column { }` without `()` (M)
+- [x] **V-133** Collection `if`, `for` and spread `...`/`...?` inside list and map literals, as in Dart (M)
 
 ### Needed by the UI framework (Phase 3 starts after these)
-- [ ] **V-118** Builder blocks: several values in a trailing `{ }` become a list argument (M)
 - [ ] **V-119** Property setters: code that runs when a field is assigned (M)
 - [ ] **V-125** Generics, next steps: methods with their own type parameters, generic enums such as `Result<T>`, generic functions as values (M)
 - [ ] **V-126** Interfaces, next steps: generic interfaces such as `Comparable<T>`, interfaces that extend others, enums that implement interfaces (M)
 - [ ] **V-130** C interop, next steps: C `int`, `float` and pointer types for extern signatures, callbacks into Vex, Objective-C sources for iOS (M)
-- [ ] **V-133** Collection `if`, `for` and spread `...` inside list and map literals and builder blocks, as in Dart (M)
 - [ ] **V-134** Getters: computed properties read like fields, next to V-119 setters (S)
 - [ ] **V-135** `async`/`await` with an event loop, for UI events, timers and HTTP (V-601) (XL)
 
@@ -249,3 +249,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | `vex:fs` and `vex:os` are Vex wrappers over small C helpers in the runtime; failures throw `Error`s naming the path and the reason. Files are text for now; binary data waits for a bytes type |
 | 2026-11-25 | String indexes (`indexOf`, `substring`) count characters, like `len`; `indexOf` returns `int?` rather than -1; substrings share the original text |
 | 2026-11-25 | New features follow modern languages, Dart 3 first (records, patterns, collection `if`/`for`, extensions, sealed types, async), so Phase 2 gains V-133 to V-146; each still needs its syntax approved |
+| 2026-11-25 | Collection `if`/`for`/`...`/`...?` in literals follow Dart, without braces; a `(`, `[` or `-` after a space in their header starts the element. Builder blocks: a trailing block for a list parameter builds the list (decided by the parameter type, no annotation); lines may be elements, `let`/`var`, `if`, `for` and `...`, and anything else is an error. `Name { }` is a call with only a trailing block. Both compile to one list filled in place (V-118, V-133) |
