@@ -96,11 +96,21 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 	if code != exitOK {
 		return code
 	}
+	name := prog.Name
+	if name == "" {
+		name = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+	}
 	if *out == "" {
-		*out = prog.Name
-		if *out == "" {
-			*out = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-		}
+		*out = name
+	}
+	// An output naming a folder, such as the project's own folder, puts
+	// the program inside it.
+	if info, err := os.Stat(*out); err == nil && info.IsDir() {
+		*out = filepath.Join(*out, name)
+	}
+	if same(*out, path) {
+		fmt.Fprintf(stderr, "vex: building would replace the source file %s; choose another name with -o\n", path)
+		return exitUsage
 	}
 	if err := cc.CompileWith(src, *out, prog.CCOptions()); err != nil {
 		fmt.Fprintf(stderr, "vex: %v\n", err)
@@ -152,4 +162,11 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	return exitOK
+}
+
+// Reports whether [a] and [b] name the same existing file.
+func same(a, b string) bool {
+	x, err1 := os.Stat(a)
+	y, err2 := os.Stat(b)
+	return err1 == nil && err2 == nil && os.SameFile(x, y)
 }
