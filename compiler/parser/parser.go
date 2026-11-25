@@ -253,9 +253,13 @@ func (p *parser) funcDecl(static bool) *ast.FuncDecl {
 	fn := &ast.FuncDecl{Name: p.ident("a function name"), Static: static}
 	open := p.expect(lexer.LParen)
 	p.list(open, lexer.RParen, func() { fn.Params = append(fn.Params, p.param()) })
+	fn.Throws = p.throws()
 	if p.at(lexer.Arrow) {
 		p.next()
 		fn.Result = p.typeExpr()
+	}
+	if p.at(lexer.Throws) {
+		p.fail(p.tok(), fmt.Sprintf("write fn %s(...) throws -> ...", fn.Name.Name), "throws comes before ->")
 	}
 	switch {
 	case p.at(lexer.FatArrow):
@@ -411,7 +415,7 @@ func (p *parser) matchExpr() ast.Expr {
 		switch p.tok().Kind {
 		case lexer.LBrace:
 			arm.Block = p.block()
-		case lexer.Return, lexer.Break, lexer.Continue:
+		case lexer.Return, lexer.Break, lexer.Continue, lexer.Throw:
 			st := p.stmt()
 			arm.Block = &ast.Block{Span: ast.Span{Start: st.Pos(), End: st.EndOffset()}, Stmts: []ast.Stmt{st}}
 		default:
@@ -548,6 +552,7 @@ func (p *parser) baseType() ast.TypeExpr {
 		ft := &ast.FuncType{}
 		open := p.expect(lexer.LParen)
 		p.list(open, lexer.RParen, func() { ft.Params = append(ft.Params, p.typeExpr()) })
+		ft.Throws = p.throws()
 		if p.at(lexer.Arrow) {
 			p.next()
 			ft.Result = p.typeExpr()
@@ -663,6 +668,13 @@ func (p *parser) stmt() ast.Stmt {
 		}
 		r.Span = p.span(t.Pos)
 		return r
+	case lexer.Throw:
+		p.next()
+		if p.at(lexer.Semi) || p.at(lexer.RBrace) {
+			p.fail(p.tok(), `e.g. throw Error("file not found")`, "throw needs an error to throw")
+		}
+		value := p.expr()
+		return &ast.ThrowStmt{Value: value, Span: p.span(t.Pos)}
 	case lexer.Break:
 		p.next()
 		return &ast.BreakStmt{Span: p.span(t.Pos)}
@@ -808,6 +820,54 @@ func (p *parser) checkParens(keyword string, first, last int) {
 	p.warn(p.toks[first], fmt.Sprintf("write %s %s {", keyword, inner), "the %s condition doesn't need parentheses", keyword)
 }
 
+// Parses the optional `throws` or `throws(E)` of a function.
+func (p *parser) throws() *ast.Throws {
+	if !p.at(lexer.Throws) {
+		return nil
+	}
+	start := p.next().Pos
+	th := &ast.Throws{}
+	if p.at(lexer.LParen) {
+		p.next()
+		th.Type = p.typeExpr()
+		p.expect(lexer.RParen)
+	}
+	th.Span = p.span(start)
+	return th
+}
+
+// Parses `try x`, `try? x` or `try x catch e { ... }`.
+func (p *parser) tryExpr() ast.Expr {
+	start := p.next().Pos
+	e := &ast.TryExpr{}
+	if p.at(lexer.Question) && p.tok().Pos.Offset == p.lastEnd {
+		p.next()
+		e.Optional = true
+	}
+	e.X = p.postfix(p.primary())
+	if p.at(lexer.Catch) {
+		ct := p.next()
+		if e.Optional {
+			p.fail(ct, "use try ... catch, or try? on its own", "try? gives nil on an error, so it can't have a catch")
+		}
+		c := &ast.Catch{}
+		if p.at(lexer.Ident) {
+			c.Name = p.ident("a name for the error")
+		}
+		if !p.at(lexer.LBrace) {
+			p.fail(p.tok(), "e.g. catch e { println(e.message) }", "expected '{' after catch, found %s", describe(p.tok()))
+		}
+		saved := p.noTrailing
+		p.noTrailing = false
+		c.Body = p.block()
+		p.noTrailing = saved
+		c.Span = p.span(ct.Pos)
+		e.Catch = c
+	}
+	e.Span = p.span(start)
+	return e
+}
+
 // Parses `guard let name = value else { ... }`.
 func (p *parser) guardStmt() *ast.GuardStmt {
 	start := p.next().Pos
@@ -895,7 +955,7 @@ func (p *parser) simpleStmt() ast.Stmt {
 func startsExpr(k lexer.Kind) bool {
 	switch k {
 	case lexer.Ident, lexer.Int, lexer.Float, lexer.String, lexer.StringHead, lexer.True, lexer.False,
-		lexer.LParen, lexer.LBracket, lexer.Minus, lexer.Not, lexer.Fn, lexer.Match, lexer.Dot, lexer.Nil:
+		lexer.LParen, lexer.LBracket, lexer.Minus, lexer.Not, lexer.Fn, lexer.Match, lexer.Dot, lexer.Nil, lexer.Try:
 		return true
 	}
 	return false
@@ -949,6 +1009,9 @@ func (p *parser) binary(min int) ast.Expr {
 
 func (p *parser) unary() ast.Expr {
 	t := p.tok()
+	if t.Kind == lexer.Try {
+		return p.tryExpr()
+	}
 	if t.Kind == lexer.Minus || t.Kind == lexer.Not {
 		p.next()
 		x := p.unary()
@@ -1083,6 +1146,7 @@ func (p *parser) funcLit() ast.Expr {
 		param.Span = p.span(name.Start)
 		lit.Params = append(lit.Params, param)
 	})
+	lit.Throws = p.throws()
 	if p.at(lexer.Arrow) {
 		p.next()
 		lit.Result = p.typeExpr()

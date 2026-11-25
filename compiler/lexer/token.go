@@ -48,6 +48,10 @@ const (
 	True
 	False
 	Nil
+	Throw
+	Throws
+	Try
+	Catch
 	keywordsEnd
 
 	LParen
@@ -116,6 +120,10 @@ var keywords = map[string]Kind{
 	"match":    Match,
 	"guard":    Guard,
 	"nil":      Nil,
+	"throw":    Throw,
+	"throws":   Throws,
+	"try":      Try,
+	"catch":    Catch,
 	"true":     True,
 	"false":    False,
 }
