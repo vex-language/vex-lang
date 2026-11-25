@@ -46,11 +46,54 @@ type Map struct{ Key, Value Type }
 // Returns the type in source form, such as `[string: int]`.
 func (m *Map) String() string { return "[" + m.Key.String() + ": " + m.Value.String() + "]" }
 
+// An interface: the methods a struct promises to have. Interface values
+// hold any struct that implements it, and calls go through a table of the
+// struct's methods.
+type Interface struct {
+	Name string
+
+	// The methods, in declaration order; a method's place is its slot in
+	// the table. Methods with a body are defaults.
+	Methods []*Func
+	Decl    *ast.InterfaceDecl
+
+	// The interface's position in [Info.Interfaces].
+	Index int
+
+	resolved bool
+}
+
+// Returns the interface's name.
+func (i *Interface) String() string { return i.Name }
+
+// Returns the method called [name], or nil.
+func (i *Interface) Method(name string) *Func {
+	for _, m := range i.Methods {
+		if m.Name == name {
+			return m
+		}
+	}
+	return nil
+}
+
+// Returns the slot of [m] in the interface's method table.
+func (i *Interface) Slot(m *Func) int {
+	for n, x := range i.Methods {
+		if x == m {
+			return n
+		}
+	}
+	return -1
+}
+
 // A type parameter of a generic function or struct, as seen while its
 // body is checked. [Constraints] name what the type must support.
 type TypeParam struct {
 	Name        string
 	Constraints []string
+
+	// The interfaces the type must implement.
+	Ifaces []*Interface
 }
 
 // Returns the parameter's name.
@@ -112,6 +155,9 @@ type Struct struct {
 	// struct's name and the type arguments. Name is then `Box<int>`.
 	Base string
 	Args []Type
+
+	// The interfaces the struct implements.
+	Interfaces []*Interface
 
 	generic *genericStruct
 
@@ -238,6 +284,10 @@ type Func struct {
 	// The type arguments of an instance of a generic function, such as
 	// [int] for `first<int>`.
 	TypeArgs []Type
+
+	// The interface a method belongs to. Only methods with a body, the
+	// defaults, are compiled; they receive `self` as the interface.
+	Iface *Interface
 }
 
 // Returns the signature, such as `fn add(a: int, b: int) -> int`.
@@ -411,6 +461,10 @@ const (
 
 	// Creating an enum value: `Shape.circle(radius: 1)`, `.rect(...)`.
 	CaseCall
+
+	// A call of an interface method, through the method table of the
+	// receiver. Recv is nil for a call on `self` in a default method.
+	InterfaceCall
 )
 
 // The checked meaning of a call expression.
@@ -469,8 +523,9 @@ type Info struct {
 	Selves map[*ast.FuncDecl]*Var
 
 	// Declarations in source order.
-	Structs []*Struct
-	Funcs   []*Func
+	Structs    []*Struct
+	Funcs      []*Func
+	Interfaces []*Interface
 
 	// The [Func] for each declaration, including methods.
 	FuncOf map[*ast.FuncDecl]*Func

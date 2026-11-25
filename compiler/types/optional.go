@@ -83,7 +83,7 @@ func (c *checker) coalesce(e *ast.BinaryExpr) Type {
 	}
 	y := c.expr(e.Y, o.Elem)
 	switch {
-	case y == Invalid, Identical(y, o.Elem):
+	case y == Invalid, assignableType(o.Elem, y):
 		return o.Elem
 	case Identical(y, o):
 		return o

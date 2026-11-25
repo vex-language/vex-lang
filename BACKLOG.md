@@ -91,12 +91,13 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-108** Standard library: strings, math, time, files (L)
 - [ ] **V-109** JSON encode/decode built in, no codegen step (L)
 - [ ] **V-110** C interop: call C functions directly (`extern fn`) (M)
-- [ ] **V-117** Interfaces: a struct declares which interfaces it implements (L)
+- [x] **V-117** Interfaces: a struct declares which interfaces it implements (L)
 - [ ] **V-118** Builder blocks: several values in a trailing `{ }` become a list argument (M)
 - [ ] **V-119** Property setters: code that runs when a field is assigned (M)
 - [ ] **V-123** Stack traces: runtime errors list the chain of calls with their lines (M)
 - [ ] **V-124** Benchmark suite in the repo (`bench/`): Vex programs with Go equivalents and a script that compares them (M)
 - [ ] **V-125** Generics, next steps: methods with their own type parameters, generic enums such as `Result<T>`, generic functions as values (M)
+- [ ] **V-126** Interfaces, next steps: generic interfaces such as `Comparable<T>`, interfaces that extend others, enums that implement interfaces (M)
 - [x] **V-120** Integer overflow stops the program by default; `&+` `&-` `&*` wrap; benchmarked against Go (M)
 
 ---
@@ -208,4 +209,5 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | Packages are public git repos with version tags, fetched directly by `vex get`; a website indexes them like pub.dev but stores no code ([packages](docs/design/packages.md)) |
 | 2026-11-25 | Maps: `[K: V]` types and `["a": 1]` / `[:]` literals; `m[k]` gives an optional; loops follow insertion order; keys are int, string, bool or simple enums; values can't be optional (V-106) |
 | 2026-11-25 | Generics: `<T>` type parameters on functions and structs, inferred from arguments or the expected type, or written as `f<int>(...)` touching the name; constraints `<T: Comparable & Hashable>` from built-in Equatable, Comparable and Hashable (interfaces join them in V-117); compiled by specialising each use, checked once generically (V-104) |
+| 2026-11-25 | Interfaces: `interface I { fn m() }`, methods with a body are defaults; structs opt in with `struct S: I, J` and are checked there; `[I]`, `I` and `I?` hold any implementing struct, called through a per-struct method table (thunks keep each call type-exact); interfaces also work as generic constraints `<T: I>` (V-117) |
 | 2026-11-25 | Imports name packages, as in Dart: `vex:name` for the standard library, `package:name` for dependencies, a relative folder for the project's own code; a folder is one module; `vex.toml` maps each package name to a git URL and version, so no domain is needed ([packages](docs/design/packages.md)) |

@@ -49,14 +49,22 @@ func (c *checker) typeParams(tps []*ast.TypeParam) []*TypeParam {
 		}
 		seen[p.Name] = true
 		for _, id := range tp.Constraints {
+			if i := c.interfaces[id.Name]; i != nil {
+				p.Ifaces = append(p.Ifaces, i)
+				continue
+			}
 			known := false
 			for _, n := range constraintNames {
 				known = known || n == id.Name
 			}
 			if !known {
-				hint := didYouMean(id.Name, append([]string(nil), constraintNames...))
+				names := append([]string(nil), constraintNames...)
+				for n := range c.interfaces {
+					names = append(names, n)
+				}
+				hint := didYouMean(id.Name, names)
 				if hint == "" {
-					hint = "use Equatable (==), Comparable (< >) or Hashable (map keys)"
+					hint = "use an interface, or Equatable (==), Comparable (< >) or Hashable (map keys)"
 				}
 				c.errorAt(id, hint, "unknown constraint '%s'", id.Name)
 				continue
@@ -231,19 +239,21 @@ func (c *checker) taken(id *ast.Ident) bool {
 	what := ""
 	switch name := id.Name; {
 	case c.funcs[name] != nil:
-		line, what = c.funcs[name].Decl.Pos().Line, "function"
+		line, what = c.funcs[name].Decl.Pos().Line, "a function"
 	case c.genFuncs[name] != nil:
-		line, what = c.genFuncs[name].decl.Pos().Line, "function"
+		line, what = c.genFuncs[name].decl.Pos().Line, "a function"
 	case c.structs[name] != nil:
-		line, what = c.structs[name].Decl.Pos().Line, "struct"
+		line, what = c.structs[name].Decl.Pos().Line, "a struct"
 	case c.genStructs[name] != nil:
-		line, what = c.genStructs[name].decl.Pos().Line, "struct"
+		line, what = c.genStructs[name].decl.Pos().Line, "a struct"
 	case c.enums[name] != nil:
-		line, what = c.enums[name].Decl.Pos().Line, "enum"
+		line, what = c.enums[name].Decl.Pos().Line, "an enum"
+	case c.interfaces[name] != nil:
+		line, what = c.interfaces[name].Decl.Pos().Line, "an interface"
 	default:
 		return false
 	}
-	c.errorAt(id, "", "'%s' is already declared as a %s on line %d", id.Name, what, line)
+	c.errorAt(id, "", "'%s' is already declared as %s on line %d", id.Name, what, line)
 	return true
 }
 
@@ -511,12 +521,9 @@ func (c *checker) inferTypeArgs(e *ast.CallExpr, params []*TypeParam, slots []sl
 			c.checkArgs(e)
 			return nil
 		}
-		for _, cst := range p.Constraints {
-			if !satisfies(t, cst) {
-				c.checkArgs(e)
-				c.errorAt(e.Fn, constraintHint(cst), "%s needs %s to be %s, but %s isn't", callee, p.Name, cst, t)
-				return nil
-			}
+		if !c.meetsConstraints(p, t, e.Fn, callee) {
+			c.checkArgs(e)
+			return nil
 		}
 		args[i] = t
 	}

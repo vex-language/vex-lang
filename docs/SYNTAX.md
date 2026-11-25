@@ -169,13 +169,14 @@ let e: [int] = empty()            // T from the type it is stored in
 let x = first<int>([])
 ```
 
-A type parameter can require what the generic code needs from it, with `&` between several:
+A type parameter can require what the generic code needs from it: an [interface](#interfaces), or one of the built-in constraints below, with `&` between several:
 
 | Constraint | Allows | Met by |
 |---|---|---|
 | `Equatable` | `==`, `!=`, `list.contains` | int, float, bool, string, enums whose cases carry no values |
 | `Comparable` | `<`, `<=`, `>`, `>=`, and `==` | int, float, string |
 | `Hashable` | map keys, and `==` | int, bool, string, enums whose cases carry no values |
+| an interface, such as `Shape` | its methods | structs that implement it, and the interface itself |
 
 ```swift
 fn largest<T: Comparable>(xs: [T]) -> T? { ... }
@@ -187,6 +188,36 @@ struct Index<K: Hashable & Comparable, V> { ... }
 - Each use with new types compiles to its own copy, specialised for those types. Generic code runs as fast as code written for one type.
 - Type arguments in a call touch the name and the `(`: `first<int>(xs)`. With spaces, `<` and `>` are comparisons.
 - Not yet: methods with their own type parameters, generic enums, and using a generic function as a value (wrap it in a closure instead).
+
+## Interfaces
+
+An interface lists methods. A struct names the interfaces it implements after a `:`, and the compiler checks there that it has every method with the right types.
+
+```swift
+interface Shape {
+    fn area() -> float
+    fn name() -> string => "shape"             // a default
+    fn summary() -> string => "{name()}: {area()}"
+}
+
+struct Circle: Shape, Resizable {
+    radius: float
+    fn area() -> float => 3.14 * radius * radius
+    fn name() -> string => "circle"            // replaces the default
+    fn resize(by: float) { radius = radius * by }
+}
+
+let shapes: [Shape] = [Circle(radius: 1), Rect(width: 2, height: 3)]
+for s in shapes { println(s.summary()) }
+
+fn largest<T: Shape>(items: [T]) -> T? { ... }
+```
+
+- A struct can be used wherever an interface it implements is expected: in a `[Shape]`, a `Shape` parameter or a `Shape?`. Without a written type, values must have the same type, so write `let shapes: [Shape] = [...]` for a mixed list.
+- Methods with a body are defaults. A struct that leaves one out gets it, and a default calls the struct's own versions of the other methods.
+- Calls on an interface value go through a table of the struct's methods, which is as fast as Go's interfaces. In generic code like `largest<T: Shape>`, each type gets its own copy and calls go straight to its methods.
+- Interface values print as the struct inside them, and can't be compared with `==`.
+- Not yet: generic interfaces, interfaces that extend others, and enums that implement interfaces.
 
 ## Closures
 

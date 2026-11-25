@@ -42,6 +42,7 @@ const (
 	Continue
 	Struct
 	Enum
+	Interface
 	Match
 	Static
 	Guard
@@ -104,29 +105,30 @@ const (
 
 // Keywords mapped to their kinds.
 var keywords = map[string]Kind{
-	"fn":       Fn,
-	"let":      Let,
-	"var":      Var,
-	"if":       If,
-	"else":     Else,
-	"while":    While,
-	"for":      For,
-	"in":       In,
-	"return":   Return,
-	"break":    Break,
-	"continue": Continue,
-	"struct":   Struct,
-	"static":   Static,
-	"enum":     Enum,
-	"match":    Match,
-	"guard":    Guard,
-	"nil":      Nil,
-	"throw":    Throw,
-	"throws":   Throws,
-	"try":      Try,
-	"catch":    Catch,
-	"true":     True,
-	"false":    False,
+	"fn":        Fn,
+	"let":       Let,
+	"var":       Var,
+	"if":        If,
+	"else":      Else,
+	"while":     While,
+	"for":       For,
+	"in":        In,
+	"return":    Return,
+	"break":     Break,
+	"continue":  Continue,
+	"struct":    Struct,
+	"static":    Static,
+	"enum":      Enum,
+	"interface": Interface,
+	"match":     Match,
+	"guard":     Guard,
+	"nil":       Nil,
+	"throw":     Throw,
+	"throws":    Throws,
+	"try":       Try,
+	"catch":     Catch,
+	"true":      True,
+	"false":     False,
 }
 
 // Operators and punctuation, longest first so `..=` wins over `..`.
