@@ -50,6 +50,29 @@ To be approved together with V-105. The candidates:
 
 JSON is left out because it allows no comments.
 
+## Official packages
+
+Where a package made by the Vex project lives depends on what it needs:
+
+| Kind | Where | Examples |
+|---|---|---|
+| Useful to every program, needs no phone | Standard library, inside `vex-lang`; imported with no `vex get` | `http`, `json`, `fs`, `time`, `math`, `strings` |
+| Draws on screen | `vex-ui` | Widgets, layout, state, `Image`, navigation, theming |
+| Needs native iOS or Android code | `vex-packages`, one repo with a folder per package | `camera`, `image_picker`, `location`, `storage`, `notifications`, `maps` |
+
+Each folder in `vex-packages` is a separate package with its own tags (`camera/v0.2.0`), so an app carries only the packages it imports.
+
+### Addresses
+
+The import path is where a package is found, so moving a repo would break every app that imports it. Official packages therefore use addresses on the project's own domain:
+
+```swift
+import "vexlang.com/ui"
+import "vexlang.com/packages/camera"
+```
+
+Each address serves a small page with a tag naming the real repository, which `vex get` follows (Go uses the same scheme). Official repositories live in a GitHub organisation rather than a personal account, and can move without breaking any import.
+
 ## Choosing versions
 
 When two packages need different versions of a third, Vex picks the lowest version that satisfies all of them (minimal version selection, as in Go). A build never picks up a newer release by itself; versions change only when someone runs `vex get`. Two major versions of the same package can be used side by side, because their import paths differ (`.../charts` and `.../charts/v2`).
