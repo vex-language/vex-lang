@@ -146,6 +146,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 	i.Captures = map[*ast.FuncLit][]*Var{}
 	i.CaseValues = map[ast.Expr]*Case{}
 	i.Wraps = map[ast.Expr]*Optional{}
+	i.ThrowingRefs = map[ast.Expr]bool{}
 	i.Elements = map[*ast.ExprStmt]ast.Expr{}
 	i.Chains = map[ast.Expr]bool{}
 	i.Matches = map[*ast.MatchExpr]*Match{}
@@ -163,7 +164,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 	defer func() {
 		i.Types, i.Uses, i.Defs, i.Calls, i.Members = saved.Types, saved.Uses, saved.Defs, saved.Calls, saved.Members
 		i.Selves, i.Captures, i.CaseValues, i.Wraps = saved.Selves, saved.Captures, saved.CaseValues, saved.Wraps
-		i.Elements, i.Spawns = saved.Elements, saved.Spawns
+		i.Elements, i.Spawns, i.ThrowingRefs = saved.Elements, saved.Spawns, saved.ThrowingRefs
 		i.Chains, i.Matches, i.Throwing, i.Tries = saved.Chains, saved.Matches, saved.Throwing, saved.Tries
 		i.PatternTypes, i.PatternCases, i.PatternStructs, i.PatternVars = saved.PatternTypes, saved.PatternCases, saved.PatternStructs, saved.PatternVars
 		if !keepErrors {
@@ -639,6 +640,15 @@ func (c *checker) inferTypeArgs(e *ast.CallExpr, params []*TypeParam, slots []sl
 	} else {
 		c.scratch(false, func() { c.inferFromArgs(e, slots, b) })
 		if want != nil {
+			// The expected type wins where the arguments fit it, so
+			// `let b: Box<Shape> = Box(v: Circle())` gives a Box<Shape>.
+			w := &binding{params: params, types: map[*TypeParam]Type{}}
+			w.unify(result, want)
+			for p, t := range w.types {
+				if got := b.types[p]; got != nil && !Identical(got, t) && assignableType(t, got) {
+					b.types[p] = t
+				}
+			}
 			b.unify(result, want)
 		}
 	}
@@ -871,7 +881,7 @@ func (b *binding) subst(t Type) Type {
 		return &Map{Key: k, Value: v}
 	case *Optional:
 		if e := b.subst(t.Elem); e != nil {
-			return &Optional{Elem: e}
+			return optionalOf(e)
 		}
 		return nil
 	case *Future:

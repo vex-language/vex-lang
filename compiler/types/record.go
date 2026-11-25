@@ -194,7 +194,24 @@ func (c *checker) recordLit(e *ast.RecordLit, want Type) Type {
 	if bad {
 		return Invalid
 	}
+	// A record whose fields fit the expected record takes its type, so
+	// `let r: (Shape, int) = (Circle(), 1)` holds a Shape.
+	if hint != nil && !Identical(hint, shape) && fitsRecord(hint, shape) {
+		return hint
+	}
 	return shape
+}
+
+// Reports whether each field of [got] can be used as the field of [want]
+// with the same position or name.
+func fitsRecord(want, got *Record) bool {
+	wt, gt := want.FieldTypes(), got.FieldTypes()
+	for i := range wt {
+		if !assignableType(wt[i], gt[i]) {
+			return false
+		}
+	}
+	return true
 }
 
 // Returns the type [t] of a record field's value [x], reporting a value

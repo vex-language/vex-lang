@@ -1,6 +1,7 @@
 package types
 
 import (
+	"fmt"
 	"github.com/irshadio/vex-lang/compiler/ast"
 	"strings"
 )
@@ -31,6 +32,12 @@ func (c *checker) declareHandle(d *ast.ExternTypeDecl) {
 // Returns the type written as [te] and, in the signature of an extern or
 // export function when [native] is set, the C type of a sized number.
 func (c *checker) nativeType(te ast.TypeExpr, native bool) (Type, string) {
+	if ot, ok := te.(*ast.OptionalType); ok && native {
+		if nt, ok := ot.Elem.(*ast.NamedType); ok && nt.Module == "" && len(nt.Args) == 0 && cNumbers[nt.Name] != "" && c.handles[nt.Name] == nil {
+			c.errorAt(te, fmt.Sprintf("use %s, and a separate value to say whether it is set", nt.Name), "%s? can't cross into C, since a C number has no nil", nt.Name)
+			return Invalid, ""
+		}
+	}
 	if nt, ok := te.(*ast.NamedType); ok && native && nt.Module == "" && len(nt.Args) == 0 && cNumbers[nt.Name] != "" && c.handles[nt.Name] == nil {
 		ct := cNumbers[nt.Name]
 		if ct == "float" || ct == "double" {
@@ -60,7 +67,7 @@ func (c *checker) nativeTypes(f *Func) {
 			c.callbackType(ft, at)
 			continue
 		}
-		if !cValue(p.Type) {
+		if p.Type != Invalid && !cValue(p.Type) {
 			c.errorAt(at, hint, "%s can't be %s", p.Type, what)
 		}
 	}
@@ -85,7 +92,7 @@ func (c *checker) nativeTypes(f *Func) {
 		if f.Name == "main" {
 			c.errorAt(f.Decl.Name, "", "main can't be exported; it is where the program starts")
 		}
-		if len(f.Name) >= 3 && f.Name[:3] == "vx_" || f.Name == "vex_release" {
+		if strings.HasPrefix(f.Name, "vx_") {
 			c.errorAt(f.Decl.Name, "choose a name that doesn't start with vx_", "names starting with vx_ are kept for the Vex runtime")
 		}
 	}

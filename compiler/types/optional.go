@@ -125,3 +125,12 @@ func (c *checker) chain(e ast.Expr, m *ast.MemberExpr, t Type) Type {
 	c.info.Chains[e] = true
 	return &Optional{Elem: t}
 }
+
+// Returns the optional of [t]. Optionals don't nest, so `T?` for an
+// optional T, such as `int?`, is [t] itself.
+func optionalOf(t Type) Type {
+	if _, ok := t.(*Optional); ok {
+		return t
+	}
+	return &Optional{Elem: t}
+}

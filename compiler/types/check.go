@@ -106,6 +106,7 @@ func newChecker() *checker {
 			Captures:       map[*ast.FuncLit][]*Var{},
 			CaseValues:     map[ast.Expr]*Case{},
 			Wraps:          map[ast.Expr]*Optional{},
+			ThrowingRefs:   map[ast.Expr]bool{},
 			Elements:       map[*ast.ExprStmt]ast.Expr{},
 			Observers:      map[*ast.AssignStmt]*Func{},
 			Chains:         map[ast.Expr]bool{},
@@ -534,7 +535,7 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 	case *ast.MapType:
 		return c.mapType(te)
 	case *ast.OptionalType:
-		return &Optional{Elem: c.resolveType(te.Elem)}
+		return optionalOf(c.resolveType(te.Elem))
 	case *ast.FuncType:
 		ft := &FuncType{Result: Void}
 		for _, p := range te.Params {
@@ -772,7 +773,9 @@ func (c *checker) genericType(te *ast.NamedType) Type {
 	}
 	g := c.genStructs[te.Name]
 	if g == nil {
-		if c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && builtinTypes[te.Name] == nil {
+		_, param := c.env[te.Name]
+		if c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && builtinTypes[te.Name] == nil &&
+			c.handles[te.Name] == nil && cNumbers[te.Name] == "" && !param {
 			c.errorAt(te, "", "unknown type '%s'", te.Name)
 		} else {
 			c.errorAt(te, "", "'%s' is not generic, so it takes no type arguments", te.Name)
@@ -855,7 +858,7 @@ func (c *checker) funcBody(f *Func) {
 			want = f.Result
 		}
 		t := c.expr(f.Decl.ExprBody, want)
-		if f.Result != Void {
+		if f.Result != Void && !IsPanic(f.Decl.ExprBody) {
 			c.assignable(f.Result, t, f.Decl.ExprBody, "result of "+f.Name)
 		}
 	} else {
@@ -895,7 +898,7 @@ func terminates(s ast.Stmt) bool {
 		if m, ok := s.X.(*ast.MatchExpr); ok {
 			return matchTerminates(m)
 		}
-		return isPanic(s.X)
+		return IsPanic(s.X)
 	}
 	return false
 }

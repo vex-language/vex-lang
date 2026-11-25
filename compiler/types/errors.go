@@ -144,7 +144,7 @@ func (c *checker) tryExpr(e *ast.TryExpr, want Type, stmt bool) Type {
 					"the catch block must give a value of type %s", t)
 			}
 			switch {
-			case ok && !isPanic(es.(*ast.ExprStmt).X):
+			case ok && !IsPanic(es.(*ast.ExprStmt).X):
 				x := es.(*ast.ExprStmt).X
 				if vt := c.expr(x, t); vt == Void {
 					noValue()

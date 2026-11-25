@@ -194,7 +194,7 @@ func (c *checker) implicitEnum(im *ast.ImplicitMember, want Type) *Enum {
 // --- Match ---
 
 // Reports whether [e] is a call of `panic`, which never returns.
-func isPanic(e ast.Expr) bool {
+func IsPanic(e ast.Expr) bool {
 	call, ok := e.(*ast.CallExpr)
 	if !ok {
 		return false
@@ -206,7 +206,7 @@ func isPanic(e ast.Expr) bool {
 // Reports whether every arm of [m] ends by returning or stopping.
 func matchTerminates(m *ast.MatchExpr) bool {
 	for _, a := range m.Arms {
-		if a.Block != nil && !terminates(a.Block) || a.Expr != nil && !isPanic(a.Expr) {
+		if a.Block != nil && !terminates(a.Block) || a.Expr != nil && !IsPanic(a.Expr) {
 			return false
 		}
 	}
@@ -244,6 +244,10 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 		} else if subject != Invalid {
 			sp := c.lower(arm.Pattern, subject)
 			key := simpleKey(arm.Pattern, c.info)
+			// Literals and constants with the same value repeat each other.
+			if sp.kind == sOpaque && !strings.HasPrefix(sp.key, "const ") && !strings.HasPrefix(sp.key, "range ") {
+				key = "value " + sp.key
+			}
 			if !c.exhaust().useful(rows, []*spat{sp}, []Type{subject}) {
 				switch {
 				case wildcard > 0:
@@ -252,7 +256,7 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 				case key != "" && seen[key] > 0 && strings.HasPrefix(key, "case "):
 					c.errorAt(arm.Pattern, "remove one of the arms", "case '%s' is already handled on line %d", key[5:], seen[key])
 				case key != "" && seen[key] > 0:
-					c.errorAt(arm.Pattern, "remove one of the arms", "%s is already handled on line %d", key, seen[key])
+					c.errorAt(arm.Pattern, "remove one of the arms", "%s is already handled on line %d", c.source(arm.Pattern), seen[key])
 				default:
 					c.errorAt(arm.Pattern, "remove it, or move it above the arms that cover it",
 						"this arm is never reached: earlier arms match everything it does")
@@ -278,7 +282,7 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 			c.stmt(arm.Block)
 		case stmt:
 			c.expr(arm.Expr, nil)
-		case isPanic(arm.Expr):
+		case IsPanic(arm.Expr):
 			c.expr(arm.Expr, nil)
 			a.NoValue = true
 		default:

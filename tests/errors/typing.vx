@@ -1,0 +1,27 @@
+// Repeated values written differently, and types that take no arguments.
+extern type H
+extern fn g(x: float32?) -> int
+const ten = 10
+
+fn f<T>(h: H<int>, x: T<int>) {}
+
+export fn vex_release() {}
+
+fn main() {
+    let x = 1
+    let a = match x { 1 => "a", 0x1 => "b", _ => "c" }
+    let b = match x { 10 => "a", ten => "b", 1_0 => "c", _ => "d" }
+    let c = match x { -1 => "a", -0x1 => "b", 0 => "c", -0 => "d", _ => "e" }
+    let m = [10: "a", 0b1010: "b"]
+}
+
+// error: 3:16: float32? can't cross into C, since a C number has no nil
+// error: 6:12: 'H' is not generic, so it takes no type arguments
+// error: 6:23: 'T' is not generic, so it takes no type arguments
+// error: 8:11: 'vex_release' is already exported by the Vex runtime
+// error: 12:33: 0x1 is already handled on line 12
+// error: 13:34: ten is already handled on line 13
+// error: 13:46: 1_0 is already handled on line 13
+// error: 14:34: -0x1 is already handled on line 14
+// error: 14:57: -0 is already handled on line 14
+// error: 15:23: key 0b1010 is already in this map on line 15

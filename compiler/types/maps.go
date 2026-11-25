@@ -2,6 +2,8 @@ package types
 
 import (
 	"fmt"
+	"math"
+	"strconv"
 
 	"github.com/irshadio/vex-lang/compiler/ast"
 	"github.com/irshadio/vex-lang/compiler/lexer"
@@ -81,7 +83,7 @@ func (c *checker) mapLit(e *ast.MapLit, want Type) Type {
 		}
 		if lit := literalKey(k); lit != "" {
 			if line, dup := seen[lit]; dup {
-				c.errorAt(k, "", "key %s is already in this map on line %d", lit, line)
+				c.errorAt(k, "", "key %s is already in this map on line %d", c.source(k), line)
 			}
 			seen[lit] = k.Pos().Line
 		}
@@ -127,7 +129,20 @@ func literalKey(k ast.Expr) string {
 	case *ast.StringLit:
 		return fmt.Sprintf("%q", k.Value)
 	case *ast.IntLit:
+		// Keys written differently, such as 10 and 0b1010, are the same.
+		if v, err := strconv.ParseInt(k.Value, 0, 64); err == nil {
+			return strconv.FormatInt(v, 10)
+		}
 		return k.Value
+	case *ast.UnaryExpr:
+		if IsMinInt(k) {
+			return strconv.FormatInt(math.MinInt64, 10)
+		}
+		if lit, ok := k.X.(*ast.IntLit); ok && k.Op == lexer.Minus {
+			if v, err := strconv.ParseInt(lit.Value, 0, 64); err == nil {
+				return strconv.FormatInt(-v, 10)
+			}
+		}
 	case *ast.BoolLit:
 		return fmt.Sprint(k.Value)
 	}

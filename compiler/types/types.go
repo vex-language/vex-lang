@@ -727,6 +727,10 @@ type Info struct {
 	// passed as an int?; each is stored as a present value.
 	Wraps map[ast.Expr]*Optional
 
+	// Names of functions that don't throw, used as values where a
+	// throwing function is expected.
+	ThrowingRefs map[ast.Expr]bool
+
 	// The elements of collection literals with a body and of builder
 	// blocks: each expression statement that adds an element, mapped to
 	// the [ast.ListLit] or [ast.MapLit] it adds to.
