@@ -41,6 +41,10 @@ type parser struct {
 	// Set inside an interface, where methods may leave out their body.
 	inInterface bool
 	inExtern    bool
+
+	// Set while parsing a field's default value, where a block that starts
+	// with `didSet` belongs to the field.
+	inDefault bool
 }
 
 // Parses [f] into a syntax tree.
@@ -675,11 +679,11 @@ func (p *parser) enumMember(e *ast.EnumDecl) {
 func (p *parser) matchExpr() ast.Expr {
 	start := p.next().Pos
 	m := &ast.MatchExpr{}
-	saved := p.noTrailing
+	saved, savedHead := p.noTrailing, p.elemHead
 	p.noTrailing = true
 	m.Subject = p.expr()
-	p.noTrailing = false
-	defer func() { p.noTrailing = saved }()
+	p.noTrailing, p.elemHead = false, false
+	defer func() { p.noTrailing, p.elemHead = saved, savedHead }()
 	if !p.at(lexer.LBrace) {
 		hint := ""
 		if p.tok().IsAutoSemi() {
@@ -921,7 +925,10 @@ func (p *parser) member(s *ast.StructDecl) {
 	f := &ast.Field{Pub: pub, Name: name, Type: p.typeExpr()}
 	if p.at(lexer.Assign) {
 		p.next()
+		saved := p.inDefault
+		p.inDefault = true
 		f.Default = p.expr()
+		p.inDefault = saved
 	}
 	f.Span = p.span(name.Start)
 	if p.at(lexer.LBrace) {
@@ -980,6 +987,24 @@ func (p *parser) accessor() *ast.FuncDecl {
 }
 
 // Parses the `{ didSet { ... } }` block after field [f].
+// Reports whether the `{` at the current token may start a trailing
+// block. In a field's default value, a block starting with `didSet`
+// belongs to the field.
+func (p *parser) trailingAllowed() bool {
+	return !p.noTrailing && !(p.inDefault && p.observerAhead())
+}
+
+// Reports whether the `{` at the current token opens a field's observer
+// block: `{ didSet { ... } }`.
+func (p *parser) observerAhead() bool {
+	i := 1
+	for p.peek(i).Kind == lexer.Semi {
+		i++
+	}
+	t := p.peek(i)
+	return t.Kind == lexer.Ident && (t.Text == "didSet" || t.Text == "willSet")
+}
+
 func (p *parser) observer(f *ast.Field) *ast.FuncDecl {
 	p.next()
 	p.skipNewlines()
@@ -1130,7 +1155,10 @@ func (p *parser) typeParams() []*ast.TypeParam {
 func (p *parser) typeArgs() []ast.TypeExpr {
 	open := p.next()
 	var args []ast.TypeExpr
-	p.list(open, lexer.Gt, func() { args = append(args, p.typeExpr()) })
+	p.list(open, lexer.Gt, func() {
+		args = append(args, p.typeExpr())
+		p.splitGtEq()
+	})
 	if len(args) == 0 {
 		p.fail(open, "name the types, e.g. <int>", "empty type argument list")
 	}
@@ -1154,14 +1182,41 @@ func qualifiable(x ast.Expr) bool {
 	return false
 }
 
+// Splits a `>=` that closes type arguments, as in `let b: Box<int>= x`,
+// into `>` and `=`.
+func (p *parser) splitGtEq() {
+	t := p.tok()
+	if t.Kind != lexer.GtEq {
+		return
+	}
+	gt := lexer.Token{Kind: lexer.Gt, Text: ">", Pos: t.Pos, End: t.End - 1}
+	eqPos := t.Pos
+	eqPos.Offset++
+	eqPos.Col++
+	eq := lexer.Token{Kind: lexer.Assign, Text: "=", Pos: eqPos, End: t.End}
+	p.toks = append(p.toks[:p.p], append([]lexer.Token{gt, eq}, p.toks[p.p+1:]...)...)
+}
+
 func (p *parser) typeArgsAhead() bool {
 	if p.tok().Pos.Offset != p.lastEnd {
 		return false
 	}
-	depth := 0
+	depth, braces := 0, 0
 	for i := 0; ; i++ {
 		t := p.peek(i)
 		switch t.Kind {
+		// Braces only open a record type's named fields, as in
+		// `(int, {string name})`.
+		case lexer.LBrace:
+			if prev := p.peek(i - 1).Kind; prev != lexer.LParen && prev != lexer.Comma {
+				return false
+			}
+			braces++
+		case lexer.RBrace:
+			if braces == 0 {
+				return false
+			}
+			braces--
 		case lexer.Lt:
 			depth++
 		case lexer.Gt:
@@ -1177,7 +1232,7 @@ func (p *parser) typeArgsAhead() bool {
 				return false
 			}
 		case lexer.Ident, lexer.LBracket, lexer.RBracket, lexer.Colon, lexer.Comma, lexer.Question,
-			lexer.Fn, lexer.LParen, lexer.RParen, lexer.Arrow, lexer.Throws:
+			lexer.Fn, lexer.LParen, lexer.RParen, lexer.Arrow, lexer.Throws, lexer.Dot:
 		default:
 			return false
 		}
@@ -1378,20 +1433,7 @@ func (p *parser) ifStmt() *ast.IfStmt {
 func (p *parser) forStmt() *ast.ForStmt {
 	start := p.expect(lexer.For).Pos
 	s := &ast.ForStmt{}
-	loopVar := func() {
-		if p.patternAhead() {
-			s.Pattern = p.primaryPattern()
-			s.Elem = &ast.Ident{Span: ast.Span{Start: s.Pattern.Pos(), End: s.Pattern.EndOffset()}, Name: "$elem"}
-		} else {
-			s.Elem = p.ident("a loop variable")
-		}
-	}
-	loopVar()
-	if p.at(lexer.Comma) && s.Pattern == nil {
-		p.next()
-		s.Index = s.Elem
-		loopVar()
-	}
+	p.loopVars(s)
 	if !p.at(lexer.In) {
 		p.fail(p.tok(), "write for x in items { ... }", "expected 'in', found %s", describe(p.tok()))
 	}
@@ -1411,6 +1453,25 @@ func (p *parser) forStmt() *ast.ForStmt {
 	s.Body = p.block()
 	s.Span = p.span(start)
 	return s
+}
+
+// Parses the loop variables of `for`: a name, `i, x`, or a pattern such as
+// `(a, b)` that takes each element apart.
+func (p *parser) loopVars(s *ast.ForStmt) {
+	loopVar := func() {
+		if p.patternAhead() {
+			s.Pattern = p.primaryPattern()
+			s.Elem = &ast.Ident{Span: ast.Span{Start: s.Pattern.Pos(), End: s.Pattern.EndOffset()}, Name: "$elem"}
+		} else {
+			s.Elem = p.ident("a loop variable")
+		}
+	}
+	loopVar()
+	if p.at(lexer.Comma) && s.Pattern == nil {
+		p.next()
+		s.Index = s.Elem
+		loopVar()
+	}
 }
 
 // Parses the condition of an `if` or `while` and checks that the body follows.
@@ -1710,7 +1771,7 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			open := p.next()
 			call := &ast.CallExpr{Fn: x, TypeArgs: typeArgs}
 			p.list(open, lexer.RParen, func() { call.Args = append(call.Args, p.arg()) })
-			if !p.noTrailing && p.at(lexer.LBrace) {
+			if p.at(lexer.LBrace) && p.trailingAllowed() {
 				call.Trailing = p.block()
 			}
 			call.Span = p.span(x.Pos())
@@ -1730,7 +1791,7 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			x = &ast.IndexExpr{Span: p.span(x.Pos()), X: x, Index: idx}
 		case lexer.LBrace:
 			// `Column { ... }` is a call with only a trailing block.
-			if p.noTrailing || !qualifiable(x) {
+			if !p.trailingAllowed() || !qualifiable(x) {
 				return x
 			}
 			x = &ast.CallExpr{Fn: x, TypeArgs: typeArgs, Trailing: p.block(), Span: p.span(x.Pos())}
@@ -1907,13 +1968,14 @@ func (p *parser) element(kind *litKind) ast.Stmt {
 		return s
 	case lexer.For:
 		p.next()
-		s := &ast.ForStmt{Elem: p.ident("a loop variable")}
-		if p.at(lexer.Comma) {
-			p.next()
-			s.Index, s.Elem = s.Elem, p.ident("a loop variable")
-		}
+		s := &ast.ForStmt{}
+		p.loopVars(s)
 		if !p.at(lexer.In) {
-			p.fail(p.tok(), fmt.Sprintf("write for %s in items %s", s.Elem.Name, s.Elem.Name), "expected 'in', found %s", describe(p.tok()))
+			hint := "write for x in items x"
+			if s.Pattern == nil {
+				hint = fmt.Sprintf("write for %s in items %s", s.Elem.Name, s.Elem.Name)
+			}
+			p.fail(p.tok(), hint, "expected 'in', found %s", describe(p.tok()))
 		}
 		p.next()
 		s.Iter = p.elemHeader(func() ast.Expr {
@@ -2040,9 +2102,9 @@ func (p *parser) funcLit() ast.Expr {
 func (p *parser) interpolated() ast.Expr {
 	head := p.next()
 	s := &ast.InterpolatedString{Texts: []string{head.Value}}
-	saved := p.noTrailing
-	p.noTrailing = false
-	defer func() { p.noTrailing = saved }()
+	saved, savedHead := p.noTrailing, p.elemHead
+	p.noTrailing, p.elemHead = false, false
+	defer func() { p.noTrailing, p.elemHead = saved, savedHead }()
 	for {
 		if k := p.tok().Kind; k == lexer.StringMid || k == lexer.StringTail {
 			p.fail(p.tok(), `put a value inside, or write \{ for a literal brace`, "empty {} in string")
@@ -2070,6 +2132,7 @@ func (p *parser) recordType() ast.TypeExpr {
 	open := p.next()
 	rt := &ast.RecordType{}
 	comma := false
+	p.skipNewlines()
 	for !p.at(lexer.RParen) {
 		if p.at(lexer.LBrace) {
 			brace := p.next()
@@ -2080,13 +2143,16 @@ func (p *parser) recordType() ast.TypeExpr {
 			if len(rt.Named) == 0 {
 				p.fail(brace, "write the named fields, e.g. ({int x, int y})", "the braces of a record type need at least one field")
 			}
+			p.skipNewlines()
 			break
 		}
 		rt.Positional = append(rt.Positional, p.typeExpr())
+		p.skipNewlines()
 		if !p.at(lexer.Comma) {
 			break
 		}
 		p.next()
+		p.skipNewlines()
 		comma = true
 	}
 	if len(rt.Positional) == 0 && len(rt.Named) == 0 {

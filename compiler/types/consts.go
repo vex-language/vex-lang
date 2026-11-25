@@ -269,6 +269,9 @@ func (c *checker) fold(e ast.Expr, t Type) any {
 		}
 		return b.String()
 	case *ast.UnaryExpr:
+		if IsMinInt(e) && t == Int {
+			return int64(math.MinInt64)
+		}
 		x := c.fold(e.X, c.info.Types[e.X])
 		switch v := x.(type) {
 		case int64:

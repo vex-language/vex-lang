@@ -343,12 +343,31 @@ func (c *checker) unary(e *ast.UnaryExpr, want Type) Type {
 		}
 		return Bool
 	}
+	if IsMinInt(e) && want != Float {
+		c.info.Types[e.X] = Int
+		return Int
+	}
 	t := c.expr(e.X, want)
 	if !numeric(t) {
 		c.errorAt(e.X, "", "'-' needs a number, found %s", t)
 		return Invalid
 	}
 	return t
+}
+
+// Reports whether [e] is the smallest int written as a literal,
+// `-9223372036854775808`, whose digits alone don't fit in an int.
+func IsMinInt(e ast.Expr) bool {
+	u, ok := e.(*ast.UnaryExpr)
+	if !ok || u.Op != lexer.Minus {
+		return false
+	}
+	lit, ok := u.X.(*ast.IntLit)
+	if !ok {
+		return false
+	}
+	v, err := strconv.ParseUint(lit.Value, 0, 64)
+	return err == nil && v == 1<<63
 }
 
 // Reports whether [e] is an int literal, possibly negated.

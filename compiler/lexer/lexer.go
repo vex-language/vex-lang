@@ -132,7 +132,7 @@ func (l *lexer) lineBreak(at int) {
 		return
 	}
 	switch l.toks[len(l.toks)-1].Kind {
-	case Ident, Int, Float, String, StringTail, True, False, Nil, Question, Return, Break, Continue, RParen, RBracket, RBrace:
+	case Ident, Int, Float, String, StringTail, True, False, Nil, Question, Return, Break, Continue, RParen, RBracket, RBrace, Throws:
 	case Gt:
 		if !l.closesTypeArgs() {
 			return
@@ -160,7 +160,7 @@ func (l *lexer) closesTypeArgs() bool {
 				prev := l.toks[i-1]
 				return prev.Kind == Ident && prev.End == t.Pos.Offset
 			}
-		case Ident, LBracket, RBracket, Colon, Comma, Question, Fn, LParen, RParen, Arrow:
+		case Ident, LBracket, RBracket, Colon, Comma, Question, Fn, LParen, RParen, Arrow, Dot, Throws, LBrace, RBrace:
 		default:
 			return false
 		}
