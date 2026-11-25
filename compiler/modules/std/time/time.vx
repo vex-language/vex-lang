@@ -1,0 +1,9 @@
+/// Reading the clock.
+
+/// Returns nanoseconds from a fixed point in the past. Only differences
+/// between two readings mean something, which makes it right for measuring
+/// how long code takes.
+pub extern fn nanos() -> int as "vx_time_ns"
+
+/// Returns the seconds since 1970-01-01 UTC.
+pub extern fn unix() -> int as "vx_time_unix"

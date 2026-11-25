@@ -1,4 +1,4 @@
-/// Common math on integers and other comparable values.
+/// Common math on numbers.
 
 /// Returns [x] without its sign.
 pub fn abs(x: int) -> int {
@@ -64,3 +64,66 @@ pub fn gcd(a: int, b: int) -> int {
     }
     return x
 }
+
+/// Returns the square root of [x]; NaN when [x] is negative.
+pub extern fn sqrt(x: float) -> float
+
+/// Returns the cube root of [x].
+pub extern fn cbrt(x: float) -> float
+
+/// Returns [base] raised to the power [exp].
+pub extern fn powf(base: float, exp: float) -> float as "pow"
+
+/// Returns e raised to the power [x].
+pub extern fn exp(x: float) -> float
+
+/// Returns the natural logarithm of [x].
+pub extern fn log(x: float) -> float
+
+/// Returns the base-2 logarithm of [x].
+pub extern fn log2(x: float) -> float
+
+/// Returns the base-10 logarithm of [x].
+pub extern fn log10(x: float) -> float
+
+/// Returns the sine of [x], in radians.
+pub extern fn sin(x: float) -> float
+
+/// Returns the cosine of [x], in radians.
+pub extern fn cos(x: float) -> float
+
+/// Returns the tangent of [x], in radians.
+pub extern fn tan(x: float) -> float
+
+/// Returns the arc sine of [x], in radians.
+pub extern fn asin(x: float) -> float
+
+/// Returns the arc cosine of [x], in radians.
+pub extern fn acos(x: float) -> float
+
+/// Returns the arc tangent of [x], in radians.
+pub extern fn atan(x: float) -> float
+
+/// Returns the angle of the point ([x], [y]) from the x axis, in radians.
+pub extern fn atan2(y: float, x: float) -> float
+
+/// Returns the length of the hypotenuse of a right triangle with sides [x] and [y].
+pub extern fn hypot(x: float, y: float) -> float
+
+/// Returns the largest whole number not greater than [x].
+pub extern fn floor(x: float) -> float
+
+/// Returns the smallest whole number not less than [x].
+pub extern fn ceil(x: float) -> float
+
+/// Returns [x] rounded to the nearest whole number, halves away from zero.
+pub extern fn round(x: float) -> float
+
+/// Returns [x] without its fractional part.
+pub extern fn trunc(x: float) -> float
+
+/// Returns [x] without its sign.
+pub extern fn absf(x: float) -> float as "fabs"
+
+/// The ratio of a circle's circumference to its diameter.
+pub fn pi() -> float => 3.141592653589793

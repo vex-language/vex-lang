@@ -15,6 +15,7 @@ import (
 	"strings"
 
 	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/irshadio/vex-lang/compiler/cc"
 	"github.com/irshadio/vex-lang/compiler/diag"
 	"github.com/irshadio/vex-lang/compiler/lexer"
 	"github.com/irshadio/vex-lang/compiler/parser"
@@ -62,6 +63,34 @@ type Program struct {
 
 	// The package name from the project file, or "" for a single file.
 	Name string
+
+	// The project folder on disk, set by [Load] for a project.
+	Dir string
+
+	// C code to build into the program, from the project file's [c]
+	// section; source paths are relative to [Dir].
+	CSources []string
+	CLibs    []string
+	CFlags   []string
+}
+
+// Returns the C code of the project file, with paths made absolute, for
+// the C compiler.
+func (p *Program) CCOptions() cc.Options {
+	opts := cc.Options{Libs: p.CLibs}
+	for _, s := range p.CSources {
+		opts.Sources = append(opts.Sources, filepath.Join(p.Dir, filepath.FromSlash(s)))
+	}
+	for _, f := range p.CFlags {
+		// Include and library folders are relative to the project.
+		for _, prefix := range []string{"-I", "-L"} {
+			if dir, ok := strings.CutPrefix(f, prefix); ok && !filepath.IsAbs(dir) {
+				f = prefix + filepath.Join(p.Dir, filepath.FromSlash(dir))
+			}
+		}
+		opts.Flags = append(opts.Flags, f)
+	}
+	return opts
 }
 
 // Returns the warnings of every file, each marked with its file.
@@ -92,7 +121,11 @@ func Load(target string) (*Program, error) {
 	}
 	fsys := os.DirFS(filepath.VolumeName(abs) + string(filepath.Separator))
 	rel := filepath.ToSlash(strings.TrimPrefix(abs, filepath.VolumeName(abs)+string(filepath.Separator)))
-	return LoadFS(fsys, rel, target, info.IsDir())
+	prog, err := LoadFS(fsys, rel, target, info.IsDir())
+	if prog != nil && info.IsDir() {
+		prog.Dir = abs
+	}
+	return prog, err
 }
 
 // Loads a program from [fsys]. [root] is the folder or file within [fsys],
@@ -108,11 +141,17 @@ func LoadFS(fsys fs.FS, root, shown string, isDir bool) (*Program, error) {
 	l.prog = &Program{}
 	var m *Module
 	if isDir {
-		name, err := l.project(root)
+		proj, err := l.project(root)
 		if err != nil {
 			return nil, err
 		}
-		l.prog.Name = name
+		l.prog.Name = proj.Name
+		l.prog.CSources, l.prog.CLibs, l.prog.CFlags = proj.CSources, proj.CLibs, proj.CFlags
+		for _, src := range proj.CSources {
+			if _, err := fs.Stat(l.fsys, path.Join(root, src)); err != nil {
+				return nil, fmt.Errorf("%s: C source '%s' not found", l.display(path.Join(root, ProjectFile)), src)
+			}
+		}
 		m = l.folder(root, nil)
 		if m != nil && len(m.Files) == 0 {
 			return nil, fmt.Errorf("no .vx files in %s", shown)
@@ -327,19 +366,19 @@ func (l *loader) errorAt(imp *Import, hint, format string, args ...any) {
 	})
 }
 
-// Reads the project file in [dir] and returns the package name.
-func (l *loader) project(dir string) (string, error) {
+// Reads the project file in [dir].
+func (l *loader) project(dir string) (*Project, error) {
 	p := path.Join(dir, ProjectFile)
 	src, err := fs.ReadFile(l.fsys, p)
 	if err != nil {
-		return "", fmt.Errorf("no %s in %s; create one with:\n\n[package]\nname = \"%s\"", ProjectFile, l.shown, safeName(path.Base(dir)))
+		return nil, fmt.Errorf("no %s in %s; create one with:\n\n[package]\nname = \"%s\"", ProjectFile, l.shown, safeName(path.Base(dir)))
 	}
 	f := diag.NewFile(l.display(p), string(src))
 	proj, errs := ParseProject(f)
 	if len(errs) > 0 {
-		return "", errs
+		return nil, errs
 	}
-	return proj.Name, nil
+	return proj, nil
 }
 
 // Returns [s] made into a valid package name.

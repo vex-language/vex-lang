@@ -102,7 +102,7 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 			*out = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
 		}
 	}
-	if err := cc.Compile(src, *out); err != nil {
+	if err := cc.CompileWith(src, *out, prog.CCOptions()); err != nil {
 		fmt.Fprintf(stderr, "vex: %v\n", err)
 		return exitError
 	}
@@ -115,7 +115,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Usage: vex run [file or folder]")
 		return exitUsage
 	}
-	src, _, code := translate(target(args), stderr)
+	src, prog, code := translate(target(args), stderr)
 	if code != exitOK {
 		return code
 	}
@@ -126,7 +126,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	}
 	defer os.RemoveAll(dir)
 	exe := filepath.Join(dir, "main")
-	if err := cc.Compile(src, exe); err != nil {
+	if err := cc.CompileWith(src, exe, prog.CCOptions()); err != nil {
 		fmt.Fprintf(stderr, "vex: %v\n", err)
 		return exitError
 	}
