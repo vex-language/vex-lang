@@ -1307,9 +1307,6 @@ func (g *gen) value(e ast.Expr) string {
 		if t == types.Float {
 			return strconv.FormatInt(v, 10) + ".0"
 		}
-		if v == -1<<63 {
-			return "INT64_MIN"
-		}
 		return "INT64_C(" + strconv.FormatInt(v, 10) + ")"
 	case *ast.FloatLit:
 		return e.Value
@@ -1366,6 +1363,9 @@ func (g *gen) value(e ast.Expr) string {
 			return l
 		})
 	case *ast.UnaryExpr:
+		if types.IsMinInt(e) && t == types.Int {
+			return "INT64_MIN"
+		}
 		if _, lit := e.X.(*ast.IntLit); e.Op == lexer.Minus && t == types.Int && !lit {
 			return fmt.Sprintf("vx_neg(%s, %d)", g.expr(e.X), g.lineOf(e))
 		}
