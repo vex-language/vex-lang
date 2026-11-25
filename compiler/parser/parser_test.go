@@ -430,6 +430,34 @@ export fn vex_frame(t: float) -> int => 0
 	}
 }
 
+func TestTypeAliases(t *testing.T) {
+	src := `typedef Json = [string: string?]
+pub typedef Handler = fn(int) throws -> bool
+typedef Pair<T> = (T, T)
+typedef Cache<K: Hashable> = [K: [string]]
+typedef Point = shapes.Point
+`
+	f, errs := parse(t, src)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	want := []string{
+		"typedef Json = [string: string?]",
+		"pub typedef Handler = fn(int) throws -> bool",
+		"typedef Pair<T> = (T, T)",
+		"typedef Cache<K: Hashable> = [K: [string]]",
+		"typedef Point = shapes.Point",
+	}
+	if len(f.Decls) != len(want) {
+		t.Fatalf("got %d declarations, want %d", len(f.Decls), len(want))
+	}
+	for i, d := range f.Decls {
+		if got := ast.Sexpr(d); got != want[i] {
+			t.Errorf("decl %d\n got: %s\nwant: %s", i, got, want[i])
+		}
+	}
+}
+
 func TestErrorHandling(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{"let t = try load(p)", "(let t (try (call load p)))"},
@@ -702,6 +730,9 @@ func TestErrors(t *testing.T) {
 		{"guard without let", "fn main() {\n guard x else { return }\n}", "2:8", "expected 'let' after 'guard', found 'x'", "write guard let name = optionalValue else { return }"},
 		{"guard without else", "fn main() {\n guard let x = y { return }\n}", "2:18", "expected 'else' after the guard value, found '{'", "add else { return } after the value"},
 		{"enum in function", "fn main() {\n enum E { a }\n}", "2:2", "enums can't be declared inside functions", "declare it at the top level of the file"},
+		{"typedef in function", "fn main() {\n typedef T = int\n}", "2:2", "typedefs can't be declared inside functions", "declare it at the top level of the file"},
+		{"typedef without =", "typedef T int", "1:11", "expected '=' after the type's name, found 'int'", "write typedef T = the type it names, e.g. typedef T = [string: int]"},
+		{"typedef without name", "typedef = int", "1:9", "expected a name for the type, found '='", ""},
 		{"case with type", "enum E {\n a: int\n}", "2:3", "enum cases don't have a type", "enum cases carry values in parentheses: a(value: int)"},
 		{"case value type", "enum E {\n a(x)\n}", "2:5", "case value 'x' needs a type", "write it as x: int"},
 		{"match brace", "fn main() {\n match x\n {}\n}", "2:9", "expected '{' after the match subject, found end of line", "put { on the same line as match"},

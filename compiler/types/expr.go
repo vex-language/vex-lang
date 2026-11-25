@@ -648,7 +648,12 @@ func (c *checker) structRef(e ast.Expr) *Struct {
 	if owner := c.ownStruct(); owner != nil && owner.Field(id.Name) != nil {
 		return nil
 	}
-	return c.structs[id.Name]
+	if s := c.structs[id.Name]; s != nil {
+		return s
+	}
+	_, t := c.aliasedNominal(c.mod, id.Name)
+	s, _ := t.(*Struct)
+	return s
 }
 
 func (c *checker) member(e *ast.MemberExpr) Type {

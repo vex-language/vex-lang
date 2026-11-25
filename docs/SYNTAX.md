@@ -1065,6 +1065,35 @@ The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, m
 
 Run `vex check file.vx` to see type errors without building.
 
+### Type aliases
+
+`typedef` gives a long type a short name, as in Dart. The alias is the same type as the one it names, so values pass between them freely:
+
+```swift
+typedef Json = [string: string?]
+typedef Handler = fn(Event) throws -> bool
+pub typedef Point = ({float x, float y})
+
+fn on(handler: Handler) { ... }
+let p: Point = (x: 1.0, y: 2.0)
+```
+
+An alias can take type parameters, with constraints, like a struct:
+
+```swift
+typedef Pair<T> = (T, T)
+typedef Cache<K: Hashable> = [K: Future<string>]
+
+let p: Pair<int> = (1, 2)
+var cache: Cache<string> = [:]
+```
+
+- An alias of a struct creates values and reaches static members: after `typedef Pt = Point`, `Pt(x: 1, y: 2)` and `Pt.origin()` work. An alias of an enum reaches its cases: `Lv.high`.
+- An alias of an interface can be listed after `:` and used as a constraint: `struct Square: S`, `fn f<T: S>(x: T)`.
+- `pub typedef` makes the alias usable from other modules as `shapes.Point`.
+- Aliases are declared at the top level of a file, and can't refer to themselves; use a struct or enum for a type that contains itself.
+- An alias doesn't make a new type: `typedef UserId = int` still accepts any `int`. Distinct wrapper types are planned as extension types.
+
 ## Memory
 
 Memory is managed automatically by a garbage collector: objects nobody can reach any more are freed, including ones that refer to each other in a cycle. There is nothing to free by hand and no `weak` keyword. See [design/memory.md](design/memory.md).

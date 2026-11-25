@@ -283,6 +283,11 @@ func (c *checker) collect() {
 		}
 	})
 	each(func(d ast.Decl) {
+		if ad, ok := d.(*ast.TypeAliasDecl); ok {
+			c.declareAlias(ad)
+		}
+	})
+	each(func(d ast.Decl) {
 		if sd, ok := d.(*ast.StructDecl); ok && len(sd.TypeParams) == 0 {
 			c.declareStruct(sd)
 		}
@@ -334,6 +339,7 @@ func (c *checker) collect() {
 			c.signature(f)
 		}
 	}
+	c.checkAliases()
 	c.declareStaticConsts()
 	c.checkStructCycles()
 	c.checkDefaults()
@@ -478,6 +484,10 @@ func (c *checker) ifaceTaken(id *ast.Ident) bool {
 		c.errorAt(id, "", "'%s' is already declared as an extern type on line %d", id.Name, h.Decl.Pos().Line)
 		return true
 	}
+	if a := c.aliases[id.Name]; a != nil {
+		c.errorAt(id, "", "'%s' is already declared as a typedef on line %d", id.Name, a.decl.Pos().Line)
+		return true
+	}
 	return false
 }
 
@@ -554,11 +564,16 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 		if te.Module != "" {
 			return c.qualifiedType(te)
 		}
+		if t, ok := c.env[te.Name]; ok && len(te.Args) == 0 {
+			return t
+		}
+		if a := c.aliases[te.Name]; a != nil {
+			if _, param := c.env[te.Name]; !param {
+				return c.aliasType(te, a)
+			}
+		}
 		if len(te.Args) > 0 {
 			return c.genericType(te)
-		}
-		if t, ok := c.env[te.Name]; ok {
-			return t
 		}
 		if t := builtinTypes[te.Name]; t != nil {
 			return t
