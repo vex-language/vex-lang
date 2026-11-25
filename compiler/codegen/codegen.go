@@ -285,7 +285,7 @@ func ctype(t types.Type) string {
 		return "vx_list *"
 	case *types.Map:
 		return "vx_map *"
-	case *types.Interface:
+	case *types.Interface, *types.Handle:
 		return "void *"
 	case *types.Struct:
 		return structName(t) + " *"
@@ -358,6 +358,9 @@ func mangle(t types.Type) string {
 		return fmt.Sprintf("E%d%s", len(id), id)
 	case *types.Optional:
 		return "O_" + mangle(t.Elem)
+	case *types.Handle:
+		id := modTag(t.Module) + t.Name
+		return fmt.Sprintf("H%d%s", len(id), id)
 	case *types.FuncType:
 		parts := []string{fmt.Sprintf("F%d", len(t.Params))}
 		for _, p := range t.Params {
@@ -480,6 +483,9 @@ func (g *gen) function(f *types.Func) {
 		g.externFunction(f)
 		return
 	}
+	if f.Decl.Export {
+		defer g.exportFunction(f)
+	}
 	g.file = g.info.FileOf[f.Decl]
 	g.enter(g.b)
 	g.result, g.throws, g.tries = f.Result, f.Throws, nil
@@ -567,6 +573,8 @@ func repr(t types.Type, x string) string {
 		return fmt.Sprintf("repr_%s(%s)", mangle(t), x)
 	case *types.FuncType:
 		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
+	case *types.Handle:
+		return "vx_handle_str(" + cQuote(t.CName) + ", " + x + ")"
 	}
 	switch t {
 	case types.Int:

@@ -117,6 +117,11 @@ static char *vx_stack_base;
 static char **vx_fs_entries;
 static int64_t vx_fs_entry_count;
 
+// Closures handed to C as callback contexts. They stay alive, since C
+// may keep them, until C passes the context to vex_release.
+static void **vx_kept;
+static size_t vx_kept_len, vx_kept_cap;
+
 typedef struct {
     char *ptr;
     size_t size;
@@ -269,6 +274,7 @@ static void vx_collect(void) {
 
     vx_mark_stack();
     vx_mark_range((const char *)&vx_fs_entries, (const char *)(&vx_fs_entries + 1));
+    if (vx_kept) vx_mark_range((const char *)vx_kept, (const char *)(vx_kept + vx_kept_len));
     while (vx_gray_len > 0) {
         vx_span s = vx_gray[--vx_gray_len];
         vx_mark_range(s.ptr, s.ptr + s.size);
@@ -350,6 +356,34 @@ static void *vx_alloc_block(size_t n, bool atomic) {
 
 // Allocates [n] zeroed bytes that may hold pointers.
 static void *vx_alloc(size_t n) { return vx_alloc_block(n ? n : 1, false); }
+
+// Returns a context for passing closure [f] to C, kept alive until C
+// passes it to vex_release.
+__attribute__((unused))
+static void *vx_keep_fn(vx_fn f) {
+    vx_fn *box = vx_alloc(sizeof(vx_fn));
+    *box = f;
+    for (size_t i = 0; i < vx_kept_len; i++) {
+        if (!vx_kept[i]) {
+            vx_kept[i] = box;
+            return box;
+        }
+    }
+    if (vx_kept_len == vx_kept_cap) vx_kept = vx_grow(vx_kept, &vx_kept_cap, sizeof(void *));
+    vx_kept[vx_kept_len++] = box;
+    return box;
+}
+
+// Lets the collector free the callback context [ctx] once C no longer
+// needs it. C code declares it as void vex_release(void *ctx).
+void vex_release(void *ctx) {
+    for (size_t i = 0; i < vx_kept_len; i++) {
+        if (vx_kept[i] == ctx) {
+            vx_kept[i] = NULL;
+            return;
+        }
+    }
+}
 
 // Allocates [n] bytes that never hold pointers, such as string text.
 static void *vx_alloc_atomic(size_t n) { return vx_alloc_block(n ? n : 1, true); }
@@ -980,6 +1014,14 @@ static void vx_map_merge(vx_map *m, vx_map *src) {
 }
 
 // --- Conversions ---
+
+// Returns how a value of a C type called [name] at [p] is shown.
+__attribute__((unused))
+static vx_str vx_handle_str(const char *name, void *p) {
+    char buf[128];
+    int n = snprintf(buf, sizeof buf, p ? "<%s %p>" : "<%s null>", name, p);
+    return vx_str_new(buf, n < (int)sizeof buf ? n : (int)sizeof buf - 1);
+}
 
 static vx_str vx_int_str(int64_t v) {
     char buf[24];
