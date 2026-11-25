@@ -1155,7 +1155,10 @@ func (p *parser) typeParams() []*ast.TypeParam {
 func (p *parser) typeArgs() []ast.TypeExpr {
 	open := p.next()
 	var args []ast.TypeExpr
-	p.list(open, lexer.Gt, func() { args = append(args, p.typeExpr()) })
+	p.list(open, lexer.Gt, func() {
+		args = append(args, p.typeExpr())
+		p.splitGtEq()
+	})
 	if len(args) == 0 {
 		p.fail(open, "name the types, e.g. <int>", "empty type argument list")
 	}
@@ -1177,6 +1180,21 @@ func qualifiable(x ast.Expr) bool {
 		return ok
 	}
 	return false
+}
+
+// Splits a `>=` that closes type arguments, as in `let b: Box<int>= x`,
+// into `>` and `=`.
+func (p *parser) splitGtEq() {
+	t := p.tok()
+	if t.Kind != lexer.GtEq {
+		return
+	}
+	gt := lexer.Token{Kind: lexer.Gt, Text: ">", Pos: t.Pos, End: t.End - 1}
+	eqPos := t.Pos
+	eqPos.Offset++
+	eqPos.Col++
+	eq := lexer.Token{Kind: lexer.Assign, Text: "=", Pos: eqPos, End: t.End}
+	p.toks = append(p.toks[:p.p], append([]lexer.Token{gt, eq}, p.toks[p.p+1:]...)...)
 }
 
 func (p *parser) typeArgsAhead() bool {
