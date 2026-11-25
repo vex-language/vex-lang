@@ -11,7 +11,12 @@ import (
 func enumName(e *types.Enum) string { return "E_" + enumIdent(e) }
 
 // Returns a C-safe name for [e], tagged with its module.
-func enumIdent(e *types.Enum) string { return modTag(e.Module) + e.Name }
+func enumIdent(e *types.Enum) string {
+	if e.Args == nil {
+		return modTag(e.Module) + e.Name
+	}
+	return modTag(e.Module) + e.Base + "__" + mangleList(e.Args)
+}
 
 // Returns the name of the function creating values of [cs].
 func caseFunc(cs *types.Case) string {
