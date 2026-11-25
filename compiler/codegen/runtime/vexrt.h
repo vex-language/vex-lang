@@ -10,6 +10,7 @@
 #include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
+#include <time.h>
 #include <string.h>
 #include <sys/resource.h>
 #include <unistd.h>
@@ -471,6 +472,20 @@ static void vx_init(void *base) {
 
 // --- Strings ---
 
+// Returns a NUL-terminated copy of [s] for C code.
+static const char *vx_cstr(vx_str s) {
+    char *buf = vx_alloc_atomic((size_t)s.len + 1);
+    if (s.len > 0) memcpy(buf, s.ptr, (size_t)s.len);
+    buf[s.len] = 0;
+    return buf;
+}
+
+// The symbol name of C function [name], for calling it under another name
+// in Vex code.
+#define VX_STR_(x) #x
+#define VX_STR(x) VX_STR_(x)
+#define VX_SYM(name) VX_STR(__USER_LABEL_PREFIX__) name
+
 // Returns a string that owns a copy of [n] bytes at [p].
 static vx_str vx_str_new(const char *p, int64_t n) {
     char *buf = vx_alloc_atomic((size_t)n + 1);
@@ -478,6 +493,21 @@ static vx_str vx_str_new(const char *p, int64_t n) {
     buf[n] = 0;
     return (vx_str){buf, n};
 }
+
+// Returns a Vex string holding a copy of the C string [p]; NULL gives "".
+static vx_str vx_str_from_c(const char *p) {
+    return p ? vx_str_new(p, (int64_t)strlen(p)) : VX_LIT("");
+}
+
+// Nanoseconds from a fixed point in the past, for measuring time.
+static int64_t vx_time_ns(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_MONOTONIC, &ts);
+    return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+}
+
+// Seconds since 1970-01-01 UTC.
+static int64_t vx_time_unix(void) { return (int64_t)time(NULL); }
 
 static vx_str vx_str_concat(vx_str a, vx_str b) {
     if (a.len == 0) return b;
