@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/irshadio/vex-lang/compiler/diag"
 )
 
 // A Vex type.
@@ -50,7 +51,8 @@ func (m *Map) String() string { return "[" + m.Key.String() + ": " + m.Value.Str
 // hold any struct that implements it, and calls go through a table of the
 // struct's methods.
 type Interface struct {
-	Name string
+	Name   string
+	Module *Module
 
 	// The methods, in declaration order; a method's place is its slot in
 	// the table. Methods with a body are defaults.
@@ -64,7 +66,15 @@ type Interface struct {
 }
 
 // Returns the interface's name.
-func (i *Interface) String() string { return i.Name }
+func (i *Interface) String() string { return qualified(i.Module, i.Name) }
+
+// Returns [name] prefixed with its module unless that is the root module.
+func qualified(m *Module, name string) string {
+	if m == nil || m.Index == 0 {
+		return name
+	}
+	return m.Name + "." + name
+}
 
 // Returns the method called [name], or nil.
 func (i *Interface) Method(name string) *Func {
@@ -147,6 +157,7 @@ func throwsString(t Type) string {
 // A struct type. Structs are reference types: copies share the same fields.
 type Struct struct {
 	Name    string
+	Module  *Module
 	Fields  []*Field
 	Methods []*Func
 	Decl    *ast.StructDecl
@@ -167,7 +178,7 @@ type Struct struct {
 }
 
 // Returns the struct's name.
-func (s *Struct) String() string { return s.Name }
+func (s *Struct) String() string { return qualified(s.Module, s.Name) }
 
 // Returns the field called [name], or nil.
 func (s *Struct) Field(name string) *Field {
@@ -206,13 +217,14 @@ func (o *Optional) String() string {
 // are references, but they never change after they are created.
 type Enum struct {
 	Name    string
+	Module  *Module
 	Cases   []*Case
 	Methods []*Func
 	Decl    *ast.EnumDecl
 }
 
 // Returns the enum's name.
-func (e *Enum) String() string { return e.Name }
+func (e *Enum) String() string { return qualified(e.Module, e.Name) }
 
 // Returns the case called [name], or nil.
 func (e *Enum) Case(name string) *Case {
@@ -267,6 +279,7 @@ type Field struct {
 // A function, method or static method.
 type Func struct {
 	Name   string
+	Module *Module
 	Params []*Param
 	Result Type
 	Decl   *ast.FuncDecl
@@ -505,6 +518,14 @@ type Member struct {
 
 // Everything the checker learned about a file, for later compiler stages.
 type Info struct {
+	// The modules of the program, the root first.
+	Modules []*Module
+
+	// The source files, and the file of each declaration and of each
+	// default value; empty for a program of one file.
+	Files  []*diag.File
+	FileOf map[ast.Node]int
+
 	// The type of every expression.
 	Types map[ast.Expr]Type
 

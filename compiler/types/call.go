@@ -37,6 +37,9 @@ func (c *checker) callTarget(e *ast.CallExpr, want Type) Type {
 	case *ast.Ident:
 		return c.callName(e, fn, want)
 	case *ast.MemberExpr:
+		if len(e.TypeArgs) > 0 {
+			c.errorAt(e.TypeArgs[0], "remove the <...>; methods can't be generic yet", "'%s' is not generic, so it takes no type arguments", fn.Name.Name)
+		}
 		return c.callMember(e, fn)
 	case *ast.ImplicitMember:
 		en := c.implicitEnum(fn, want)
@@ -47,6 +50,16 @@ func (c *checker) callTarget(e *ast.CallExpr, want Type) Type {
 		return c.caseCall(e, en, fn.Name, "."+fn.Name.Name)
 	}
 	return c.callValue(e)
+}
+
+// Checks a call creating struct [s].
+func (c *checker) construct(e *ast.CallExpr, s *Struct) Type {
+	var slots []slot
+	for _, f := range s.Fields {
+		slots = append(slots, slot{name: f.Name, typ: f.Type, def: f.Default})
+	}
+	c.info.Calls[e] = &Call{Kind: ConstructorCall, Struct: s, Args: c.bind(e, slots, s.String())}
+	return s
 }
 
 // Checks the arguments of a call that has already failed, so mistakes
@@ -60,6 +73,9 @@ func (c *checker) checkArgs(e *ast.CallExpr) {
 // Checks a call of a plain name: a function, constructor, built-in, or a
 // method of the implicit `self`.
 func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
+	if id.Module != "" {
+		return c.moduleCall(e, id, want)
+	}
 	name := id.Name
 	if len(e.TypeArgs) > 0 && c.genFuncs[name] == nil && c.genStructs[name] == nil {
 		c.errorAt(e.TypeArgs[0], "remove the <...>", "'%s' is not generic, so it takes no type arguments", name)
@@ -147,12 +163,7 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		return c.genericStructCall(e, g, want)
 	}
 	if s := c.structs[name]; s != nil {
-		var slots []slot
-		for _, f := range s.Fields {
-			slots = append(slots, slot{name: f.Name, typ: f.Type, def: f.Default})
-		}
-		c.info.Calls[e] = &Call{Kind: ConstructorCall, Struct: s, Args: c.bind(e, slots, s.Name)}
-		return s
+		return c.construct(e, s)
 	}
 	c.checkArgs(e)
 	var names []string
@@ -179,6 +190,10 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 	name := m.Name.Name
 	if en := c.enumRef(m.X); en != nil {
 		if method := en.Method(name); method != nil {
+			if c.methodPrivate(m.Name, method) {
+				c.checkArgs(e)
+				return Invalid
+			}
 			if !method.Static {
 				c.checkArgs(e)
 				c.errorAt(m.Name, fmt.Sprintf("call it on a value, e.g. shape.%s(), or declare it static fn", name), "'%s' needs a %s value", name, en.Name)
@@ -191,6 +206,10 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 	}
 	if s := c.structRef(m.X); s != nil {
 		method := s.Method(name)
+		if method != nil && c.methodPrivate(m.Name, method) {
+			c.checkArgs(e)
+			return Invalid
+		}
 		switch {
 		case method == nil:
 			c.checkArgs(e)
@@ -228,6 +247,10 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 			c.errorAt(m.Name, fmt.Sprintf("call it on the type: %s.%s()", s.Name, name), "'%s' is a static method", name)
 			return Invalid
 		}
+		if c.methodPrivate(m.Name, method) {
+			c.checkArgs(e)
+			return Invalid
+		}
 		c.info.Calls[e] = &Call{Kind: MethodCall, Func: method, Recv: m.X, Args: c.bind(e, paramSlots(method), name)}
 		return method.Result
 	}
@@ -241,6 +264,10 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 		case method.Static:
 			c.checkArgs(e)
 			c.errorAt(m.Name, fmt.Sprintf("call it on the type: %s.%s()", en.Name, name), "'%s' is a static method", name)
+			return Invalid
+		}
+		if c.methodPrivate(m.Name, method) {
+			c.checkArgs(e)
 			return Invalid
 		}
 		c.info.Calls[e] = &Call{Kind: MethodCall, Func: method, Recv: m.X, Args: c.bind(e, paramSlots(method), name)}

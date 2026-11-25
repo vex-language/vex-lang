@@ -8,11 +8,15 @@ import (
 	"github.com/irshadio/vex-lang/compiler/types"
 )
 
-func enumName(e *types.Enum) string { return "E_" + e.Name }
+func enumName(e *types.Enum) string { return "E_" + enumIdent(e) }
+
+// Returns a C-safe name for [e], tagged with its module.
+func enumIdent(e *types.Enum) string { return modTag(e.Module) + e.Name }
 
 // Returns the name of the function creating values of [cs].
 func caseFunc(cs *types.Case) string {
-	return fmt.Sprintf("case%d%s_%s", len(cs.Enum.Name), cs.Enum.Name, cs.Name)
+	id := enumIdent(cs.Enum)
+	return fmt.Sprintf("case%d%s_%s", len(id), id, cs.Name)
 }
 
 func caseSig(cs *types.Case) string {

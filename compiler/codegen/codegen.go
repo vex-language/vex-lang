@@ -17,6 +17,9 @@ import (
 var runtime string
 
 type gen struct {
+	// The index of the source file being translated, for runtime errors.
+	file int
+
 	info *types.Info
 	b    *strings.Builder
 	ind  int
@@ -152,9 +155,18 @@ func Generate(info *types.Info, srcName string) string {
 	g.b.WriteString(defs.String())
 	g.b.WriteString(g.lams.String())
 	g.line("")
+	names := []string{cQuote(srcName)}
+	if len(info.Files) > 1 {
+		names = names[:0]
+		for _, f := range info.Files {
+			names = append(names, cQuote(f.Name))
+		}
+	}
+	g.line("static const char *const vx_srcs[] = {%s};", strings.Join(names, ", "))
+	g.line("")
 	g.line("int main(void) {")
 	g.line("    vx_init(__builtin_frame_address(0));")
-	g.line("    vx_file = %s;", cQuote(srcName))
+	g.line("    vx_files = vx_srcs;")
 	if main := mainFunc(info); main != nil && main.Throws != nil {
 		g.line("    void *err = NULL;")
 		g.line("    fn_main(&err);")
@@ -168,6 +180,12 @@ func Generate(info *types.Info, srcName string) string {
 }
 
 // Writes one line at the current indentation.
+// Returns the line of [n] as passed to the runtime: the line number, with
+// the index of its file in the bits above [lineBits].
+func (g *gen) lineOf(n ast.Node) int { return g.file<<lineBits | n.Pos().Line }
+
+const lineBits = 20
+
 func (g *gen) line(format string, args ...any) {
 	if format != "" {
 		g.b.WriteString(strings.Repeat("    ", g.ind))
@@ -184,9 +202,29 @@ func structName(s *types.Struct) string { return "S_" + structIdent(s) }
 // generic instance spelled out, as in `Box__int`.
 func structIdent(s *types.Struct) string {
 	if s.Args == nil {
-		return s.Name
+		return modTag(s.Module) + s.Name
 	}
-	return s.Base + "__" + mangleList(s.Args)
+	return modTag(s.Module) + s.Base + "__" + mangleList(s.Args)
+}
+
+// Returns the prefix that keeps the C names of module [m] apart from those
+// of other modules. It starts with a digit, which no Vex name can, so it
+// can't collide with names of the root module.
+func modTag(m *types.Module) string {
+	if m == nil || m.Index == 0 {
+		return ""
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "%d", m.Index)
+	for _, r := range m.Name {
+		if r < 128 && (r == '_' || r >= 'a' && r <= 'z' || r >= 'A' && r <= 'Z' || r >= '0' && r <= '9') {
+			b.WriteRune(r)
+		} else {
+			b.WriteByte('_')
+		}
+	}
+	b.WriteByte('_')
+	return b.String()
 }
 
 func mangleList(ts []types.Type) string {
@@ -205,15 +243,17 @@ func funcName(f *types.Func) string {
 		return fmt.Sprintf("m%d%s_%s", len(owner), owner, f.Name)
 	}
 	if f.TypeArgs != nil {
-		return "fn_" + f.Name + "__" + mangleList(f.TypeArgs)
+		return "fn_" + modTag(f.Module) + f.Name + "__" + mangleList(f.TypeArgs)
 	}
 	if f.Enum != nil {
-		return fmt.Sprintf("m%d%s_%s", len(f.Enum.Name), f.Enum.Name, f.Name)
+		id := enumIdent(f.Enum)
+		return fmt.Sprintf("m%d%s_%s", len(id), id, f.Name)
 	}
 	if f.Iface != nil {
-		return fmt.Sprintf("i%d%s_%s", len(f.Iface.Name), f.Iface.Name, f.Name)
+		id := modTag(f.Iface.Module) + f.Iface.Name
+		return fmt.Sprintf("i%d%s_%s", len(id), id, f.Name)
 	}
-	return "fn_" + f.Name
+	return "fn_" + modTag(f.Module) + f.Name
 }
 
 func ctype(t types.Type) string {
@@ -291,7 +331,8 @@ func mangle(t types.Type) string {
 		id := structIdent(t)
 		return fmt.Sprintf("S%d%s", len(id), id)
 	case *types.Enum:
-		return fmt.Sprintf("E%d%s", len(t.Name), t.Name)
+		id := enumIdent(t)
+		return fmt.Sprintf("E%d%s", len(id), id)
 	case *types.Optional:
 		return "O_" + mangle(t.Elem)
 	case *types.FuncType:
@@ -403,6 +444,7 @@ func (g *gen) signature(f *types.Func, define bool) string {
 }
 
 func (g *gen) function(f *types.Func) {
+	g.file = g.info.FileOf[f.Decl]
 	g.enter(g.b)
 	g.result, g.throws, g.tries = f.Result, f.Throws, nil
 	if self := g.info.Selves[f.Decl]; self != nil {
@@ -801,7 +843,7 @@ func (g *gen) assign(s *ast.AssignStmt) {
 		setup = append(setup,
 			fmt.Sprintf("vx_list *%s = %s;", list, g.expr(x.X)),
 			fmt.Sprintf("int64_t %s = %s;", idx, g.expr(x.Index)))
-		target = fmt.Sprintf("(*(%s*)vx_list_at(%s, %s, %d))", ctype(t), list, idx, x.Pos().Line)
+		target = fmt.Sprintf("(*(%s*)vx_list_at(%s, %s, %d))", ctype(t), list, idx, g.lineOf(x))
 	case *ast.MemberExpr:
 		obj := g.temp()
 		setup = append(setup, fmt.Sprintf("%s = %s;", decl(g.info.Types[x.X], obj), g.expr(x.X)))
@@ -824,7 +866,7 @@ func (g *gen) assign(s *ast.AssignStmt) {
 		value = v
 	}
 	if compound {
-		value = binop(op, t, old, value, s.Pos().Line)
+		value = binop(op, t, old, value, g.lineOf(s))
 	}
 	if setup == nil {
 		g.line("%s = %s;", target, value)
@@ -1054,6 +1096,11 @@ func (g *gen) orderedBy(es []ast.Expr, rank []int, render func(cs []string) stri
 }
 
 func (g *gen) expr(e ast.Expr) string {
+	if f, ok := g.info.FileOf[e]; ok && f != g.file {
+		saved := g.file
+		g.file = f
+		defer func() { g.file = saved }()
+	}
 	if s, ok := g.recvs[e]; ok {
 		return s
 	}
@@ -1115,7 +1162,7 @@ func (g *gen) value(e ast.Expr) string {
 		})
 	case *ast.UnaryExpr:
 		if _, lit := e.X.(*ast.IntLit); e.Op == lexer.Minus && t == types.Int && !lit {
-			return fmt.Sprintf("vx_neg(%s, %d)", g.expr(e.X), e.Pos().Line)
+			return fmt.Sprintf("vx_neg(%s, %d)", g.expr(e.X), g.lineOf(e))
 		}
 		return "(" + op(e.Op) + g.expr(e.X) + ")"
 	case *ast.NilLit:
@@ -1135,7 +1182,7 @@ func (g *gen) value(e ast.Expr) string {
 		}
 		operand := g.info.Types[e.X]
 		return g.ordered([]ast.Expr{e.X, e.Y}, func(cs []string) string {
-			return binop(e.Op, operand, cs[0], cs[1], e.Pos().Line)
+			return binop(e.Op, operand, cs[0], cs[1], g.lineOf(e))
 		})
 	case *ast.CallExpr:
 		return g.call(e)
@@ -1148,7 +1195,7 @@ func (g *gen) value(e ast.Expr) string {
 			})
 		}
 		return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
-			return fmt.Sprintf("(*(%s*)vx_list_at(%s, %s, %d))", ctype(t), cs[0], cs[1], e.Pos().Line)
+			return fmt.Sprintf("(*(%s*)vx_list_at(%s, %s, %d))", ctype(t), cs[0], cs[1], g.lineOf(e))
 		})
 	case *ast.MapLit:
 		return g.mapLit(e, t.(*types.Map))
@@ -1258,7 +1305,7 @@ func (g *gen) call(e *ast.CallExpr) string {
 
 func (g *gen) callCode(e *ast.CallExpr) string {
 	c := g.info.Calls[e]
-	line := e.Pos().Line
+	line := g.lineOf(e)
 	rank := sourceRank(e, c.Args)
 	switch c.Kind {
 	case types.FuncCall, types.StaticCall:

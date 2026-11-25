@@ -34,8 +34,10 @@ typedef struct {
     void *env;
 } vx_fn;
 
-// The source file name used in runtime error messages.
-static const char *vx_file = "main.vx";
+// The source file names used in runtime error messages. A line passed to
+// the runtime holds the index of its file above the low 20 bits.
+static const char *const vx_main_src[] = {"main.vx"};
+static const char *const *vx_files = vx_main_src;
 
 #define VX_LIT(s) ((vx_str){(s), (int64_t)(sizeof(s) - 1)})
 
@@ -50,7 +52,7 @@ static void vx_fail(int line, const char *fmt, ...) {
     va_start(ap, fmt);
     vfprintf(stderr, fmt, ap);
     va_end(ap);
-    fprintf(stderr, "\n --> %s:%d\n", vx_file, line);
+    fprintf(stderr, "\n --> %s:%d\n", vx_files[line >> 20], line & 0xFFFFF);
     exit(1);
 }
 

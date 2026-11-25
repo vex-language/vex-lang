@@ -8,7 +8,7 @@ import (
 )
 
 func (c *checker) declareEnum(ed *ast.EnumDecl) {
-	e := &Enum{Name: ed.Name.Name, Decl: ed}
+	e := &Enum{Name: ed.Name.Name, Module: c.mod, Decl: ed}
 	if c.reserved(ed.Name, "an enum") || c.ifaceTaken(ed.Name) {
 		return
 	}
@@ -26,6 +26,7 @@ func (c *checker) declareEnum(ed *ast.EnumDecl) {
 
 // Resolves the cases and method signatures of [e].
 func (c *checker) enumMembers(e *Enum) {
+	defer c.enter(e.Decl)()
 	for _, cd := range e.Decl.Cases {
 		if c.reserved(cd.Name, "a case") {
 			continue
@@ -72,6 +73,10 @@ func (c *checker) enumMembers(e *Enum) {
 // `Shape.circle(...)`, or nil.
 func (c *checker) enumRef(x ast.Expr) *Enum {
 	id, ok := x.(*ast.Ident)
+	if ok && id.Module != "" {
+		_, e := c.moduleRef(id)
+		return e
+	}
 	if !ok || c.lookupVar(id.Name) != nil {
 		return nil
 	}
