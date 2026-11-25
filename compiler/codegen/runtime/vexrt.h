@@ -2004,7 +2004,9 @@ static void vx_any_task(void *p) {
     }
 }
 
-static vx_future *vx_any(vx_list *futures, int64_t esz) {
+static vx_future *vx_any(vx_list *futures, int64_t esz, int line) {
+    // With no futures, nothing could ever settle the result.
+    if (futures->len == 0) vx_fail(line, "any() needs at least one future");
     vx_future *result = vx_future_new(esz);
     for (int64_t i = 0; i < futures->len && result->state == 0; i++) {
         vx_any_arg *a = vx_alloc(sizeof(vx_any_arg));

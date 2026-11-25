@@ -133,7 +133,7 @@ func (g *gen) asyncBuiltin(e *ast.CallExpr, c *types.Call) string {
 		return fmt.Sprintf("vx_all(%s, %s)", arg, valueSize(elem))
 	}
 	elem := g.info.Types[c.Args[0]].(*types.List).Elem.(*types.Future).Elem
-	return fmt.Sprintf("vx_any(%s, %s)", arg, valueSize(elem))
+	return fmt.Sprintf("vx_any(%s, %s, %d)", arg, valueSize(elem), g.lineOf(e))
 }
 
 // Returns the C function the call [e] of [f] runs: [f] itself, or its

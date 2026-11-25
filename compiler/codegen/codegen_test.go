@@ -1291,6 +1291,7 @@ func TestRuntimeErrors(t *testing.T) {
 		{"substring past end", `println("x".substring(0, 2))`, "substring(0, 2) is out of range for a string of length 1\n --> main.vx:2"},
 		{"substring backwards", `println("héllo".substring(3, 1))`, "substring(3, 1) is out of range for a string of length 5\n --> main.vx:2"},
 		{"substring negative", `println("abc".substring(-1, 1))`, "substring(-1, 1) is out of range for a string of length 3\n --> main.vx:2"},
+		{"any of nothing", "let fs: [Future<int>] = []\nrun(any(fs))", "any() needs at least one future\n --> main.vx:3"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
