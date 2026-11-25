@@ -41,6 +41,10 @@ func (c *checker) mapKey(key ast.Expr, m *Map) {
 func (c *checker) mapTarget(x *ast.IndexExpr, m *Map, s *ast.AssignStmt) Type {
 	c.mapKey(x.Index, m)
 	c.info.Types[x] = m.Value
+	if s.Op == lexer.Assign && isNil(s.Value) {
+		c.errorAt(s.Value, "remove the key instead: m.remove(key)", "a map entry can't be set to nil")
+		return nil
+	}
 	if s.Op != lexer.Assign {
 		c.expr(s.Value, nil)
 		c.errorAt(s, "write m[k] = (m[k] ?? 0) + 1", "the key may be missing, so %s can't be used on a map entry", s.Op)
@@ -93,6 +97,24 @@ func (c *checker) mapLit(e *ast.MapLit, want Type) Type {
 		}
 	}
 	return &Map{Key: key, Value: value}
+}
+
+// Returns a hint for a method other languages give maps, or "".
+func mapMethodHint(recv Type, name string) string {
+	if _, ok := recv.(*Map); !ok {
+		return ""
+	}
+	switch name {
+	case "get":
+		return "read a key with m[key], which gives nil when it is missing"
+	case "has", "containsKey", "hasKey":
+		return "use .contains(key)"
+	case "delete", "removeKey":
+		return "use .remove(key)"
+	case "set", "put", "insert":
+		return "write m[key] = value"
+	}
+	return ""
 }
 
 // Returns the source of [k] when it is a literal, so repeated keys can be

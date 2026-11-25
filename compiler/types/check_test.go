@@ -445,6 +445,9 @@ func TestErrors(t *testing.T) {
 		{"compound assign to entry", "", "var m = [\"a\": 1]\nm[\"a\"] += 1", "3:1", "the key may be missing, so '+=' can't be used on a map entry", "write m[k] = (m[k] ?? 0) + 1"},
 		{"repeated literal key", "", "let m = [\"a\": 1, \"a\": 2]", "2:18", "key \"a\" is already in this map on line 2", ""},
 		{"lookup is optional", "", "let m = [\"a\": 1]\nlet x: int = m[\"a\"]", "3:14", "expected int, found int?", "it may be nil: unwrap it with if let, or give a default with ?? value"},
+		{"nil map entry", "", "var m = [\"a\": 1]\nm[\"a\"] = nil", "3:10", "a map entry can't be set to nil", "remove the key instead: m.remove(key)"},
+		{"map get", "", "let m = [\"a\": 1]\nm.get(\"a\")", "3:3", "[string: int] has no method 'get'", "read a key with m[key], which gives nil when it is missing"},
+		{"keys called", "", "let m = [\"a\": 1]\nprintln(m.keys())", "3:11", "keys is a property, not a method", "write it without (): .keys"},
 		{"wrong key type", "", "let m = [\"a\": 1]\nprintln(m[1])", "3:11", "map key: expected string, found int", `convert it with str(...) or "{...}"`},
 
 		// Errors.
