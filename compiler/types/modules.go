@@ -257,7 +257,7 @@ func (c *checker) methodPrivate(at ast.Node, m *Func) bool {
 	case m.Owner != nil:
 		mod, owner = m.Owner.Module, m.Owner.String()
 		for _, i := range m.Owner.Interfaces {
-			if i.Method(m.Name) != nil {
+			if m.Decl.Accessor == ast.Method && i.Method(m.Name) != nil {
 				return false
 			}
 		}
@@ -266,7 +266,8 @@ func (c *checker) methodPrivate(at ast.Node, m *Func) bool {
 	default:
 		return false
 	}
-	return c.private(at, mod, false, fmt.Sprintf("method '%s' of %s", m.Name, owner))
+	kind := map[ast.Accessor]string{ast.Method: "method", ast.Getter: "getter", ast.Setter: "setter"}[m.Decl.Accessor]
+	return c.private(at, mod, false, fmt.Sprintf("%s '%s' of %s", kind, m.Name, owner))
 }
 
 // Reports when struct [s] of another module can't be created here because

@@ -67,6 +67,10 @@ type checker struct {
 	self  *Var
 	loops int
 
+	// Set while checking the target of an assignment, which a property
+	// without a getter may be.
+	writing bool
+
 	// The closures enclosing the current expression, innermost last.
 	lits []*litCtx
 
@@ -96,6 +100,7 @@ func newChecker() *checker {
 			CaseValues: map[ast.Expr]*Case{},
 			Wraps:      map[ast.Expr]*Optional{},
 			Elements:   map[*ast.ExprStmt]ast.Expr{},
+			Observers:  map[*ast.AssignStmt]*Func{},
 			Chains:     map[ast.Expr]bool{},
 			Matches:    map[*ast.MatchExpr]*Match{},
 			FuncOf:     map[*ast.FuncDecl]*Func{},
@@ -367,24 +372,60 @@ func (c *checker) structMembers(s *Struct) {
 		if !s.abstract {
 			c.info.FuncOf[md] = m
 		}
-		if c.reserved(md.Name, "a method") {
+		if md.Accessor == ast.Observer {
+			if f := s.Field(m.Name); f != nil && f.Decl.Name.Start == md.Name.Start {
+				f.DidSet = m
+				c.addMethod(s, m)
+			}
 			continue
 		}
-		if prev := s.Method(m.Name); prev != nil {
-			c.errorAt(md.Name, "", "method '%s' is already declared on line %d", m.Name, prev.Decl.Pos().Line)
+		if c.reserved(md.Name, "a method") || c.memberTaken(s, md) {
 			continue
 		}
-		if f := s.Field(m.Name); f != nil {
-			c.errorAt(md.Name, "", "'%s' is already a field of %s", m.Name, s.Name)
+		c.addMethod(s, m)
+	}
+	for _, m := range s.Methods {
+		if m.Decl.Accessor != ast.Setter {
 			continue
 		}
-		s.Methods = append(s.Methods, m)
-		if !s.abstract {
-			c.info.Funcs = append(c.info.Funcs, m)
+		if g := s.member(m.Name, ast.Getter); g != nil && len(m.Params) == 1 && !Identical(g.Result, m.Params[0].Type) {
+			c.errorAt(m.Decl.Params[0].Type, fmt.Sprintf("use %s, the type of the getter", g.Result), "setter '%s' takes %s, but its getter returns %s", m.Name, m.Params[0].Type, g.Result)
 		}
-		c.signature(m)
 	}
 	c.conformances(s)
+}
+
+func (c *checker) addMethod(s *Struct, m *Func) {
+	s.Methods = append(s.Methods, m)
+	if !s.abstract {
+		c.info.Funcs = append(c.info.Funcs, m)
+	}
+	c.signature(m)
+}
+
+// Reports, and returns true, if the name of the method or accessor [md]
+// is already used in [s]. A getter and a setter may share a name.
+func (c *checker) memberTaken(s *Struct, md *ast.FuncDecl) bool {
+	name := md.Name.Name
+	what := map[ast.Accessor]string{ast.Method: "method", ast.Getter: "getter", ast.Setter: "setter"}
+	if prev := s.member(name, md.Accessor); prev != nil {
+		c.errorAt(md.Name, "", "%s '%s' is already declared on line %d", what[md.Accessor], name, prev.Decl.Pos().Line)
+		return true
+	}
+	if f := s.Field(name); f != nil {
+		c.errorAt(md.Name, "", "'%s' is already a field of %s", name, s.Name)
+		return true
+	}
+	for _, other := range []ast.Accessor{ast.Method, ast.Getter, ast.Setter} {
+		if other == md.Accessor || md.Accessor != ast.Method && other != ast.Method {
+			continue
+		}
+		if prev := s.member(name, other); prev != nil {
+			c.errorAt(md.Name, "", "'%s' is already a %s of %s, on line %d", name, what[other], s.Name, prev.Decl.Pos().Line)
+			return true
+		}
+	}
+	return false
 }
 
 // Reports, and returns true, if [id] names an interface.
@@ -905,7 +946,10 @@ func (c *checker) assign(s *ast.AssignStmt) {
 	var target Type
 	switch x := s.Target.(type) {
 	case *ast.Ident:
+		c.writing = true
 		target = c.expr(x, nil)
+		c.writing = false
+		c.assignMember(s, x, c.info.Uses[x])
 		if v, ok := c.info.Uses[x].(*Var); ok && !v.Mutable {
 			switch v.Kind {
 			case LocalVar:
@@ -924,9 +968,15 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		if x.Optional {
 			c.errorAt(x, "unwrap it first with if let", "can't assign through ?.")
 		}
+		c.writing = true
 		target = c.expr(x, nil)
+		c.writing = false
 		if m := c.info.Members[x]; m != nil && m.Builtin != "" {
 			c.errorAt(x.Name, "", "%s can't be changed", m.Builtin)
+		} else if m != nil && m.Property != nil {
+			c.assignMember(s, x.Name, m.Property)
+		} else if m != nil {
+			c.assignMember(s, x.Name, m.Field)
 		}
 	case *ast.IndexExpr:
 		xt := c.expr(x.X, nil)
@@ -963,6 +1013,29 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		return
 	}
 	c.assignable(target, value, s.Value, "")
+}
+
+// Checks the assignment [s] to the field or property [m], named at [n]:
+// a property needs a setter, and a compound assignment a getter too. An
+// assignment to a field with `didSet` runs it, except inside that block.
+func (c *checker) assignMember(s *ast.AssignStmt, n ast.Node, m any) {
+	switch m := m.(type) {
+	case *Field:
+		if m != nil && m.DidSet != nil && c.fn != m.DidSet {
+			c.info.Observers[s] = m.DidSet
+		}
+	case *Property:
+		switch {
+		case m.Set == nil:
+			name := m.Get.Name
+			c.errorAt(n, "add a setter: set "+name+"(value: ...) { ... }", "can't assign to '%s': it has a getter but no setter", name)
+		case m.Get == nil && s.Op != lexer.Assign:
+			name := m.Set.Name
+			c.errorAt(n, "add a getter: get "+name+" -> ...", "'%s' has a setter but no getter, so %s can't read it", name, strings.Trim(s.Op.String(), "'"))
+		default:
+			c.methodPrivate(n, m.Set)
+		}
+	}
 }
 
 func (c *checker) forStmt(s *ast.ForStmt) {

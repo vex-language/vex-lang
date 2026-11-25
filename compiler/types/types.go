@@ -191,9 +191,21 @@ func (s *Struct) Field(name string) *Field {
 }
 
 // Returns the method called [name], or nil.
-func (s *Struct) Method(name string) *Func {
+func (s *Struct) Method(name string) *Func { return s.member(name, ast.Method) }
+
+// Returns the property called [name], or nil when the struct has neither a
+// getter nor a setter of that name.
+func (s *Struct) Property(name string) *Property {
+	p := &Property{Get: s.member(name, ast.Getter), Set: s.member(name, ast.Setter)}
+	if p.Get == nil && p.Set == nil {
+		return nil
+	}
+	return p
+}
+
+func (s *Struct) member(name string, kind ast.Accessor) *Func {
 	for _, m := range s.Methods {
-		if m.Name == name {
+		if m.Name == name && m.Decl.Accessor == kind {
 			return m
 		}
 	}
@@ -274,6 +286,23 @@ type Field struct {
 	Default ast.Expr
 	Owner   *Struct
 	Decl    *ast.Field
+
+	// The field's `didSet` block, or nil.
+	DidSet *Func
+}
+
+// A computed property of a struct: its getter and setter, either of which
+// may be nil.
+type Property struct {
+	Get, Set *Func
+}
+
+// Returns the property's type: the getter's result or the setter's value.
+func (p *Property) Type() Type {
+	if p.Get != nil {
+		return p.Get.Result
+	}
+	return p.Set.Params[0].Type
 }
 
 // A function, method or static method.
@@ -512,6 +541,9 @@ type Member struct {
 	// The field read, or nil for a built-in property such as `.len`.
 	Field *Field
 
+	// The computed property read or assigned, or nil.
+	Property *Property
+
 	// The built-in property name, such as `len`.
 	Builtin string
 }
@@ -559,6 +591,10 @@ type Info struct {
 	// blocks: each expression statement that adds an element, mapped to
 	// the [ast.ListLit] or [ast.MapLit] it adds to.
 	Elements map[*ast.ExprStmt]ast.Expr
+
+	// Assignments to a field with a `didSet` block, and the block to run
+	// after each.
+	Observers map[*ast.AssignStmt]*Func
 
 	// Optional chains (`x?.name`, `x?.f()`). The value is true when the
 	// member's own value must be wrapped in an optional, false when it

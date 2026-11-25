@@ -143,6 +143,16 @@ func (c *checker) ident(id *ast.Ident) Type {
 			c.use(c.self)
 			return f.Type
 		}
+		if p := owner.Property(id.Name); p != nil {
+			if c.self == nil {
+				c.errorAt(id, "static methods have no instance; pass the value in as a parameter",
+					"static method %s can't use property '%s'", c.fn.Name, id.Name)
+				return Invalid
+			}
+			c.info.Uses[id] = p
+			c.use(c.self)
+			return c.readProperty(id, id.Name, p)
+		}
 		if owner.Method(id.Name) != nil {
 			c.errorAt(id, fmt.Sprintf("call it: %s()", id.Name), "method '%s' must be called", id.Name)
 			return Invalid
@@ -543,6 +553,8 @@ func (c *checker) structRef(e ast.Expr) *Struct {
 
 func (c *checker) member(e *ast.MemberExpr) Type {
 	name := e.Name.Name
+	writing := c.writing
+	c.writing = false
 	if en := c.enumRef(e.X); en != nil {
 		return c.caseValue(e, en, e.Name, en.Name+"."+name)
 	}
@@ -568,6 +580,15 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 			c.fieldPrivate(e.Name, f)
 			c.info.Members[e] = &Member{Field: f}
 			return f.Type
+		}
+		if p := x.Property(name); p != nil {
+			if f := p.Get; f != nil && !writing {
+				c.methodPrivate(e.Name, f)
+			}
+			c.info.Members[e] = &Member{Property: p}
+			c.writing = writing
+			defer func() { c.writing = false }()
+			return c.readProperty(e.Name, name, p)
 		}
 		if x.Method(name) != nil {
 			c.errorAt(e.Name, fmt.Sprintf("call it: %s()", name), "method '%s' must be called", name)
@@ -623,9 +644,22 @@ func memberNames(s *Struct) []string {
 		names = append(names, f.Name)
 	}
 	for _, m := range s.Methods {
-		names = append(names, m.Name)
+		if m.Decl.Accessor != ast.Observer {
+			names = append(names, m.Name)
+		}
 	}
 	return names
+}
+
+// Returns the type of property [p] read at [n], reporting an error when
+// it has no getter. An assignment target is only written, unless it is a
+// compound assignment, which the assignment checks.
+func (c *checker) readProperty(n ast.Node, name string, p *Property) Type {
+	if p.Get == nil && !c.writing {
+		c.errorAt(n, "add a getter: get "+name+" -> ...", "'%s' has a setter but no getter, so it can't be read", name)
+		return Invalid
+	}
+	return p.Type()
 }
 
 // Returns a "did you mean" hint naming the closest of [names] to [name],
