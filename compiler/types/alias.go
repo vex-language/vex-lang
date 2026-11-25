@@ -99,3 +99,17 @@ func (c *checker) aliasType(te *ast.NamedType, a *typeAlias) Type {
 	}
 	return c.substType(t, bound)
 }
+
+// Returns the struct or enum that the plain alias [name] in [m] names, so
+// `Point(x: 1)` and `Level.low` work through a typedef; nil otherwise.
+func (c *checker) aliasedNominal(m *Module, name string) (*typeAlias, Type) {
+	a := m.aliases[name]
+	if a == nil || len(a.params) > 0 {
+		return nil, nil
+	}
+	switch t := c.aliasTarget(a).(type) {
+	case *Struct, *Enum:
+		return a, t
+	}
+	return nil, nil
+}

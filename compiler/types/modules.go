@@ -451,6 +451,23 @@ func (c *checker) moduleCall(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		c.errorAt(id, caseHint("create it from a case, e.g. "+id.Module+".", m.enums[name], true), "enums are created from one of their cases")
 	case m.interfaces[name] != nil:
 		c.errorAt(id, "", "%s.%s is an interface, so it can't be created", id.Module, name)
+	case m.aliases[name] != nil:
+		a := m.aliases[name]
+		if c.private(id, m, a.decl.Pub, "typedef '"+name+"'") {
+			return fail()
+		}
+		switch t := c.aliasTarget(a).(type) {
+		case *Struct:
+			if len(a.params) > 0 {
+				c.errorAt(id, "create it with the struct's own name", "%s.%s is a generic typedef, so it can't be called", id.Module, name)
+			} else if !c.constructPrivate(e, t) {
+				return c.construct(e, t)
+			}
+		case *Enum:
+			c.errorAt(id, caseHint("create it from a case, e.g. "+id.Module+".", t, true), "enums are created from one of their cases")
+		default:
+			c.errorAt(id, "", "%s.%s names %s, so it can't be called", id.Module, name, t)
+		}
 	default:
 		c.unknownIn(id, m, name)
 	}
@@ -499,6 +516,12 @@ func (c *checker) moduleRef(id *ast.Ident) (*Struct, *Enum) {
 	if e := m.enums[id.Name]; e != nil {
 		c.private(id, m, e.Decl.Pub, "enum '"+id.Name+"'")
 		return nil, e
+	}
+	if a, t := c.aliasedNominal(m, id.Name); a != nil {
+		c.private(id, m, a.decl.Pub, "typedef '"+id.Name+"'")
+		s, _ := t.(*Struct)
+		e, _ := t.(*Enum)
+		return s, e
 	}
 	return nil, nil
 }

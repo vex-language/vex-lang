@@ -197,6 +197,30 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 	if s := c.structs[name]; s != nil {
 		return c.construct(e, s)
 	}
+	if _, t := c.aliasedNominal(c.mod, name); t != nil && c.lookupVar(name) == nil {
+		if s, ok := t.(*Struct); ok && c.constructPrivate(e, s) {
+			c.checkArgs(e)
+			return Invalid
+		} else if ok {
+			return c.construct(e, s)
+		}
+		c.checkArgs(e)
+		c.errorAt(id, caseHint("create it from a case, e.g. ", t.(*Enum), true), "enums are created from one of their cases")
+		return Invalid
+	}
+	if a := c.aliases[name]; a != nil && c.lookupVar(name) == nil {
+		c.checkArgs(e)
+		switch t := c.aliasTarget(a).(type) {
+		case *Struct:
+			c.errorAt(id, "create it with the struct's own name", "%s is a generic typedef, so it can't be called", name)
+		case nil:
+		default:
+			if t != Invalid {
+				c.errorAt(id, "", "%s names %s, so it can't be called", name, t)
+			}
+		}
+		return Invalid
+	}
 	c.checkArgs(e)
 	var names []string
 	for n := range c.funcs {

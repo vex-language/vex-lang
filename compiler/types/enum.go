@@ -107,7 +107,12 @@ func (c *checker) enumRef(x ast.Expr) *Enum {
 	if owner := c.ownStruct(); owner != nil && owner.Field(id.Name) != nil {
 		return nil
 	}
-	return c.enums[id.Name]
+	if e := c.enums[id.Name]; e != nil {
+		return e
+	}
+	_, t := c.aliasedNominal(c.mod, id.Name)
+	e, _ := t.(*Enum)
+	return e
 }
 
 // Returns [prefix] followed by the first case of [e], qualified with the
