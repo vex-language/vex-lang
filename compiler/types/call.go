@@ -27,6 +27,12 @@ type memberSig struct {
 }
 
 func (c *checker) call(e *ast.CallExpr, want Type) Type {
+	t := c.callTarget(e, want)
+	c.checkThrows(e)
+	return t
+}
+
+func (c *checker) callTarget(e *ast.CallExpr, want Type) Type {
 	switch fn := e.Fn.(type) {
 	case *ast.Ident:
 		return c.callName(e, fn)

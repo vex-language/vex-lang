@@ -49,6 +49,9 @@ type checker struct {
 
 	// The closures enclosing the current expression, innermost last.
 	lits []*litCtx
+
+	// The try expressions whose calls are being checked, innermost last.
+	tries []*tryCtx
 }
 
 // Checks [file] and returns what was learned about it.
@@ -71,6 +74,8 @@ func Check(f *diag.File, file *ast.File) (info *Info, err error) {
 			Chains:     map[ast.Expr]bool{},
 			Matches:    map[*ast.MatchExpr]*Match{},
 			FuncOf:     map[*ast.FuncDecl]*Func{},
+			Throwing:   map[*ast.CallExpr]Type{},
+			Tries:      map[*ast.TryExpr]*Try{},
 		},
 		structs: map[string]*Struct{},
 		enums:   map[string]*Enum{},
@@ -84,6 +89,7 @@ func Check(f *diag.File, file *ast.File) (info *Info, err error) {
 				}
 			}
 		}()
+		c.declareError()
 		c.collect(file)
 		c.bodies()
 	}()
@@ -183,6 +189,8 @@ func (c *checker) reserved(id *ast.Ident, what string) bool {
 		c.errorAt(id, "choose another name", "'%s' is a built-in type and can't be used as %s name", id.Name, what)
 	case builtinFuncs[id.Name]:
 		c.errorAt(id, "choose another name", "'%s' is a built-in function and can't be used as %s name", id.Name, what)
+	case id.Name == "Error":
+		c.errorAt(id, "choose another name", "'Error' is the built-in error type and can't be used as %s name", what)
 	case id.Name == "self":
 		c.errorAt(id, "choose another name", "'self' can't be used as %s name", what)
 	default:
@@ -221,7 +229,9 @@ func (c *checker) collect(file *ast.File) {
 		}
 	}
 	for _, s := range c.info.Structs {
-		c.structMembers(s)
+		if s != c.info.Error {
+			c.structMembers(s)
+		}
 	}
 	for _, e := range c.info.Enums {
 		c.enumMembers(e)
@@ -320,6 +330,9 @@ func (c *checker) signature(f *Func) {
 	if f.Decl.Result != nil {
 		f.Result = c.resolveType(f.Decl.Result)
 	}
+	if f.Decl.Throws != nil {
+		f.Throws = c.throwsType(f.Decl.Throws)
+	}
 }
 
 // Returns the type written as [te].
@@ -336,6 +349,9 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 		}
 		if te.Result != nil {
 			ft.Result = c.resolveType(te.Result)
+		}
+		if te.Throws != nil {
+			ft.Throws = c.throwsType(te.Throws)
 		}
 		return ft
 	case *ast.NamedType:
@@ -481,7 +497,7 @@ func (c *checker) funcBody(f *Func) {
 // Reports whether [s] always ends by returning or stopping the program.
 func terminates(s ast.Stmt) bool {
 	switch s := s.(type) {
-	case *ast.ReturnStmt:
+	case *ast.ReturnStmt, *ast.ThrowStmt:
 		return true
 	case *ast.Block:
 		for _, st := range s.Stmts {
@@ -563,6 +579,10 @@ func (c *checker) stmt(s ast.Stmt) {
 			c.info.Types[m] = c.match(m, nil, true)
 			break
 		}
+		if tr, ok := s.X.(*ast.TryExpr); ok {
+			c.info.Types[tr] = c.tryExpr(tr, nil, true)
+			break
+		}
 		c.expr(s.X, nil)
 		if _, ok := s.X.(*ast.CallExpr); !ok {
 			c.errorAt(s.X, "store it with let, or remove it", "this value isn't used")
@@ -597,6 +617,8 @@ func (c *checker) stmt(s ast.Stmt) {
 		c.forStmt(s)
 	case *ast.ReturnStmt:
 		c.returnStmt(s)
+	case *ast.ThrowStmt:
+		c.throwStmt(s)
 	case *ast.BreakStmt:
 		if c.loops == 0 {
 			c.errorAt(s, "", "break can only be used inside a loop")

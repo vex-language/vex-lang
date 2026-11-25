@@ -438,6 +438,20 @@ func TestErrors(t *testing.T) {
 		name, decls, body string
 		pos, msg, hint    string
 	}{
+		// Errors.
+		{"call without try", "fn f() throws -> int { return 1 }", "println(f())", "3:9", "f can throw, so the call needs try", "write try before it to pass the error up, try ... catch to handle it, or try? to get nil"},
+		{"try in a function that doesn't throw", "fn f() throws -> int { return 1 }", "println(try f())", "3:9", "the error can't pass up: main doesn't throw", "handle it with catch, use try?, or declare fn main(...) throws"},
+		{"nothing to try", "", "let x = try 5", "2:9", "nothing after try can throw", "remove try"},
+		{"throw outside throws", "", `throw Error("x")`, "2:1", "throw can only be used in a function that throws", "declare fn main(...) throws"},
+		{"wrong enum passes up", "enum E { a }\nenum F { b }\nfn f() throws(E) { throw .a }\nfn g() throws(F) {\n    try f()\n}", "", "5:5", "this call throws E, but g can only throw F", "catch it here"},
+		{"enum thrown as Error", "enum E { a }\nfn f() throws { throw E.a }", "", "2:23", "f throws Error, not E", `declare it throws(E), or throw Error("...")`},
+		{"catch without value", "fn f() throws -> int { return 1 }", "let x = try f() catch e { println(e.message) }", "3:46", "the catch block must give a value of type int", "end it with an int value, or with return, break, continue, throw or panic(...)"},
+		{"try? without value", "fn f() throws {}", "let x = try? f()", "3:9", "try? needs a call that returns a value", "use try ... catch { } to ignore the error"},
+		{"throws a struct", "struct S {}\nfn f() throws(S) {}", "", "2:15", "throws(...) takes an enum, found struct S", "declare an enum of the errors, e.g. enum LoadError { notFound, denied }"},
+		{"struct named Error", "struct Error {}", "", "1:8", "'Error' is the built-in error type and can't be used as a struct name", "choose another name"},
+		{"closure that doesn't throw", "fn f() throws -> int { return 1 }", "let g = fn() -> int { return try f() }", "3:30", "the error can't pass up: the closure doesn't throw", "handle it with catch, use try?, or declare the closure fn(...) throws"},
+		{"throwing function where none is expected", "fn f() throws -> int { return 1 }\nfn h(cb: fn() -> int) {}", "h(f)", "4:3", "argument 'cb': expected fn() -> int, found fn() throws -> int", ""},
+
 		// Wrapping operators.
 		{"wrapping float", "", "let x = 1.5 &+ 2.0", "2:9", "'&+' works only on int, found float and float", ""},
 		{"wrapping string", "", `let x = "a" &* 2`, "2:9", "'&*' works only on int, found string and int", ""},

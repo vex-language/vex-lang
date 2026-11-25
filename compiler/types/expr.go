@@ -17,7 +17,7 @@ func (c *checker) expr(e ast.Expr, want Type) Type {
 	hint := want
 	if opt {
 		switch e.(type) {
-		case *ast.NilLit, *ast.MatchExpr:
+		case *ast.NilLit, *ast.MatchExpr, *ast.TryExpr:
 		default:
 			// Literals and closures take their type from the value inside.
 			hint = o.Elem
@@ -89,6 +89,8 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		return Invalid
 	case *ast.MatchExpr:
 		return c.match(e, want, false)
+	case *ast.TryExpr:
+		return c.tryExpr(e, want, false)
 	}
 	return Invalid
 }
@@ -127,7 +129,7 @@ func (c *checker) ident(id *ast.Ident) Type {
 	}
 	if f := c.funcs[id.Name]; f != nil {
 		c.info.Uses[id] = f
-		ft := &FuncType{Result: f.Result}
+		ft := &FuncType{Result: f.Result, Throws: f.Throws}
 		for _, p := range f.Params {
 			ft.Params = append(ft.Params, p.Type)
 		}
