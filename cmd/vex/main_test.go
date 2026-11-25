@@ -166,6 +166,15 @@ func TestRun(t *testing.T) {
 	}
 }
 
+func TestRunMissingCFunction(t *testing.T) {
+	needCC(t)
+	path := writeFile(t, "extern fn vx_mylib_init() -> int\nfn main() {\n    println(vx_mylib_init())\n}\n")
+	code, _, errOut := runCLI("run", path)
+	if code != exitError || !strings.Contains(errOut, "linking failed") || strings.Contains(errOut, "bug in vex") {
+		t.Errorf("code %d, stderr %q", code, errOut)
+	}
+}
+
 func TestBuild(t *testing.T) {
 	needCC(t)
 	path := writeFile(t, "fn main() {\n    println(\"built\")\n}\n")

@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/irshadio/vex-lang/compiler/types"
@@ -119,6 +120,7 @@ func (g *gen) externFunction(f *types.Func) {
 	}
 	var params, cparams, args []string
 	floats := f.Result == types.Float && f.CResult == ""
+	native := runtimeSigs[cname]
 	for i, p := range f.Params {
 		name := fmt.Sprintf("a%d", i)
 		params = append(params, decl(p.Type, name))
@@ -143,7 +145,7 @@ func (g *gen) externFunction(f *types.Func) {
 	switch {
 	case floats && mathBuiltins[cname] == len(f.Params):
 		callee = "__builtin_" + cname
-	case strings.HasPrefix(cname, "vx_"):
+	case native.result != "":
 	default:
 		callee = "vx_c_" + funcName(f)
 		g.line("")
@@ -182,3 +184,20 @@ func (g *gen) exportFunction(f *types.Func) {
 	}
 	g.line("}")
 }
+
+// The C signature of a runtime function.
+type runtimeSig struct {
+	result string
+}
+
+// The signatures of the runtime functions, which externs of the standard
+// library call directly.
+var runtimeSigs = func() map[string]runtimeSig {
+	m := map[string]runtimeSig{}
+	re := regexp.MustCompile(`(?m)^static (?:inline )?([A-Za-z_][A-Za-z0-9_ ]*?[ *]+)(vx_[A-Za-z0-9_]+)\(`)
+	for _, sm := range re.FindAllStringSubmatch(runtime, -1) {
+		sig := runtimeSig{result: strings.TrimSpace(sm[1])}
+		m[sm[2]] = sig
+	}
+	return m
+}()
