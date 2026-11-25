@@ -448,6 +448,7 @@ fn helper() { }                         // private to models
   - `vex:strings`: `repeat`, `join`, `padLeft`, `padRight`
   - `vex:time`: `nanos()` for measuring, `unix()` for the date, and `sleep(ms)`, a future that completes after `ms` milliseconds
   - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, and failures throw an `Error` naming the path and the reason
+  - `vex:isolate`: `run` and `spawn`, which start work on other cores (see Isolates), and `cores()`
   - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status)
 
 ```swift
@@ -661,6 +662,10 @@ fn greet(id: int) {
     println("hi {u.name}")                // u is a User from here on
 }
 
+while let job = queue.next() {            // loops until the value is nil
+    run(job)
+}
+
 let name = findUser(2)?.name ?? "guest"   // ?. gives nil if the left side is nil; ?? gives a default
 let boss = user?.manager?.name            // string?: each step after an optional needs ?.
 user?.greet()                             // runs only when user isn't nil
@@ -828,6 +833,57 @@ let first = try await any([fetch("x.com"), fetch("y.com")])   // the first to fi
 - Each task has its own small stack, so an `await` deep inside nested calls costs no more than one at the top, and code that doesn't await pays nothing.
 - Apps with their own run loop, such as iOS and Android, call the C function `int64_t vex_poll(void)` from it. It runs everything that is ready and returns the milliseconds until the next timer, or -1 when nothing is pending.
 - `all`, `any` and `run` are ordinary names: a function of the program with the same name replaces them.
+
+## Isolates
+
+Isolates run code in parallel on other cores. Each has its own memory and its own event loop, so there are no locks and no data races: values pass between isolates as copies.
+
+```swift
+import "vex:isolate"
+
+async fn main() {
+    let photos = load()
+    // runs on another core; photos is copied there
+    let thumbs = await isolate.run(fn() -> [Image] {
+        return photos.map(fn(p) => shrink(p))
+    })
+    println(thumbs.len)
+}
+```
+
+`isolate.run(f)` gives a `Future<T>` of what `f` returns, or `Future<T, E>` when it throws. It takes a closure or the name of a top-level function with no parameters. What the closure uses is copied when it starts, and its result is copied back.
+
+**Channels** carry messages between isolates that keep running. `isolate.spawn(f)` starts an isolate that runs until `f` and its tasks are done:
+
+```swift
+fn worker(jobs: Channel<int>, out: Channel<string>) {
+    while let n = jobs.receiveSync() {      // waits; nil once jobs is closed and empty
+        out.send("done {n}")
+    }
+    out.close()
+}
+
+async fn main() {
+    let jobs = Channel<int>()
+    let out = Channel<string>()
+    isolate.spawn(fn() { worker(jobs, out) })
+    jobs.send(1)
+    jobs.send(2)
+    jobs.close()
+    while let msg = await out.receive() {   // string?: nil once out is closed and empty
+        println(msg)
+    }
+}
+```
+
+- `send(x)` copies `x` into the channel and never waits. Sending on a closed channel stops the program.
+- `await receive()` waits without blocking the isolate: its other tasks keep running. `receiveSync()` blocks the whole isolate, which suits workers that do nothing else.
+- `close()` lets receivers finish: messages already sent are still delivered, then each receive gives nil.
+- A channel is shared, not copied: every isolate that has it sees the same messages. Several workers can receive from one channel, and each message goes to one of them.
+- Ints, floats, bools, strings, lists, maps, optionals, structs and enums are copied, deeply. Objects shared or in cycles stay shared and cyclic in the copy. Functions, futures, C handles and interface values can't be copied, and using them in an isolate's closure, its result or a channel is a compile-time error.
+- The program ends when `main` and its tasks are done, even if spawned isolates are still running. Keep `main` waiting on a channel when it needs their results.
+- `isolate.cores()` gives the number of processor cores, for sizing a pool of workers.
+- The memory an isolate used is freed when it ends. A channel's own memory is kept until the program ends.
 
 ## Built-ins
 
