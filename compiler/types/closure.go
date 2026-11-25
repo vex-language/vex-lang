@@ -102,7 +102,7 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 		switch {
 		case ctx.result == nil:
 			ctx.result = t
-		case ctx.result != Void:
+		case ctx.result != Void && !IsPanic(e.ExprBody):
 			c.assignable(ctx.result, t, e.ExprBody, "closure result")
 		}
 	} else {

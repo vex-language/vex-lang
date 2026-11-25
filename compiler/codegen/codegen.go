@@ -581,7 +581,7 @@ func (g *gen) function(f *types.Func) {
 	g.line("static %s {", g.signature(f, true))
 	g.ind++
 	if e := f.Decl.ExprBody; e != nil {
-		if f.Result == types.Void {
+		if f.Result == types.Void || types.IsPanic(e) {
 			g.line("%s;", g.expr(e))
 		} else {
 			g.line("return %s;", g.expr(e))
@@ -1133,7 +1133,7 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 		}
 	}
 	if e.ExprBody != nil {
-		if ft.Result == types.Void {
+		if ft.Result == types.Void || types.IsPanic(e.ExprBody) {
 			g.line("%s;", g.expr(e.ExprBody))
 		} else {
 			g.line("return %s;", g.expr(e.ExprBody))

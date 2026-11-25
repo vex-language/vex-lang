@@ -856,7 +856,7 @@ func (c *checker) funcBody(f *Func) {
 			want = f.Result
 		}
 		t := c.expr(f.Decl.ExprBody, want)
-		if f.Result != Void {
+		if f.Result != Void && !IsPanic(f.Decl.ExprBody) {
 			c.assignable(f.Result, t, f.Decl.ExprBody, "result of "+f.Name)
 		}
 	} else {
@@ -896,7 +896,7 @@ func terminates(s ast.Stmt) bool {
 		if m, ok := s.X.(*ast.MatchExpr); ok {
 			return matchTerminates(m)
 		}
-		return isPanic(s.X)
+		return IsPanic(s.X)
 	}
 	return false
 }

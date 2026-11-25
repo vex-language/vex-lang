@@ -194,7 +194,7 @@ func (c *checker) implicitEnum(im *ast.ImplicitMember, want Type) *Enum {
 // --- Match ---
 
 // Reports whether [e] is a call of `panic`, which never returns.
-func isPanic(e ast.Expr) bool {
+func IsPanic(e ast.Expr) bool {
 	call, ok := e.(*ast.CallExpr)
 	if !ok {
 		return false
@@ -206,7 +206,7 @@ func isPanic(e ast.Expr) bool {
 // Reports whether every arm of [m] ends by returning or stopping.
 func matchTerminates(m *ast.MatchExpr) bool {
 	for _, a := range m.Arms {
-		if a.Block != nil && !terminates(a.Block) || a.Expr != nil && !isPanic(a.Expr) {
+		if a.Block != nil && !terminates(a.Block) || a.Expr != nil && !IsPanic(a.Expr) {
 			return false
 		}
 	}
@@ -278,7 +278,7 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 			c.stmt(arm.Block)
 		case stmt:
 			c.expr(arm.Expr, nil)
-		case isPanic(arm.Expr):
+		case IsPanic(arm.Expr):
 			c.expr(arm.Expr, nil)
 			a.NoValue = true
 		default:
