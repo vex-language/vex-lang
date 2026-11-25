@@ -715,6 +715,16 @@ static int64_t vx_float_to_int(double v, int line) {
     return (int64_t)v;
 }
 
+// --- Errors ---
+
+// Stops the program after an error passed up out of main.
+__attribute__((noreturn))
+static void vx_uncaught(vx_str message) {
+    fflush(stdout);
+    fprintf(stderr, "error: %.*s\n", (int)message.len, message.ptr);
+    exit(1);
+}
+
 // --- Arithmetic ---
 
 __attribute__((noreturn, cold, noinline))

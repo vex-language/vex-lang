@@ -14,6 +14,9 @@ type litCtx struct {
 	// first `return`.
 	result Type
 
+	// What the closure throws, or nil.
+	throws Type
+
 	// The loop depth of the enclosing code, restored after the closure.
 	outerLoops int
 }
@@ -75,8 +78,16 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 		ft.Result = wantFn.Result
 	}
 
-	ctx := &litCtx{lit: e, result: ft.Result, outerLoops: c.loops}
+	switch {
+	case e.Throws != nil:
+		ft.Throws = c.throwsType(e.Throws)
+	case wantFn != nil:
+		ft.Throws = wantFn.Throws
+	}
+	ctx := &litCtx{lit: e, result: ft.Result, throws: ft.Throws, outerLoops: c.loops}
 	c.lits = append(c.lits, ctx)
+	outerTries := c.tries
+	c.tries = nil
 	c.loops = 0
 	c.push()
 	for i, p := range e.Params {
@@ -108,6 +119,7 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 	}
 	c.pop()
 	c.loops = ctx.outerLoops
+	c.tries = outerTries
 	c.lits = c.lits[:len(c.lits)-1]
 	ft.Result = ctx.result
 	if wrongArity {

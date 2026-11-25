@@ -131,6 +131,75 @@ fn main() {
     }
     println(n)
 }`, "", "22\n"},
+		{"errors stop the rest of the expression", `fn fail(s: string) throws -> int {
+    throw Error(s)
+}
+fn note(s: string) -> int {
+    println("ran {s}")
+    return 1
+}
+fn add(a: int, b: int) -> int => a + b
+fn main() {
+    let x = try add(note("a"), add(fail("boom"), note("b"))) catch e {
+        println(e.message)
+        -1
+    }
+    println(x)
+}`, "", "ran a\nboom\n-1\n"},
+		{"errors through closures and methods", `enum Bad { tooBig(n: int), negative }
+struct Box {
+    limit: int
+
+    fn check(n: int) throws(Bad) -> int {
+        if n < 0 { throw .negative }
+        if n > limit { throw .tooBig(n: n) }
+        return n
+    }
+}
+fn each(xs: [int], f: fn(int) throws -> int) throws -> int {
+    var total = 0
+    for x in xs {
+        total += try f(x)
+    }
+    return total
+}
+fn main() {
+    let b = Box(limit: 10)
+    var seen = 0
+    let sum = fn(xs: [int]) -> int => try each(xs, fn(x) {
+        seen += 1
+        return try b.check(x)
+    }) catch e {
+        println("stopped: {e.message}")
+        0
+    }
+    println(sum([1, 2, 3]), seen)
+    println(sum([4, 50, 6]), seen)
+    println(sum([7, -1]), seen)
+    let r = try b.check(99) catch e {
+        match e {
+            tooBig(n) => n * 2
+            negative => 0
+        }
+    }
+    println(r)
+}`, "", "6 3\nstopped: Bad.tooBig(n: 50)\n0 5\nstopped: Bad.negative\n0 7\n198\n"},
+		{"try? and nested tries", `fn find(n: int) throws -> int? {
+    if n < 0 { throw Error("negative") }
+    if n == 0 { return nil }
+    return n
+}
+fn twice(n: int) throws -> int {
+    let v = try find(n) ?? 5
+    return v * 2
+}
+fn main() {
+    println(try? find(-1), try? find(0), try? find(3))
+    let a = try twice(-1) catch {
+        try twice(4) catch { 0 }
+    }
+    println(a, try? twice(0) ?? 0)
+}`, "", "nil nil 3\n8 10\n"},
 		{"conditions with temporaries", `fn two() -> int => 2
 fn main() {
     let xs = [1, 2, 3]
@@ -713,6 +782,28 @@ fn main() {
 			out, errOut, code = execute(t, exe, c.stdin, "VEX_GC_STRESS=1")
 			if code != 0 || errOut != "" || out != c.want {
 				t.Errorf("under VEX_GC_STRESS: exit %d, stderr %q\n got: %q\nwant: %q", code, errOut, out, c.want)
+			}
+		})
+	}
+}
+
+func TestUncaughtErrors(t *testing.T) {
+	cases := []struct{ name, src, out, err string }{
+		{"Error", `fn main() throws {
+    println("start")
+    throw Error("disk full")
+}`, "start\n", "error: disk full\n"},
+		{"enum", `enum E { gone(id: int) }
+fn get(id: int) throws(E) -> int { throw .gone(id: id) }
+fn main() throws(E) {
+    println(try get(7))
+}`, "", "error: E.gone(id: 7)\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			out, errOut, code := run(t, c.src, "")
+			if code != 1 || out != c.out || errOut != c.err {
+				t.Errorf("exit %d, stdout %q, stderr %q", code, out, errOut)
 			}
 		})
 	}

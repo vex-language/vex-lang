@@ -199,6 +199,36 @@ func TestWarnings(t *testing.T) {
 	}
 }
 
+func TestErrorHandling(t *testing.T) {
+	cases := []struct{ src, want string }{
+		{"let t = try load(p)", "(let t (try (call load p)))"},
+		{"let n = try? parse(s) ?? 0", "(let n (?? (try? (call parse s)) 0))"},
+		{"let n = try parse(s) catch { 0 }", "(let n (try (call parse s) (catch (block 0))))"},
+		{"try save(x) catch e {\n    log(e)\n}", "(try (call save x) (catch e (block (call log e))))"},
+		{"let v = try a.b().c(try d())", "(let v (try (call (. (call (. a b)) c) (try (call d)))))"},
+		{"throw Error(\"x\")", "(throw (call Error \"x\"))"},
+		{"throw .notFound(path: p)", "(throw (call .notFound (path: p)))"},
+		{"let f: fn(int) throws -> int = g", "(let f: fn(int) throws -> int g)"},
+		{"let h: fn() throws(E) = g", "(let h: fn() throws(E) g)"},
+		{"let k = fn(x: int) throws -> int => try f(x)", "(let k (fn param x: int throws -> int (=> (try (call f x)))))"},
+	}
+	for _, c := range cases {
+		if got, want := body(t, c.src), "(block "+c.want+")"; got != want {
+			t.Errorf("%s\n got: %s\nwant: %s", c.src, got, want)
+		}
+	}
+	f, errs := parse(t, "fn load(p: string) throws -> string { return p }\nfn open() throws(E) {}")
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	if got := ast.Sexpr(f.Decls[0]); !strings.Contains(got, "throws") {
+		t.Errorf("load: %s", got)
+	}
+	if got := ast.Sexpr(f.Decls[1]); !strings.Contains(got, "throws(E)") {
+		t.Errorf("open: %s", got)
+	}
+}
+
 func TestOptionals(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{"let u: User? = nil", "(let u: User? nil)"},
@@ -394,6 +424,10 @@ func TestErrors(t *testing.T) {
 		{"closure without body", "fn main() {\n let f = fn(x)\n}", "2:15", "expected '{' or '=>' to start the closure body, found end of line", ""},
 		{"unclosed block", "fn main() {\n f()", "1:11", "unclosed block", "add a matching }"},
 		{"double optional", "fn f(x: int??) {}", "1:12", "a type can only be optional once", "one ? is enough"},
+		{"throws after result", "fn f() -> int throws { return 1 }", "1:15", "throws comes before ->", "write fn f(...) throws -> ..."},
+		{"throw without value", "fn f() throws {\n throw\n}", "3:1", "throw needs an error to throw", `e.g. throw Error("file not found")`},
+		{"catch with try?", "fn main() {\n let n = try? f() catch { 0 }\n}", "2:19", "try? gives nil on an error, so it can't have a catch", "use try ... catch, or try? on its own"},
+		{"catch without block", "fn main() {\n let n = try f() catch e\n}", "2:25", "expected '{' after catch, found end of line", "e.g. catch e { println(e.message) }"},
 		{"ternary", "fn main() {\n let n = ok ? 1 : 2\n}", "2:13", "Vex has no ? : operator", "write match cond { true => a, false => b }"},
 		{"lone question", "fn main() {\n let n = x?\n}", "2:11", "unexpected '?'", "use ?. to read a member, or ?? to give a default"},
 		{"if var", "fn main() {\n if var x = y {}\n}", "2:5", "'if var' isn't supported", "write if let; copy it into a var inside the block"},

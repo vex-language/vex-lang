@@ -43,6 +43,10 @@ func (l *List) String() string { return "[" + l.Elem.String() + "]" }
 type FuncType struct {
 	Params []Type
 	Result Type
+
+	// What the function throws: the built-in Error struct, an enum, or nil
+	// when it doesn't throw.
+	Throws Type
 }
 
 // Returns the type in source form, such as `fn(int) -> bool`.
@@ -51,11 +55,22 @@ func (f *FuncType) String() string {
 	for i, p := range f.Params {
 		params[i] = p.String()
 	}
-	s := "fn(" + strings.Join(params, ", ") + ")"
+	s := "fn(" + strings.Join(params, ", ") + ")" + throwsString(f.Throws)
 	if f.Result != Void && f.Result != nil {
 		s += " -> " + f.Result.String()
 	}
 	return s
+}
+
+// Returns ` throws`, ` throws(E)` or "" for what a function throws.
+func throwsString(t Type) string {
+	switch t := t.(type) {
+	case nil:
+		return ""
+	case *Enum:
+		return " throws(" + t.Name + ")"
+	}
+	return " throws"
 }
 
 // A struct type. Structs are reference types: copies share the same fields.
@@ -171,6 +186,10 @@ type Func struct {
 	Result Type
 	Decl   *ast.FuncDecl
 
+	// What the function throws: the built-in Error struct, an enum, or nil
+	// when it doesn't throw.
+	Throws Type
+
 	// The struct or enum a method belongs to; both are nil for a
 	// top-level function.
 	Owner  *Struct
@@ -195,7 +214,7 @@ func (f *Func) String() string {
 		}
 		b.WriteString(p.Name + ": " + p.Type.String())
 	}
-	b.WriteString(")")
+	b.WriteString(")" + throwsString(f.Throws))
 	if f.Result != Void {
 		b.WriteString(" -> " + f.Result.String())
 	}
@@ -241,6 +260,21 @@ const (
 	PatternVar
 )
 
+// The checked meaning of a [ast.TryExpr].
+type Try struct {
+	// The type the try holds its error as: the error type of the enclosing
+	// function when the error passes up, or the catch's error type. Calls
+	// throwing an enum convert it to an Error when this is Error. Nil for
+	// `try?`.
+	Target Type
+
+	// The catch's error variable, if it names one.
+	Bind *Var
+
+	// Set when the catch block's last statement gives the try's value.
+	Value bool
+}
+
 // The checked meaning of a match.
 type Match struct {
 	// The enum matched on, or nil for int, bool and string subjects.
@@ -283,6 +317,9 @@ func Identical(a, b Type) bool {
 	case *FuncType:
 		b, ok := b.(*FuncType)
 		if !ok || len(a.Params) != len(b.Params) || !Identical(a.Result, b.Result) {
+			return false
+		}
+		if (a.Throws == nil) != (b.Throws == nil) || a.Throws != nil && !Identical(a.Throws, b.Throws) {
 			return false
 		}
 		for i := range a.Params {
@@ -409,6 +446,15 @@ type Info struct {
 
 	// Enums in source order.
 	Enums []*Enum
+
+	// The built-in Error struct, with its one field `message`.
+	Error *Struct
+
+	// Calls of functions that can throw, with what each throws.
+	Throwing map[*ast.CallExpr]Type
+
+	// How each try handles errors.
+	Tries map[*ast.TryExpr]*Try
 
 	// The variables each closure uses from outside itself, in first-use
 	// order. A closure nested in another also lists what its inner

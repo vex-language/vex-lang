@@ -77,6 +77,9 @@ type FuncDecl struct {
 	// The declared result type, or nil when the function returns nothing.
 	Result TypeExpr
 
+	// Set when the function can throw.
+	Throws *Throws
+
 	// Exactly one of Body and ExprBody is set; ExprBody holds the
 	// expression of a one-line `=> expr` function.
 	Body     *Block
@@ -153,6 +156,16 @@ type FuncType struct {
 
 	// Nil when the function returns nothing.
 	Result TypeExpr
+
+	// Set when the function can throw.
+	Throws *Throws
+}
+
+// The `throws` of a function, or `throws(E)` when it names the enum it
+// throws; Type is nil for the built-in Error.
+type Throws struct {
+	Span
+	Type TypeExpr
 }
 
 func (*NamedType) typeNode() {}
@@ -249,6 +262,12 @@ type ReturnStmt struct {
 	Value Expr
 }
 
+// A `throw` statement.
+type ThrowStmt struct {
+	Span
+	Value Expr
+}
+
 // A `break` statement.
 type BreakStmt struct{ Span }
 
@@ -264,6 +283,7 @@ func (*GuardStmt) stmtNode()    {}
 func (*WhileStmt) stmtNode()    {}
 func (*ForStmt) stmtNode()      {}
 func (*ReturnStmt) stmtNode()   {}
+func (*ThrowStmt) stmtNode()    {}
 func (*BreakStmt) stmtNode()    {}
 func (*ContinueStmt) stmtNode() {}
 
@@ -377,6 +397,7 @@ type FuncLit struct {
 	Span
 	Params   []*Param
 	Result   TypeExpr
+	Throws   *Throws
 	Body     *Block
 	ExprBody Expr
 }
@@ -386,6 +407,28 @@ type FuncLit struct {
 type ImplicitMember struct {
 	Span
 	Name *Ident
+}
+
+// A call that may throw: `try load(path)`, `try? load(path)`, or
+// `try load(path) catch e { ... }`. X holds the calls being tried.
+type TryExpr struct {
+	Span
+	X Expr
+
+	// Set for `try?`, which gives nil instead of the error.
+	Optional bool
+
+	// The `catch` that handles the error; nil when it passes up to the
+	// caller.
+	Catch *Catch
+}
+
+// The `catch e { ... }` of a [TryExpr]; Name is nil when the error isn't
+// named. When the try has a value, the block's last expression gives it.
+type Catch struct {
+	Span
+	Name *Ident
+	Body *Block
 }
 
 // A match: `match shape { circle(r) => ..., _ => ... }`. Used as a
@@ -449,5 +492,6 @@ func (*UnaryExpr) exprNode()          {}
 func (*BinaryExpr) exprNode()         {}
 func (*RangeExpr) exprNode()          {}
 func (*CallExpr) exprNode()           {}
+func (*TryExpr) exprNode()            {}
 func (*IndexExpr) exprNode()          {}
 func (*MemberExpr) exprNode()         {}

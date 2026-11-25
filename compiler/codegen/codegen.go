@@ -48,6 +48,12 @@ type gen struct {
 	// receiver, and the chains being generated.
 	recvs    map[ast.Expr]string
 	chaining map[ast.Expr]bool
+
+	// The result type and thrown type of the function or closure being
+	// generated, and the try expressions around the current expression.
+	result types.Type
+	throws types.Type
+	tries  []tryGen
 }
 
 // Returns the C source of the program described by [info]. [srcName] is
@@ -140,7 +146,13 @@ func Generate(info *types.Info, srcName string) string {
 	g.line("int main(void) {")
 	g.line("    vx_init(__builtin_frame_address(0));")
 	g.line("    vx_file = %s;", cQuote(srcName))
-	g.line("    fn_main();")
+	if main := mainFunc(info); main != nil && main.Throws != nil {
+		g.line("    void *err = NULL;")
+		g.line("    fn_main(&err);")
+		g.line("    if (err) vx_uncaught(%s);", errorMessage(info, main.Throws, "err"))
+	} else {
+		g.line("    fn_main();")
+	}
 	g.line("    return 0;")
 	g.line("}")
 	return g.b.String()
@@ -220,6 +232,9 @@ func fnPtrType(ft *types.FuncType) string {
 	params := []string{"void *"}
 	for _, p := range ft.Params {
 		params = append(params, ctype(p))
+	}
+	if ft.Throws != nil {
+		params = append(params, "void **")
 	}
 	return ctype(ft.Result) + " (*)(" + strings.Join(params, ", ") + ")"
 }
@@ -330,6 +345,9 @@ func (g *gen) signature(f *types.Func, define bool) string {
 		}
 		params = append(params, decl(p.Type, name))
 	}
+	if f.Throws != nil {
+		params = append(params, "void **vx_err")
+	}
 	if len(params) == 0 {
 		params = []string{"void"}
 	}
@@ -338,6 +356,7 @@ func (g *gen) signature(f *types.Func, define bool) string {
 
 func (g *gen) function(f *types.Func) {
 	g.enter(g.b)
+	g.result, g.throws, g.tries = f.Result, f.Throws, nil
 	if self := g.info.Selves[f.Decl]; self != nil {
 		g.self = self
 		g.vals[self] = "self"
@@ -585,6 +604,9 @@ func (g *gen) stmt(s ast.Stmt) {
 		} else {
 			g.line("return %s;", g.expr(s.Value))
 		}
+	case *ast.ThrowStmt:
+		g.line("*vx_err = %s;", g.expr(s.Value))
+		g.line("%s", zeroReturn(g.result))
 	case *ast.BreakStmt:
 		g.line("break;")
 	case *ast.ContinueStmt:
@@ -759,11 +781,16 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 	}
 
 	outer, ind, vals, boxes, used, tmp, self := g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self
+	result, throws, tries := g.result, g.throws, g.tries
 	var body strings.Builder
 	g.enter(&body)
+	g.result, g.throws, g.tries = ft.Result, ft.Throws, nil
 	params := []string{"void *env_"}
 	for i, p := range e.Params {
 		params = append(params, decl(ft.Params[i], g.declare(g.info.Defs[p.Name])))
+	}
+	if ft.Throws != nil {
+		params = append(params, "void **vx_err")
 	}
 	sig := decl(ft.Result, name+"("+strings.Join(params, ", ")+")")
 	g.line("")
@@ -800,6 +827,7 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 	g.ind--
 	g.line("}")
 	g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self = outer, ind, vals, boxes, used, tmp, self
+	g.result, g.throws, g.tries = result, throws, tries
 
 	if len(caps) > 0 {
 		fmt.Fprintf(&g.lamDecls, "struct %s {", env)
@@ -838,6 +866,10 @@ func (g *gen) fnValueWrapper(f *types.Func) {
 		params = append(params, decl(p.Type, fmt.Sprintf("a%d", i)))
 		args = append(args, fmt.Sprintf("a%d", i))
 	}
+	if f.Throws != nil {
+		params = append(params, "void **vx_err")
+		args = append(args, "vx_err")
+	}
 	sig := decl(f.Result, "fnv_"+f.Name+"("+strings.Join(params, ", ")+")")
 	fmt.Fprintf(&g.lamDecls, "static %s;\n", sig)
 	call := funcName(f) + "(" + strings.Join(args, ", ") + ")"
@@ -853,7 +885,7 @@ func (g *gen) fnValueWrapper(f *types.Func) {
 // to other calls matters.
 func hasCall(e ast.Expr) bool {
 	switch e := e.(type) {
-	case *ast.CallExpr:
+	case *ast.CallExpr, *ast.TryExpr:
 		return true
 	case *ast.UnaryExpr:
 		return hasCall(e.X)
@@ -981,6 +1013,8 @@ func (g *gen) value(e ast.Expr) string {
 		return g.funcLit(e)
 	case *ast.ImplicitMember:
 		return caseFunc(g.info.CaseValues[e]) + "()"
+	case *ast.TryExpr:
+		return g.tryExpr(e)
 	case *ast.MatchExpr:
 		return g.matchExpr(e)
 	case *ast.ListLit:
@@ -1112,13 +1146,21 @@ func sourceRank(e *ast.CallExpr, bound []ast.Expr) []int {
 }
 
 func (g *gen) call(e *ast.CallExpr) string {
+	code := g.callCode(e)
+	if thrown := g.info.Throwing[e]; thrown != nil {
+		return g.throwingCall(e, code, thrown)
+	}
+	return code
+}
+
+func (g *gen) callCode(e *ast.CallExpr) string {
 	c := g.info.Calls[e]
 	line := e.Pos().Line
 	rank := sourceRank(e, c.Args)
 	switch c.Kind {
 	case types.FuncCall, types.StaticCall:
 		return g.orderedBy(c.Args, rank, func(cs []string) string {
-			return funcName(c.Func) + "(" + strings.Join(cs, ", ") + ")"
+			return funcName(c.Func) + "(" + g.args(e, cs) + ")"
 		})
 	case types.ConstructorCall:
 		return g.orderedBy(c.Args, rank, func(cs []string) string {
@@ -1131,11 +1173,11 @@ func (g *gen) call(e *ast.CallExpr) string {
 	case types.MethodCall:
 		if c.Recv == nil {
 			return g.orderedBy(c.Args, rank, func(cs []string) string {
-				return funcName(c.Func) + "(" + strings.Join(append([]string{g.selfRef()}, cs...), ", ") + ")"
+				return funcName(c.Func) + "(" + g.args(e, append([]string{g.selfRef()}, cs...)) + ")"
 			})
 		}
 		return g.orderedBy(append([]ast.Expr{c.Recv}, c.Args...), append([]int{-1}, rank...), func(cs []string) string {
-			return funcName(c.Func) + "(" + strings.Join(cs, ", ") + ")"
+			return funcName(c.Func) + "(" + g.args(e, cs) + ")"
 		})
 	case types.BuiltinCall:
 		return g.builtin(c, line)
@@ -1148,6 +1190,9 @@ func (g *gen) call(e *ast.CallExpr) string {
 			args := ""
 			for _, a := range cs[1:] {
 				args += ", " + a
+			}
+			if g.info.Throwing[e] != nil {
+				args += ", &" + g.tries[len(g.tries)-1].err
 			}
 			return fmt.Sprintf("({ vx_fn %s = %s; ((%s)%s.fn)(%s.env%s); })", f, cs[0], fp, f, f, args)
 		})

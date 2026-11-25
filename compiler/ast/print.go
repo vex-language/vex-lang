@@ -76,13 +76,24 @@ func TypeString(t TypeExpr) string {
 		for i, p := range t.Params {
 			params[i] = TypeString(p)
 		}
-		s := "fn(" + strings.Join(params, ", ") + ")"
+		s := "fn(" + strings.Join(params, ", ") + ")" + ThrowsString(t.Throws)
 		if t.Result != nil {
 			s += " -> " + TypeString(t.Result)
 		}
 		return s
 	}
 	return "?"
+}
+
+// Returns ` throws`, ` throws(E)`, or "" when [th] is nil.
+func ThrowsString(th *Throws) string {
+	switch {
+	case th == nil:
+		return ""
+	case th.Type == nil:
+		return " throws"
+	}
+	return " throws(" + TypeString(th.Type) + ")"
 }
 
 // Returns [p] in source form, such as `circle(r, _)`.
@@ -111,7 +122,7 @@ func PatternString(p Pattern) string {
 func op(k lexer.Kind) string { return strings.Trim(k.String(), "'") }
 
 // Builds the tree of a function declaration or closure.
-func funcTree(label string, params []*Param, result TypeExpr, body *Block, exprBody Expr) *tree {
+func funcTree(label string, params []*Param, th *Throws, result TypeExpr, body *Block, exprBody Expr) *tree {
 	t := branch(label)
 	for _, p := range params {
 		name := "param " + p.Name.Name
@@ -119,6 +130,9 @@ func funcTree(label string, params []*Param, result TypeExpr, body *Block, exprB
 			name += ": " + TypeString(p.Type)
 		}
 		t.kids = append(t.kids, branch(name, buildExpr(p.Default)))
+	}
+	if th != nil {
+		t.kids = append(t.kids, leaf(strings.TrimSpace(ThrowsString(th))))
 	}
 	if result != nil {
 		t.kids = append(t.kids, leaf("-> "+TypeString(result)))
@@ -147,7 +161,7 @@ func build(n Node) *tree {
 		if n.Static {
 			label = "static " + label
 		}
-		return funcTree(label, n.Params, n.Result, n.Body, n.ExprBody)
+		return funcTree(label, n.Params, n.Throws, n.Result, n.Body, n.ExprBody)
 	case *StructDecl:
 		t := branch("struct " + n.Name.Name)
 		for _, f := range n.Fields {
@@ -216,6 +230,8 @@ func build(n Node) *tree {
 		return branch(label, buildExpr(n.Iter), build(n.Body))
 	case *ReturnStmt:
 		return branch("return", buildExpr(n.Value))
+	case *ThrowStmt:
+		return branch("throw", buildExpr(n.Value))
 	case *BreakStmt:
 		return leaf("break")
 	case *ContinueStmt:
@@ -271,9 +287,23 @@ func buildExpr(e Expr) *tree {
 		}
 		return branch(label, buildExpr(e.Lo), buildExpr(e.Hi))
 	case *FuncLit:
-		return funcTree("fn", e.Params, e.Result, e.Body, e.ExprBody)
+		return funcTree("fn", e.Params, e.Throws, e.Result, e.Body, e.ExprBody)
 	case *ImplicitMember:
 		return leaf("." + e.Name.Name)
+	case *TryExpr:
+		label := "try"
+		if e.Optional {
+			label = "try?"
+		}
+		t := branch(label, buildExpr(e.X))
+		if e.Catch != nil {
+			name := "catch"
+			if e.Catch.Name != nil {
+				name += " " + e.Catch.Name.Name
+			}
+			t.kids = append(t.kids, branch(name, build(e.Catch.Body)))
+		}
+		return t
 	case *MatchExpr:
 		t := branch("match", buildExpr(e.Subject))
 		for _, a := range e.Arms {
