@@ -187,6 +187,8 @@ func ctype(t types.Type) string {
 	switch t := t.(type) {
 	case *types.List:
 		return "vx_list *"
+	case *types.Map:
+		return "vx_map *"
 	case *types.Struct:
 		return structName(t) + " *"
 	case *types.FuncType:
@@ -246,6 +248,8 @@ func mangle(t types.Type) string {
 	switch t := t.(type) {
 	case *types.List:
 		return "L_" + mangle(t.Elem)
+	case *types.Map:
+		return "M_" + mangle(t.Key) + "_" + mangle(t.Value)
 	case *types.Struct:
 		return fmt.Sprintf("S%d%s", len(t.Name), t.Name)
 	case *types.Enum:
@@ -392,6 +396,12 @@ func (g *gen) needRepr(t types.Type) {
 			g.reprs[mangle(t)] = t
 			g.needRepr(t.Elem)
 		}
+	case *types.Map:
+		if _, ok := g.reprs[mangle(t)]; !ok {
+			g.reprs[mangle(t)] = t
+			g.needRepr(t.Key)
+			g.needRepr(t.Value)
+		}
 	case *types.Struct:
 		if _, ok := g.reprs[mangle(t)]; !ok {
 			g.reprs[mangle(t)] = t
@@ -429,7 +439,7 @@ func (g *gen) reprNames() []string {
 // strings quoted.
 func repr(t types.Type, x string) string {
 	switch t := t.(type) {
-	case *types.List, *types.Struct, *types.Enum, *types.Optional:
+	case *types.List, *types.Map, *types.Struct, *types.Enum, *types.Optional:
 		return fmt.Sprintf("repr_%s(%s)", mangle(t), x)
 	case *types.FuncType:
 		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
@@ -475,6 +485,18 @@ func (g *gen) repr(name string, t types.Type) {
 		g.line("    for (int64_t i = 0; i < v->len; i++) {")
 		g.line("        if (i > 0) s = vx_str_concat(s, VX_LIT(\", \"));")
 		g.line("        s = vx_str_concat(s, %s);", repr(t.Elem, fmt.Sprintf("((%s*)v->data)[i]", ctype(t.Elem))))
+		g.line("    }")
+		g.line("    return vx_str_concat(s, VX_LIT(\"]\"));")
+	case *types.Map:
+		g.line("    if (v->len == 0) return VX_LIT(\"[:]\");")
+		g.line("    vx_str s = VX_LIT(\"[\");")
+		g.line("    vx_map_iter it = vx_map_iter_new(v);")
+		g.line("    bool first = true;")
+		g.line("    for (char *e; (e = vx_map_next(v, &it)); first = false) {")
+		g.line("        if (!first) s = vx_str_concat(s, VX_LIT(\", \"));")
+		g.line("        s = vx_str_concat(s, %s);", repr(t.Key, fmt.Sprintf("*(%s*)(e + VX_MAP_KEY)", ctype(t.Key))))
+		g.line("        s = vx_str_concat(s, VX_LIT(\": \"));")
+		g.line("        s = vx_str_concat(s, %s);", repr(t.Value, fmt.Sprintf("*(%s*)(e + v->voff)", ctype(t.Value))))
 		g.line("    }")
 		g.line("    return vx_str_concat(s, VX_LIT(\"]\"));")
 	case *types.Struct:
@@ -674,6 +696,10 @@ func (g *gen) forStmt(s *ast.ForStmt) {
 	}
 	// Items added during the loop aren't visited, so pushing inside the
 	// loop can't make it endless; removed items end it early.
+	if m, ok := g.info.Types[s.Iter].(*types.Map); ok {
+		g.mapLoop(s, m)
+		return
+	}
 	elem := g.info.Defs[s.Elem]
 	list, n, i := g.temp(), g.temp(), g.temp()
 	g.line("{")
@@ -715,6 +741,14 @@ func (g *gen) assign(s *ast.AssignStmt) {
 	var target string
 	switch x := s.Target.(type) {
 	case *ast.IndexExpr:
+		if _, ok := g.info.Types[x.X].(*types.Map); ok {
+			m, k := g.temp(), g.temp()
+			setup = append(setup,
+				fmt.Sprintf("vx_map *%s = %s;", m, g.expr(x.X)),
+				fmt.Sprintf("%s = %s;", decl(g.info.Types[x.Index], k), g.expr(x.Index)))
+			target = fmt.Sprintf("(*(%s*)vx_map_set(%s, &%s))", ctype(t), m, k)
+			break
+		}
 		list, idx := g.temp(), g.temp()
 		setup = append(setup,
 			fmt.Sprintf("vx_list *%s = %s;", list, g.expr(x.X)),
@@ -901,6 +935,12 @@ func hasCall(e ast.Expr) bool {
 				return true
 			}
 		}
+	case *ast.MapLit:
+		for i, k := range e.Keys {
+			if hasCall(k) || hasCall(e.Values[i]) {
+				return true
+			}
+		}
 	case *ast.InterpolatedString:
 		for _, x := range e.Exprs {
 			if hasCall(x) {
@@ -1052,9 +1092,18 @@ func (g *gen) value(e ast.Expr) string {
 	case *ast.CallExpr:
 		return g.call(e)
 	case *ast.IndexExpr:
+		if m, ok := g.info.Types[e.X].(*types.Map); ok {
+			return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
+				k, p := g.temp(), g.temp()
+				return fmt.Sprintf("({ %s = %s; %s *%s = vx_map_find(%s, &%s); %s ? (%s){true, *%s} : (%s){0}; })",
+					decl(m.Key, k), cs[1], ctype(m.Value), p, cs[0], k, p, ctype(t), p, ctype(t))
+			})
+		}
 		return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
 			return fmt.Sprintf("(*(%s*)vx_list_at(%s, %s, %d))", ctype(t), cs[0], cs[1], e.Pos().Line)
 		})
+	case *ast.MapLit:
+		return g.mapLit(e, t.(*types.Map))
 	case *ast.MemberExpr:
 		if cs := g.info.CaseValues[e]; cs != nil {
 			return caseFunc(cs) + "()"
@@ -1066,6 +1115,12 @@ func (g *gen) value(e ast.Expr) string {
 		}
 		if g.info.Types[e.X] == types.String {
 			return "vx_str_len(" + x + ")"
+		}
+		switch m.Builtin {
+		case "keys":
+			return "vx_map_list(" + x + ", false)"
+		case "values":
+			return "vx_map_list(" + x + ", true)"
 		}
 		return x + "->len"
 	}
@@ -1245,6 +1300,17 @@ func (g *gen) builtin(c *types.Call, line int) string {
 func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 	recv := g.info.Types[c.Recv]
 	return g.ordered(append([]ast.Expr{c.Recv}, c.Args...), func(cs []string) string {
+		if m, ok := recv.(*types.Map); ok {
+			k := g.temp()
+			switch c.Builtin {
+			case "contains":
+				return fmt.Sprintf("({ %s = %s; vx_map_find(%s, &%s) != NULL; })", decl(m.Key, k), cs[1], cs[0], k)
+			case "remove":
+				r, opt := g.temp(), ctype(g.info.Types[e])
+				return fmt.Sprintf("({ %s = %s; %s %s = {0}; %s.has = vx_map_remove(%s, &%s, &%s.v); %s; })",
+					decl(m.Key, k), cs[1], opt, r, r, cs[0], k, r, r)
+			}
+		}
 		if l, ok := recv.(*types.List); ok {
 			elem := ctype(l.Elem)
 			switch c.Builtin {
