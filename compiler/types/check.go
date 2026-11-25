@@ -773,7 +773,9 @@ func (c *checker) genericType(te *ast.NamedType) Type {
 	}
 	g := c.genStructs[te.Name]
 	if g == nil {
-		if c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && builtinTypes[te.Name] == nil {
+		_, param := c.env[te.Name]
+		if c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && builtinTypes[te.Name] == nil &&
+			c.handles[te.Name] == nil && cNumbers[te.Name] == "" && !param {
 			c.errorAt(te, "", "unknown type '%s'", te.Name)
 		} else {
 			c.errorAt(te, "", "'%s' is not generic, so it takes no type arguments", te.Name)
