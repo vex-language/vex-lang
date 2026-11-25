@@ -788,3 +788,38 @@ func TestTourParses(t *testing.T) {
 		t.Errorf("got %d declarations, want 5", len(f.Decls))
 	}
 }
+
+func TestAsync(t *testing.T) {
+	cases := []struct{ src, want string }{
+		{"let x = await f()", "(let x (await (call f)))"},
+		{"let x = try await f()", "(let x (try (await (call f))))"},
+		{"let x = try? await f()", "(let x (try? (await (call f))))"},
+		{"await sleep(1)", "(await (call sleep 1))"},
+		{"let x = await a.b().c", "(let x (await (. (call (. a b)) c)))"},
+		{"let x = -await f()", "(let x (- (await (call f))))"},
+	}
+	for _, c := range cases {
+		got := body(t, c.src)
+		want := "(block " + c.want + ")"
+		if got != want {
+			t.Errorf("%s\n got: %s\nwant: %s", c.src, got, want)
+		}
+	}
+	f, errs := parse(t, "async fn load() -> int { return 1 }\nstruct S {\n    pub async fn m() {}\n    static async fn n() {}\n}")
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	if fn := f.Decls[0].(*ast.FuncDecl); !fn.Async {
+		t.Errorf("load: Async not set")
+	}
+	for _, m := range f.Decls[1].(*ast.StructDecl).Methods {
+		if !m.Async {
+			t.Errorf("%s: Async not set", m.Name.Name)
+		}
+	}
+	for _, src := range []string{"async struct S {}", "interface I {\n    async fn f()\n}", "export async fn f() {}"} {
+		if _, errs := parse(t, src); errs == nil {
+			t.Errorf("%q: expected an error", src)
+		}
+	}
+}

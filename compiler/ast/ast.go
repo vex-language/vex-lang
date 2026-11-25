@@ -95,6 +95,9 @@ type FuncDecl struct {
 	// Set for `export fn`, which C code can call by its name.
 	Export bool
 
+	// Set for `async fn`, which can await.
+	Async bool
+
 	Name       *Ident
 	TypeParams []*TypeParam
 	Params     []*Param
@@ -558,6 +561,12 @@ type ImplicitMember struct {
 	Name *Ident
 }
 
+// `await x`: waits for the future [X], or runs the async call [X].
+type AwaitExpr struct {
+	Span
+	X Expr
+}
+
 // A call that may throw: `try load(path)`, `try? load(path)`, or
 // `try load(path) catch e { ... }`. X holds the calls being tried.
 type TryExpr struct {
@@ -646,5 +655,6 @@ func (*BinaryExpr) exprNode()         {}
 func (*RangeExpr) exprNode()          {}
 func (*CallExpr) exprNode()           {}
 func (*TryExpr) exprNode()            {}
+func (*AwaitExpr) exprNode()          {}
 func (*IndexExpr) exprNode()          {}
 func (*MemberExpr) exprNode()         {}

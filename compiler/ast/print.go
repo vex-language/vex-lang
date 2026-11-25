@@ -222,6 +222,9 @@ func build(n Node) *tree {
 		if n.Export {
 			label = "export " + label
 		}
+		if n.Async {
+			label = "async " + label
+		}
 		if n.Pub {
 			label = "pub " + label
 		}
@@ -421,6 +424,8 @@ func buildExpr(e Expr) *tree {
 		return funcTree("fn", e.Params, e.Throws, e.Result, e.Body, e.ExprBody)
 	case *ImplicitMember:
 		return leaf("." + e.Name.Name)
+	case *AwaitExpr:
+		return branch("await", buildExpr(e.X))
 	case *TryExpr:
 		label := "try"
 		if e.Optional {

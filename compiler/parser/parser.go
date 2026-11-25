@@ -282,7 +282,7 @@ func (p *parser) decl() ast.Decl {
 	switch t.Kind {
 	case lexer.Import:
 		p.fail(t, "move it above the first declaration", "imports go at the top of the file")
-	case lexer.Fn:
+	case lexer.Fn, lexer.Async:
 		return p.funcDecl(false)
 	case lexer.Extern:
 		if p.peek(1).Kind == lexer.Ident && p.peek(1).Text == "type" {
@@ -290,7 +290,7 @@ func (p *parser) decl() ast.Decl {
 		}
 		return p.externDecl()
 	case lexer.Ident:
-		if t.Text == "export" && p.peek(1).Kind == lexer.Fn {
+		if t.Text == "export" && (p.peek(1).Kind == lexer.Fn || p.peek(1).Kind == lexer.Async) {
 			return p.exportDecl()
 		}
 	case lexer.Struct:
@@ -361,8 +361,16 @@ func (p *parser) ident(what string) *ast.Ident {
 
 func (p *parser) funcDecl(static bool) *ast.FuncDecl {
 	start := p.tok().Pos
+	async := false
+	if p.at(lexer.Async) {
+		p.next()
+		async = true
+		if !p.at(lexer.Fn) {
+			p.fail(p.tok(), "write async fn name(...)", "expected 'fn' after 'async', found %s", describe(p.tok()))
+		}
+	}
 	p.expect(lexer.Fn)
-	fn := &ast.FuncDecl{Name: p.ident("a function name"), Static: static}
+	fn := &ast.FuncDecl{Name: p.ident("a function name"), Static: static, Async: async}
 	fn.TypeParams = p.typeParams()
 	open := p.expect(lexer.LParen)
 	p.list(open, lexer.RParen, func() { fn.Params = append(fn.Params, p.param()) })
@@ -439,6 +447,9 @@ func (p *parser) externType() *ast.ExternTypeDecl {
 // Parses `export fn name(params) -> T { ... }`, a function C can call.
 func (p *parser) exportDecl() *ast.FuncDecl {
 	start := p.next().Pos
+	if p.at(lexer.Async) {
+		p.fail(p.tok(), "export a plain fn that starts the async work", "export functions can't be async")
+	}
 	fn := p.funcDecl(false)
 	fn.Export = true
 	if len(fn.TypeParams) > 0 {
@@ -511,6 +522,8 @@ func (p *parser) interfaceDecl() *ast.InterfaceDecl {
 			switch t := p.tok(); t.Kind {
 			case lexer.Fn:
 				d.Methods = append(d.Methods, p.funcDecl(false))
+			case lexer.Async:
+				p.fail(t, "make the struct's method async instead, and call it from a non-async interface method", "interface methods can't be async yet")
 			case lexer.Static:
 				p.fail(t, "", "interfaces can't have static methods")
 			case lexer.Pub:
@@ -588,14 +601,14 @@ func (p *parser) enumMember(e *ast.EnumDecl) {
 	}
 	t := p.tok()
 	switch t.Kind {
-	case lexer.Fn:
+	case lexer.Fn, lexer.Async:
 		m := p.funcDecl(false)
 		m.Pub = pub
 		e.Methods = append(e.Methods, m)
 		return
 	case lexer.Static:
 		p.next()
-		if !p.at(lexer.Fn) {
+		if !p.at(lexer.Fn) && !p.at(lexer.Async) {
 			p.fail(p.tok(), "", "expected 'fn' after 'static', found %s", describe(p.tok()))
 		}
 		m := p.funcDecl(true)
@@ -752,14 +765,14 @@ func (p *parser) member(s *ast.StructDecl) {
 	}
 	t := p.tok()
 	switch t.Kind {
-	case lexer.Fn:
+	case lexer.Fn, lexer.Async:
 		m := p.funcDecl(false)
 		m.Pub = pub
 		s.Methods = append(s.Methods, m)
 		return
 	case lexer.Static:
 		p.next()
-		if !p.at(lexer.Fn) {
+		if !p.at(lexer.Fn) && !p.at(lexer.Async) {
 			p.fail(p.tok(), "", "expected 'fn' after 'static', found %s", describe(p.tok()))
 		}
 		m := p.funcDecl(true)
@@ -1304,7 +1317,13 @@ func (p *parser) tryExpr() ast.Expr {
 		p.next()
 		e.Optional = true
 	}
-	e.X = p.postfix(p.primary())
+	if p.at(lexer.Await) {
+		t := p.next()
+		x := p.postfix(p.primary())
+		e.X = &ast.AwaitExpr{Span: ast.Span{Start: t.Pos, End: x.EndOffset()}, X: x}
+	} else {
+		e.X = p.postfix(p.primary())
+	}
 	if p.at(lexer.Catch) {
 		ct := p.next()
 		if e.Optional {
@@ -1415,7 +1434,7 @@ func (p *parser) simpleStmt() ast.Stmt {
 func startsExpr(k lexer.Kind) bool {
 	switch k {
 	case lexer.Ident, lexer.Int, lexer.Float, lexer.String, lexer.StringHead, lexer.True, lexer.False,
-		lexer.LParen, lexer.LBracket, lexer.Minus, lexer.Not, lexer.Fn, lexer.Match, lexer.Dot, lexer.Nil, lexer.Try:
+		lexer.LParen, lexer.LBracket, lexer.Minus, lexer.Not, lexer.Fn, lexer.Match, lexer.Dot, lexer.Nil, lexer.Try, lexer.Await:
 		return true
 	}
 	return false
@@ -1477,6 +1496,11 @@ func (p *parser) unary() ast.Expr {
 	t := p.tok()
 	if t.Kind == lexer.Try {
 		return p.tryExpr()
+	}
+	if t.Kind == lexer.Await {
+		p.next()
+		x := p.unary()
+		return &ast.AwaitExpr{Span: ast.Span{Start: t.Pos, End: x.EndOffset()}, X: x}
 	}
 	if t.Kind == lexer.Minus || t.Kind == lexer.Not {
 		p.next()
