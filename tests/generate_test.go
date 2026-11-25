@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"flag"
 	"fmt"
+	"math"
 	"math/rand"
 	"os"
 	"os/exec"
@@ -44,7 +45,7 @@ func TestGeneratedPrograms(t *testing.T) {
 	for _, seed := range seeds {
 		t.Run(fmt.Sprintf("seed%d", seed), func(t *testing.T) {
 			t.Parallel()
-			src, want := generateProgram(seed)
+			src, want, overflows := generateProgram(seed)
 			dir := t.TempDir()
 			path := filepath.Join(dir, "main.vx")
 			os.WriteFile(path, []byte(src), 0o644)
@@ -67,7 +68,13 @@ func TestGeneratedPrograms(t *testing.T) {
 				var stderr bytes.Buffer
 				cmd.Stderr = &stderr
 				got, err := cmd.Output()
-				if err != nil {
+				if overflows {
+					// The program must stop at the overflow, after printing
+					// everything that came before it.
+					if code := cmd.ProcessState.ExitCode(); code != 1 || !strings.HasPrefix(stderr.String(), "error: integer overflow") {
+						t.Fatalf("%s expected an integer overflow error, got exit %d and %q\nprogram: %s", env, code, stderr.String(), keep(t, src))
+					}
+				} else if err != nil {
 					t.Fatalf("%s %v\n%s\nprogram: %s", env, err, stderr.String(), keep(t, src))
 				}
 				if string(got) != want {
@@ -188,28 +195,72 @@ fn twice(f: fn(int) -> int, x: int) -> int => f(f(x))
 
 `
 
-// Returns a random program and the output it must print.
-func generateProgram(seed int64) (string, string) {
+// Raised by the generator's checked arithmetic where the program must stop.
+type overflow struct{}
+
+func addC(a, b int64) int64 {
+	r := a + b
+	if (a^r)&(b^r) < 0 {
+		panic(overflow{})
+	}
+	return r
+}
+
+func subC(a, b int64) int64 {
+	r := a - b
+	if (a^b)&(a^r) < 0 {
+		panic(overflow{})
+	}
+	return r
+}
+
+func mulC(a, b int64) int64 {
+	r := a * b
+	if a != 0 && (r/a != b || a == -1 && b == math.MinInt64) {
+		panic(overflow{})
+	}
+	return r
+}
+
+func negC(a int64) int64 {
+	if a == math.MinInt64 {
+		panic(overflow{})
+	}
+	return -a
+}
+
+// Returns a random program, the output it must print, and whether it must
+// then stop with an integer overflow error.
+func generateProgram(seed int64) (src string, want string, overflows bool) {
 	g := &generator{r: rand.New(rand.NewSource(seed))}
 	var stmts []stmt
 	for i := 0; i < 120; i++ {
 		stmts = append(stmts, g.stmt(0))
 	}
-	var src strings.Builder
-	src.WriteString(prelude)
-	src.WriteString("fn main() {\n")
+	var b strings.Builder
+	b.WriteString(prelude)
+	b.WriteString("fn main() {\n")
 	for _, s := range stmts {
 		for _, l := range s.lines {
-			src.WriteString("    " + l + "\n")
+			b.WriteString("    " + l + "\n")
 		}
 	}
-	src.WriteString("}\n")
+	b.WriteString("}\n")
 	var out strings.Builder
+	defer func() {
+		if r := recover(); r != nil {
+			if _, ok := r.(overflow); !ok {
+				panic(r)
+			}
+			want, overflows = out.String(), true
+		}
+	}()
 	e := env{}
+	src = b.String()
 	for _, s := range stmts {
 		s.exec(e, &out)
 	}
-	return src.String(), out.String()
+	return src, out.String(), false
 }
 
 func (g *generator) name(prefix string) string {
@@ -331,14 +382,26 @@ func (g *generator) assign() (stmt, bool) {
 		}
 		return stmt{[]string{v.name + " = " + x.code}, func(e env, _ *strings.Builder) { e[v.name] = x.eval(e) }}, true
 	}
-	switch g.r.Intn(3) {
+	switch g.r.Intn(5) {
 	case 0:
 		return stmt{[]string{v.name + " += " + x.code}, func(e env, _ *strings.Builder) {
-			e[v.name] = e[v.name].(int64) + x.eval(e).(int64)
+			old := e[v.name].(int64)
+			e[v.name] = addC(old, x.eval(e).(int64))
 		}}, true
 	case 1:
 		return stmt{[]string{v.name + " -= " + x.code}, func(e env, _ *strings.Builder) {
-			e[v.name] = e[v.name].(int64) - x.eval(e).(int64)
+			old := e[v.name].(int64)
+			e[v.name] = subC(old, x.eval(e).(int64))
+		}}, true
+	case 2:
+		return stmt{[]string{v.name + " &+= " + x.code}, func(e env, _ *strings.Builder) {
+			old := e[v.name].(int64)
+			e[v.name] = old + x.eval(e).(int64)
+		}}, true
+	case 3:
+		return stmt{[]string{v.name + " &*= " + x.code}, func(e env, _ *strings.Builder) {
+			old := e[v.name].(int64)
+			e[v.name] = old * x.eval(e).(int64)
 		}}, true
 	}
 	return stmt{[]string{v.name + " = " + x.code}, func(e env, _ *strings.Builder) { e[v.name] = x.eval(e) }}, true
@@ -354,7 +417,8 @@ func (g *generator) fieldAssign() (stmt, bool) {
 		x := g.expr(tInt)
 		return stmt{[]string{v.name + ".a += " + x.code}, func(e env, _ *strings.Builder) {
 			p := e[v.name].(*point)
-			p.a += x.eval(e).(int64)
+			old := p.a
+			p.a = addC(old, x.eval(e).(int64))
 		}}, true
 	}
 	x := g.expr(tStr)
@@ -504,7 +568,7 @@ func (g *generator) closure() (stmt, bool) {
 	g.scope = append(g.scope, variable{name, tFnInt, false})
 	code := fmt.Sprintf("let %s = fn(y: int) -> int => y * %d + %s", name, k, v.name)
 	return stmt{[]string{code}, func(e env, _ *strings.Builder) {
-		e[name] = fnInt(func(e env, y int64) int64 { return y*k + e[v.name].(int64) })
+		e[name] = fnInt(func(e env, y int64) int64 { return addC(mulC(y, k), e[v.name].(int64)) })
 	}}, true
 }
 
@@ -586,11 +650,20 @@ func (g *generator) intExpr(leaf bool) expr {
 	}
 	switch g.r.Intn(16) {
 	case 0:
-		return binInt(g.expr(tInt), g.expr(tInt), "+", func(a, b int64) int64 { return a + b })
+		if g.r.Intn(3) == 0 {
+			return binInt(g.expr(tInt), g.expr(tInt), "&+", func(a, b int64) int64 { return a + b })
+		}
+		return binInt(g.expr(tInt), g.expr(tInt), "+", addC)
 	case 1:
-		return binInt(g.expr(tInt), g.expr(tInt), "-", func(a, b int64) int64 { return a - b })
+		if g.r.Intn(3) == 0 {
+			return binInt(g.expr(tInt), g.expr(tInt), "&-", func(a, b int64) int64 { return a - b })
+		}
+		return binInt(g.expr(tInt), g.expr(tInt), "-", subC)
 	case 2:
-		return binInt(g.expr(tInt), g.expr(tInt), "*", func(a, b int64) int64 { return a * b })
+		if g.r.Intn(2) == 0 {
+			return binInt(g.expr(tInt), g.expr(tInt), "&*", func(a, b int64) int64 { return a * b })
+		}
+		return binInt(g.expr(tInt), g.expr(tInt), "*", mulC)
 	case 3:
 		k := int64(g.r.Intn(9) + 2)
 		if g.r.Intn(2) == 0 {
@@ -613,7 +686,7 @@ func (g *generator) intExpr(leaf bool) expr {
 		}
 		return expr{p.code + ".sum()", func(e env) any {
 			v := p.eval(e).(*point)
-			return v.a + int64(len(v.s))
+			return addC(v.a, int64(len(v.s)))
 		}}
 	case 7:
 		o, d := g.expr(tOpt), g.expr(tInt)
@@ -660,8 +733,8 @@ func (g *generator) intExpr(leaf bool) expr {
 		y := g.name("y")
 		return expr{fmt.Sprintf("twice(fn(%s) => %s * 2 + %d, %s)", y, y, k, x.code), func(e env) any {
 			v := x.eval(e).(int64)
-			v = v*2 + k
-			return v*2 + k
+			v = addC(mulC(v, 2), k)
+			return addC(mulC(v, 2), k)
 		}}
 	case 11:
 		if vs := g.vars(tFnInt, false); len(vs) > 0 {
@@ -676,7 +749,7 @@ func (g *generator) intExpr(leaf bool) expr {
 		}}
 	case 13:
 		x := g.expr(tInt)
-		return expr{"(-" + x.code + ")", func(e env) any { return -x.eval(e).(int64) }}
+		return expr{"(-" + x.code + ")", func(e env) any { return negC(x.eval(e).(int64)) }}
 	}
 	return intLit(int64(g.r.Intn(2001) - 1000))
 }
@@ -801,7 +874,7 @@ func (g *generator) listExpr(leaf bool) expr {
 		in := l.eval(e).([]int64)
 		out := make([]int64, len(in))
 		for i, v := range in {
-			out[i] = v * k
+			out[i] = mulC(v, k)
 		}
 		return out
 	}}

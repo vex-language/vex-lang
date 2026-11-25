@@ -678,6 +678,10 @@ var compoundOps = map[lexer.Kind]lexer.Kind{
 	lexer.StarAssign:    lexer.Star,
 	lexer.SlashAssign:   lexer.Slash,
 	lexer.PercentAssign: lexer.Percent,
+
+	lexer.AmpPlusAssign:  lexer.AmpPlus,
+	lexer.AmpMinusAssign: lexer.AmpMinus,
+	lexer.AmpStarAssign:  lexer.AmpStar,
 }
 
 // Generates an assignment. The target's list and index (or object) are
@@ -988,6 +992,9 @@ func (g *gen) value(e ast.Expr) string {
 			return fmt.Sprintf("vx_list_new(sizeof(%s), %d, (%s[]){%s})", ctype(elem), len(cs), ctype(elem), strings.Join(cs, ", "))
 		})
 	case *ast.UnaryExpr:
+		if _, lit := e.X.(*ast.IntLit); e.Op == lexer.Minus && t == types.Int && !lit {
+			return fmt.Sprintf("vx_neg(%s, %d)", g.expr(e.X), e.Pos().Line)
+		}
 		return "(" + op(e.Op) + g.expr(e.X) + ")"
 	case *ast.NilLit:
 		return "((" + ctype(t) + "){0})"
@@ -1053,6 +1060,18 @@ func binop(k lexer.Kind, t types.Type, a, b string, line int) string {
 	}
 	if t == types.Int {
 		switch k {
+		case lexer.Plus:
+			return fmt.Sprintf("vx_add(%s, %s, %d)", a, b, line)
+		case lexer.Minus:
+			return fmt.Sprintf("vx_sub(%s, %s, %d)", a, b, line)
+		case lexer.Star:
+			return fmt.Sprintf("vx_mul(%s, %s, %d)", a, b, line)
+		case lexer.AmpPlus:
+			return fmt.Sprintf("VX_WRAP(%s, +, %s)", a, b)
+		case lexer.AmpMinus:
+			return fmt.Sprintf("VX_WRAP(%s, -, %s)", a, b)
+		case lexer.AmpStar:
+			return fmt.Sprintf("VX_WRAP(%s, *, %s)", a, b)
 		case lexer.Slash:
 			return fmt.Sprintf("vx_div(%s, %s, %d)", a, b, line)
 		case lexer.Percent:

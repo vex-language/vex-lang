@@ -293,6 +293,14 @@ The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, s
 
 - `let x = ...` takes its type from the value. An empty list needs the type written: `let xs: [int] = []`.
 - Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.
+- Int arithmetic that overflows stops the program instead of giving a wrong number: `9223372036854775807 + 1` is an error. When wrap-around is wanted, as in hashes and random number generators, use `&+`, `&-` and `&*` (and `&+=`, `&-=`, `&*=`), which work only on `int`:
+
+  ```swift
+  var h = 5381
+  for c in codes { h = h &* 33 &+ c }
+  ```
+
+  The checks are cheap. In a tight loop where they cost speed, the wrapping operators remove them.
 - `int` and `float` never mix silently: `count * price` is an error until one side is converted with `float(count)` or `int(price)`.
 - Strings join with `+` only to other strings. Use interpolation for anything else: `"{count} items"`.
 - `==` and `!=` compare `int`, `float`, `bool`, `string` and enums whose cases carry no values; `<`, `<=`, `>`, `>=` also work on these except `bool`.
@@ -315,7 +323,7 @@ error: index 5 is out of range for a list of length 3
  --> main.vx:12
 ```
 
-These cover list indexes out of range, `pop()` on an empty list, division by zero, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`. Int arithmetic wraps around on overflow.
+These cover list indexes out of range, `pop()` on an empty list, division by zero, integer overflow, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`.
 
 ## Planned
 

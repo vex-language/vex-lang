@@ -426,8 +426,16 @@ fn main() {
 		{"int arithmetic", `fn main() {
     println(7 / 2, -7 / 2, 7 % 3, -7 % 3, 2 + 3 * 4, (2 + 3) * 4)
     let big = 9223372036854775807
-    println(big + 1)
-}`, "", "3 -3 1 -1 14 20\n-9223372036854775808\n"},
+    let small = -big - 1
+    println(big &+ 1, small &- 1, big &* 3, small / 2)
+    var h = 5381
+    for c in [104, 105] {
+        h = h &* 33 &+ c
+    }
+    h &*= 1000003
+    h &-= 7
+    println(h)
+}`, "", "3 -3 1 -1 14 20\n-9223372036854775808 9223372036854775807 9223372036854775805 -4611686018427387904\n5863463590331\n"},
 		{"strings", `fn main() {
     let s = "héllo, wörld"
     println(s.len, s.upper(), "ABC".lower(), s.contains("wör"), s.contains("x"))
@@ -776,6 +784,12 @@ func TestRuntimeErrors(t *testing.T) {
 		{"parse int", `println(int("12abc"))`, "can't convert \"12abc\" to int\n --> main.vx:2"},
 		{"parse float", `println(float("abc"))`, "can't convert \"abc\" to float\n --> main.vx:2"},
 		{"int too big", `println(int("99999999999999999999"))`, "can't convert \"99999999999999999999\" to int: the number is too big\n --> main.vx:2"},
+		{"add overflow", "let big = 9223372036854775807\nprintln(big + 1)", "integer overflow: 9223372036854775807 + 1 doesn't fit in an int; use &+ to wrap around\n --> main.vx:3"},
+		{"sub overflow", "let small = -9223372036854775807 - 1\nprintln(small - 1)", "integer overflow: -9223372036854775808 - 1 doesn't fit in an int; use &- to wrap around\n --> main.vx:3"},
+		{"mul overflow", "var x = 4611686018427387904\nx *= 2", "integer overflow: 4611686018427387904 * 2 doesn't fit in an int; use &* to wrap around\n --> main.vx:3"},
+		{"mul overflow by variable", "let a = 3037000500\nlet b = a\nprintln(a * b)", "integer overflow: 3037000500 * 3037000500 doesn't fit in an int; use &* to wrap around\n --> main.vx:4"},
+		{"negate overflow", "let small = -9223372036854775807 - 1\nprintln(-small)", "integer overflow: -(-9223372036854775808) doesn't fit in an int\n --> main.vx:3"},
+		{"divide overflow", "let small = -9223372036854775807 - 1\nlet m = -1\nprintln(small / m)", "integer overflow: -9223372036854775808 / -1 doesn't fit in an int\n --> main.vx:4"},
 		{"float to int", "let big = 1e30\nprintln(int(big))", "can't convert 1e+30 to int: it's out of range\n --> main.vx:3"},
 		{"float to int after garbage", "for i in 0..20000 { let s = \"XXXXXXXXXXXXXXX\" + \"XXXXXXXXXXXXXXXX\" }\nprintln(int(12345678901234567890.0))", "can't convert 1.2345678901234567e+19 to int: it's out of range\n --> main.vx:3"},
 		{"int with NUL", `println(int("12\u{0}34"))`, "can't convert \"12\" to int\n --> main.vx:2"},

@@ -438,6 +438,11 @@ func TestErrors(t *testing.T) {
 		name, decls, body string
 		pos, msg, hint    string
 	}{
+		// Wrapping operators.
+		{"wrapping float", "", "let x = 1.5 &+ 2.0", "2:9", "'&+' works only on int, found float and float", ""},
+		{"wrapping string", "", `let x = "a" &* 2`, "2:9", "'&*' works only on int, found string and int", ""},
+		{"wrapping assign float", "", "var f = 1.0\nf &-= 2.0", "3:1", "&-= can't be used with float", ""},
+
 		// Names and scopes.
 		{"unknown name", "", "let count = 1\nprintln(cout)", "3:9", "unknown name 'cout'", "did you mean 'count'?"},
 		{"unknown function", "fn greet() {}", "gret()", "3:1", "unknown function 'gret'", "did you mean 'greet'?"},

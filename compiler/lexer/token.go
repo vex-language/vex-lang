@@ -72,6 +72,9 @@ const (
 	Star
 	Slash
 	Percent
+	AmpPlus
+	AmpMinus
+	AmpStar
 	Not
 	AndAnd
 	OrOr
@@ -82,6 +85,9 @@ const (
 	StarAssign
 	SlashAssign
 	PercentAssign
+	AmpPlusAssign
+	AmpMinusAssign
+	AmpStarAssign
 
 	Eq
 	NotEq
@@ -120,6 +126,9 @@ var operators = []struct {
 	kind Kind
 }{
 	{"..=", DotDotEq},
+	{"&+=", AmpPlusAssign},
+	{"&-=", AmpMinusAssign},
+	{"&*=", AmpStarAssign},
 	{"?.", QuestionDot},
 	{"??", QuestionQuestion},
 	{"..", DotDot},
@@ -131,6 +140,9 @@ var operators = []struct {
 	{">=", GtEq},
 	{"&&", AndAnd},
 	{"||", OrOr},
+	{"&+", AmpPlus},
+	{"&-", AmpMinus},
+	{"&*", AmpStar},
 	{"+=", PlusAssign},
 	{"-=", MinusAssign},
 	{"*=", StarAssign},
