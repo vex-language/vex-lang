@@ -1537,7 +1537,9 @@ func (p *parser) tryExpr() ast.Expr {
 		x := p.postfix(p.primary())
 		e.X = &ast.AwaitExpr{Span: ast.Span{Start: t.Pos, End: x.EndOffset()}, X: x}
 	} else {
-		e.X = p.postfix(p.primary())
+		// It covers arithmetic, as in `try a() + b()`, but not `??`, so
+		// `try? parse(s) ?? 0` gives the default when parsing fails.
+		e.X = p.binary(precedence(lexer.Plus))
 	}
 	if p.at(lexer.Catch) {
 		ct := p.next()
