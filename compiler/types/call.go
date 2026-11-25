@@ -501,6 +501,15 @@ func builtinMember(recv Type, name string) *memberSig {
 		}
 		return nil
 	}
+	if m, ok := recv.(*Map); ok {
+		switch name {
+		case "contains":
+			return &memberSig{[]slot{{name: "key", typ: m.Key}}, Bool}
+		case "remove":
+			return &memberSig{[]slot{{name: "key", typ: m.Key}}, &Optional{Elem: m.Value}}
+		}
+		return nil
+	}
 	if recv == String {
 		switch name {
 		case "upper", "lower":
@@ -517,6 +526,9 @@ func builtinMember(recv Type, name string) *memberSig {
 func builtinMemberNames(recv Type) []string {
 	if _, ok := recv.(*List); ok {
 		return []string{"len", "push", "pop", "contains", "filter", "map"}
+	}
+	if _, ok := recv.(*Map); ok {
+		return []string{"len", "keys", "values", "contains", "remove"}
 	}
 	if recv == String {
 		return []string{"len", "upper", "lower", "contains", "split"}

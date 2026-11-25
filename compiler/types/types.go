@@ -39,6 +39,13 @@ type List struct{ Elem Type }
 // Returns the type in source form, such as `[int]`.
 func (l *List) String() string { return "[" + l.Elem.String() + "]" }
 
+// A map type such as `[string: int]`. Maps are reference types and keep
+// the order their keys were added in.
+type Map struct{ Key, Value Type }
+
+// Returns the type in source form, such as `[string: int]`.
+func (m *Map) String() string { return "[" + m.Key.String() + ": " + m.Value.String() + "]" }
+
 // A function type such as `fn(int) -> bool`.
 type FuncType struct {
 	Params []Type
@@ -311,6 +318,9 @@ func Identical(a, b Type) bool {
 	case *List:
 		b, ok := b.(*List)
 		return ok && Identical(a.Elem, b.Elem)
+	case *Map:
+		b, ok := b.(*Map)
+		return ok && Identical(a.Key, b.Key) && Identical(a.Value, b.Value)
 	case *Optional:
 		b, ok := b.(*Optional)
 		return ok && Identical(a.Elem, b.Elem)

@@ -438,6 +438,15 @@ func TestErrors(t *testing.T) {
 		name, decls, body string
 		pos, msg, hint    string
 	}{
+		// Maps.
+		{"float key", "", "let m: [float: int] = [:]", "2:9", "float can't be a map key", "use int, string, bool or an enum whose cases carry no values"},
+		{"optional value", "", "let m: [string: int?] = [:]", "2:17", "map values can't be optional, since a missing key already reads as nil", "remove the key instead of storing nil"},
+		{"empty map without type", "", "let m = [:]", "2:9", "can't tell the type of an empty map", "give the type, e.g. let m: [string: int] = [:]"},
+		{"compound assign to entry", "", "var m = [\"a\": 1]\nm[\"a\"] += 1", "3:1", "the key may be missing, so '+=' can't be used on a map entry", "write m[k] = (m[k] ?? 0) + 1"},
+		{"repeated literal key", "", "let m = [\"a\": 1, \"a\": 2]", "2:18", "key \"a\" is already in this map on line 2", ""},
+		{"lookup is optional", "", "let m = [\"a\": 1]\nlet x: int = m[\"a\"]", "3:14", "expected int, found int?", "it may be nil: unwrap it with if let, or give a default with ?? value"},
+		{"wrong key type", "", "let m = [\"a\": 1]\nprintln(m[1])", "3:11", "map key: expected string, found int", `convert it with str(...) or "{...}"`},
+
 		// Errors.
 		{"call without try", "fn f() throws -> int { return 1 }", "println(f())", "3:9", "f can throw, so the call needs try", "write try before it to pass the error up, try ... catch to handle it, or try? to get nil"},
 		{"try in a function that doesn't throw", "fn f() throws -> int { return 1 }", "println(try f())", "3:9", "the error can't pass up: main doesn't throw", "handle it with catch, use try?, or declare fn main(...) throws"},
@@ -500,7 +509,7 @@ func TestErrors(t *testing.T) {
 		{"index int", "", "let n = 1\nlet y = n[0]", "3:9", "can't index a value of type int", ""},
 
 		// Loops and returns.
-		{"loop over int", "", "for x in 5 { }", "2:10", "can't loop over a value of type int", "loop over a list or a range like 0..10"},
+		{"loop over int", "", "for x in 5 { }", "2:10", "can't loop over a value of type int", "loop over a list, a map or a range like 0..10"},
 		{"float range", "", "for x in 0..2.5 { }", "2:13", "range bounds must be int, found float", "convert it with int(...), which drops the fraction"},
 		{"break outside loop", "", "break", "2:1", "break can only be used inside a loop", ""},
 		{"return value from void", "fn f() { return 1 }", "", "1:17", "f doesn't return a value", "declare the result type: fn f(...) -> int"},

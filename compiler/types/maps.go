@@ -1,0 +1,110 @@
+package types
+
+import (
+	"fmt"
+
+	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/irshadio/vex-lang/compiler/lexer"
+)
+
+// Reports whether values of [t] can be map keys.
+func mapKeyType(t Type) bool {
+	if e, ok := t.(*Enum); ok {
+		return e.Simple()
+	}
+	return t == Int || t == Bool || t == String
+}
+
+func (c *checker) mapType(te *ast.MapType) Type {
+	key, value := c.resolveType(te.Key), c.resolveType(te.Value)
+	if key != Invalid && !mapKeyType(key) {
+		c.errorAt(te.Key, "use int, string, bool or an enum whose cases carry no values", "%s can't be a map key", key)
+		key = Invalid
+	}
+	if _, ok := value.(*Optional); ok {
+		c.errorAt(te.Value, "remove the key instead of storing nil", "map values can't be optional, since a missing key already reads as nil")
+		value = Invalid
+	}
+	return &Map{Key: key, Value: value}
+}
+
+// Checks [key] as a key of [m].
+func (c *checker) mapKey(key ast.Expr, m *Map) {
+	t := c.expr(key, m.Key)
+	if m.Key != Invalid {
+		c.assignable(m.Key, t, key, "map key")
+	}
+}
+
+// Checks `m[key]` as the target of [s], returning the value type, or nil
+// after an error.
+func (c *checker) mapTarget(x *ast.IndexExpr, m *Map, s *ast.AssignStmt) Type {
+	c.mapKey(x.Index, m)
+	c.info.Types[x] = m.Value
+	if s.Op != lexer.Assign {
+		c.expr(s.Value, nil)
+		c.errorAt(s, "write m[k] = (m[k] ?? 0) + 1", "the key may be missing, so %s can't be used on a map entry", s.Op)
+		return nil
+	}
+	return m.Value
+}
+
+func (c *checker) mapLit(e *ast.MapLit, want Type) Type {
+	var key, value Type
+	if m, ok := want.(*Map); ok {
+		key, value = m.Key, m.Value
+	}
+	if len(e.Keys) == 0 {
+		if key == nil {
+			c.errorAt(e, "give the type, e.g. let m: [string: int] = [:]", "can't tell the type of an empty map")
+			return Invalid
+		}
+		return &Map{Key: key, Value: value}
+	}
+	seen := map[string]int{}
+	for i, k := range e.Keys {
+		kt := c.expr(k, key)
+		if key == nil || key == Invalid {
+			key = kt
+			if key != Invalid && !mapKeyType(key) {
+				c.errorAt(k, "use int, string, bool or an enum whose cases carry no values", "%s can't be a map key", key)
+			}
+		} else if !Identical(key, kt) {
+			c.mismatch(k, key, kt, fmt.Sprintf("key %d", i+1))
+		}
+		if lit := literalKey(k); lit != "" {
+			if line, dup := seen[lit]; dup {
+				c.errorAt(k, "", "key %s is already in this map on line %d", lit, line)
+			}
+			seen[lit] = k.Pos().Line
+		}
+		vt := c.expr(e.Values[i], value)
+		if vt == Void {
+			c.errorAt(e.Values[i], "", "this expression has no value")
+			continue
+		}
+		if value == nil || value == Invalid {
+			value = vt
+			if _, ok := vt.(*Optional); ok {
+				c.errorAt(e.Values[i], "leave the key out instead of storing nil", "map values can't be optional, since a missing key already reads as nil")
+			}
+		} else if !Identical(value, vt) {
+			c.mismatch(e.Values[i], value, vt, fmt.Sprintf("value %d", i+1))
+		}
+	}
+	return &Map{Key: key, Value: value}
+}
+
+// Returns the source of [k] when it is a literal, so repeated keys can be
+// found, or "".
+func literalKey(k ast.Expr) string {
+	switch k := k.(type) {
+	case *ast.StringLit:
+		return fmt.Sprintf("%q", k.Value)
+	case *ast.IntLit:
+		return k.Value
+	case *ast.BoolLit:
+		return fmt.Sprint(k.Value)
+	}
+	return ""
+}
