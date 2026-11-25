@@ -569,10 +569,14 @@ func wrapping(k lexer.Kind) bool {
 	return false
 }
 
-// Reports whether values of type [t] can be ordered with `<`.
+// Reports whether values of type [t] can be ordered with `<`. Enums whose
+// cases carry no values are ordered as their cases are declared.
 func ordered(t Type) bool {
-	if tp, ok := t.(*TypeParam); ok {
-		return tp.Has("Comparable")
+	switch t := t.(type) {
+	case *TypeParam:
+		return t.Has("Comparable")
+	case *Enum:
+		return t.Simple()
 	}
 	return t == Int || t == Float || t == String
 }
