@@ -1903,7 +1903,12 @@ static void vx_async_mark(void) {
 // Returns a future that completes after [ms] milliseconds.
 static vx_future *vx_sleep(int64_t ms) {
     vx_future *f = vx_future_new(0);
-    vx_timer_push((vx_timer){vx_time_ns() + (ms > 0 ? ms : 0) * 1000000, vx_timer_seq++, f});
+    // A wait too long to count in nanoseconds waits as long as it can.
+    int64_t now = vx_time_ns(), at;
+    if (ms <= 0) at = now;
+    else if (ms > (INT64_MAX - now) / 1000000) at = INT64_MAX;
+    else at = now + ms * 1000000;
+    vx_timer_push((vx_timer){at, vx_timer_seq++, f});
     return f;
 }
 
@@ -1928,7 +1933,7 @@ static int64_t vx_poll(void) {
     // While only other isolates can wake it, ask to be polled again soon.
     if (vx_timers_len == 0) return vx_remote_len > 0 ? 10 : -1;
     int64_t wait = vx_timers[0].at - vx_time_ns();
-    return wait <= 0 ? 0 : (wait + 999999) / 1000000;
+    return wait <= 0 ? 0 : wait / 1000000 + (wait % 1000000 != 0);
 }
 
 int64_t vex_poll(void) { return vx_poll(); }
@@ -2208,6 +2213,9 @@ static void vx_idle(void) {
     if (!vx_self->head) {
         if (vx_timers_len > 0) {
             int64_t wait = vx_timers[0].at - vx_time_ns();
+            // Very long waits wake once a day, which keeps the deadline
+            // arithmetic in range.
+            if (wait > 86400 * (int64_t)1000000000) wait = 86400 * (int64_t)1000000000;
             if (wait > 0) {
                 struct timespec ts;
                 clock_gettime(CLOCK_REALTIME, &ts);

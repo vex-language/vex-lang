@@ -1,0 +1,20 @@
+// Standard library edge cases.
+import "vex:os"
+import "vex:time"
+
+async fn slow() -> int {
+    // Too long to count in nanoseconds: it must still wait.
+    await time.sleep(10000000000000)
+    return 1
+}
+
+async fn quick() -> int {
+    await time.sleep(5)
+    return 2
+}
+
+async fn main() {
+    println(await any([slow(), quick()]))
+    // The slow sleep would keep the program waiting.
+    os.exit(0)
+}
