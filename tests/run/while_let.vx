@@ -1,0 +1,33 @@
+struct Node {
+    value: int
+    next: Node?
+}
+
+fn main() {
+    let list = Node(value: 1, next: Node(value: 2, next: Node(value: 3, next: nil)))
+    var cur: Node? = list
+    while let n = cur {
+        if n.value == 2 {
+            cur = n.next
+            continue
+        }
+        println(n.value)
+        cur = n.next
+    }
+    let words = ["a", "b", "stop", "c"]
+    var i = 0
+    while let w = next(words, i) {
+        if w == "stop" {
+            break
+        }
+        println(w)
+        i += 1
+    }
+}
+
+fn next(xs: [string], i: int) -> string? {
+    if i < xs.len {
+        return xs[i]
+    }
+    return nil
+}

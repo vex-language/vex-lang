@@ -1,0 +1,4 @@
+cycle on the other side: a b
+cycle back: a b
+200 isolates: 13232505000
+1000 jobs over 4 workers: 166167000

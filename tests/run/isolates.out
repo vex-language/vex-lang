@@ -1,0 +1,12 @@
+333328333350000
+332833500
+in isolate ["a": [1, 2], "b": []] 3
+[Shape.circle(center: Point(x: 1, y: 2), r: 3), Shape.poly(points: [Point(x: 1, y: 2), Point(x: 1, y: 2)]), Shape.empty]
+points: [Point(x: 1, y: 2), Point(x: 1, y: 2)]
+nil
+ok
+[285, 2470]
+done 0
+done 1
+done 2
+cores > 0: true
