@@ -31,6 +31,9 @@ type parser struct {
 	// Set while parsing an `if`, `while` or `for` header, where `{` starts
 	// the body instead of a trailing block.
 	noTrailing bool
+
+	// Set inside an interface, where methods may leave out their body.
+	inInterface bool
 }
 
 // Parses [f] into a syntax tree.
@@ -224,12 +227,14 @@ func (p *parser) decl() ast.Decl {
 		return p.structDecl()
 	case lexer.Enum:
 		return p.enumDecl()
+	case lexer.Interface:
+		return p.interfaceDecl()
 	case lexer.Static:
 		p.fail(t, "use static fn inside a struct", "'static' is only allowed inside a struct")
 	case lexer.Let, lexer.Var:
 		p.fail(t, "move it into a function such as fn main()", "variables must be declared inside a function")
 	}
-	p.fail(t, "code goes inside a function, e.g. fn main() { ... }", "expected 'fn', 'struct' or 'enum', found %s", describe(t))
+	p.fail(t, "code goes inside a function, e.g. fn main() { ... }", "expected 'fn', 'struct', 'enum' or 'interface', found %s", describe(t))
 	return nil
 }
 
@@ -270,6 +275,7 @@ func (p *parser) funcDecl(static bool) *ast.FuncDecl {
 		fn.Body = p.block()
 	case p.at(lexer.Colon):
 		p.fail(p.tok(), "write the return type as -> int", "expected '->' before the return type, found ':'")
+	case p.inInterface && (p.at(lexer.Semi) || p.at(lexer.RBrace)):
 	default:
 		p.fail(p.tok(), "", "expected '{' or '=>' to start the body of %s, found %s", fn.Name.Name, describe(p.tok()))
 	}
@@ -292,11 +298,61 @@ func (p *parser) param() *ast.Param {
 	return param
 }
 
+// Parses `interface Name { fn method() -> T ... }`.
+func (p *parser) interfaceDecl() *ast.InterfaceDecl {
+	start := p.tok().Pos
+	p.expect(lexer.Interface)
+	d := &ast.InterfaceDecl{Name: p.ident("an interface name")}
+	if p.at(lexer.Lt) {
+		p.fail(p.tok(), "", "interfaces can't be generic yet")
+	}
+	if p.at(lexer.Colon) {
+		p.fail(p.tok(), "list the methods it needs instead", "interfaces can't extend other interfaces yet")
+	}
+	open := p.expect(lexer.LBrace)
+	p.inInterface = true
+	defer func() { p.inInterface = false }()
+	for {
+		for p.at(lexer.Semi) || p.at(lexer.Comma) {
+			p.next()
+		}
+		if p.at(lexer.RBrace) {
+			break
+		}
+		if p.at(lexer.EOF) {
+			p.fail(open, "add a matching }", "unclosed interface body")
+		}
+		p.guard(func() {
+			switch t := p.tok(); t.Kind {
+			case lexer.Fn:
+				d.Methods = append(d.Methods, p.funcDecl(false))
+			case lexer.Static:
+				p.fail(t, "", "interfaces can't have static methods")
+			case lexer.Ident, lexer.Let, lexer.Var:
+				p.fail(t, "add a method that returns it instead, e.g. fn name() -> string", "interfaces can't have fields")
+			default:
+				p.fail(t, "", "expected a method, found %s", describe(t))
+			}
+		}, p.syncStmt)
+	}
+	p.next()
+	d.Span = p.span(start)
+	return d
+}
+
 func (p *parser) structDecl() *ast.StructDecl {
 	start := p.tok().Pos
 	p.expect(lexer.Struct)
 	s := &ast.StructDecl{Name: p.ident("a struct name")}
 	s.TypeParams = p.typeParams()
+	if p.at(lexer.Colon) {
+		p.next()
+		s.Interfaces = append(s.Interfaces, p.ident("an interface name"))
+		for p.at(lexer.Comma) {
+			p.next()
+			s.Interfaces = append(s.Interfaces, p.ident("an interface name"))
+		}
+	}
 	open := p.expect(lexer.LBrace)
 	for {
 		for p.at(lexer.Semi) || p.at(lexer.Comma) {

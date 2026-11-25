@@ -103,8 +103,12 @@ type StructDecl struct {
 	Span
 	Name       *Ident
 	TypeParams []*TypeParam
-	Fields     []*Field
-	Methods    []*FuncDecl
+
+	// The interfaces the struct implements: `struct Circle: Shape`.
+	Interfaces []*Ident
+
+	Fields  []*Field
+	Methods []*FuncDecl
 }
 
 // A type parameter of a generic function or struct: `T` or
@@ -132,6 +136,14 @@ type EnumDecl struct {
 	Methods []*FuncDecl
 }
 
+// An interface: methods that implementing structs provide. A method with
+// a body is a default that structs may leave out.
+type InterfaceDecl struct {
+	Span
+	Name    *Ident
+	Methods []*FuncDecl
+}
+
 // An enum case: `circle(radius: float)` or `empty`.
 type EnumCase struct {
 	Span
@@ -141,9 +153,10 @@ type EnumCase struct {
 	Fields []*Field
 }
 
-func (*FuncDecl) declNode()   {}
-func (*StructDecl) declNode() {}
-func (*EnumDecl) declNode()   {}
+func (*FuncDecl) declNode()      {}
+func (*StructDecl) declNode()    {}
+func (*EnumDecl) declNode()      {}
+func (*InterfaceDecl) declNode() {}
 
 // --- Types ---
 

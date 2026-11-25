@@ -165,9 +165,10 @@ func funcTree(label string, params []*Param, th *Throws, result TypeExpr, body *
 	if result != nil {
 		t.kids = append(t.kids, leaf("-> "+TypeString(result)))
 	}
-	if exprBody != nil {
+	switch {
+	case exprBody != nil:
 		t.kids = append(t.kids, branch("=>", buildExpr(exprBody)))
-	} else {
+	case body != nil:
 		t.kids = append(t.kids, build(body))
 	}
 	return t
@@ -191,7 +192,15 @@ func build(n Node) *tree {
 		}
 		return funcTree(label, n.Params, n.Throws, n.Result, n.Body, n.ExprBody)
 	case *StructDecl:
-		t := branch("struct " + n.Name.Name + typeParamsString(n.TypeParams))
+		label := "struct " + n.Name.Name + typeParamsString(n.TypeParams)
+		for i, id := range n.Interfaces {
+			sep := ", "
+			if i == 0 {
+				sep = ": "
+			}
+			label += sep + id.Name
+		}
+		t := branch(label)
 		for _, f := range n.Fields {
 			t.kids = append(t.kids, branch("field "+f.Name.Name+": "+TypeString(f.Type), buildExpr(f.Default)))
 		}
@@ -200,6 +209,12 @@ func build(n Node) *tree {
 		}
 		return t
 
+	case *InterfaceDecl:
+		t := branch("interface " + n.Name.Name)
+		for _, m := range n.Methods {
+			t.kids = append(t.kids, build(m))
+		}
+		return t
 	case *EnumDecl:
 		t := branch("enum " + n.Name.Name)
 		for _, c := range n.Cases {

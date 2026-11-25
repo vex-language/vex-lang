@@ -255,6 +255,34 @@ fn wrap(b: Box<[Box<int>]>, m: [string: Pair<int, bool>]) {
 	}
 }
 
+func TestInterfaces(t *testing.T) {
+	src := `interface Shape {
+    fn area() -> float
+    fn name() -> string => "shape"
+    fn scale(by: float) throws
+}
+struct Circle: Shape, Named {
+    r: float
+}
+struct Box<T>: Shape {
+}
+`
+	f, errs := parse(t, src)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	want := []string{
+		`(interface Shape (fn area -> float) (fn name -> string (=> "shape")) (fn scale param by: float throws))`,
+		"(struct Circle: Shape, Named field r: float)",
+		"struct Box<T>: Shape",
+	}
+	for i, d := range f.Decls {
+		if got := ast.Sexpr(d); got != want[i] {
+			t.Errorf("decl %d\n got: %s\nwant: %s", i, got, want[i])
+		}
+	}
+}
+
 func TestErrorHandling(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{"let t = try load(p)", "(let t (try (call load p)))"},
@@ -446,7 +474,7 @@ func TestErrors(t *testing.T) {
 		pos, msg  string
 		hint      string
 	}{
-		{"code at top level", "println(1)", "1:1", "expected 'fn', 'struct' or 'enum', found 'println'", "code goes inside a function, e.g. fn main() { ... }"},
+		{"code at top level", "println(1)", "1:1", "expected 'fn', 'struct', 'enum' or 'interface', found 'println'", "code goes inside a function, e.g. fn main() { ... }"},
 		{"variable at top level", "let x = 1", "1:1", "variables must be declared inside a function", "move it into a function such as fn main()"},
 		{"static at top level", "static fn f() {}", "1:1", "'static' is only allowed inside a struct", "use static fn inside a struct"},
 		{"keyword as name", "fn for() {}", "1:4", "expected a function name, found 'for'", "for is a keyword; choose another name"},
@@ -486,6 +514,11 @@ func TestErrors(t *testing.T) {
 		{"catch without block", "fn main() {\n let n = try f() catch e\n}", "2:25", "expected '{' after catch, found end of line", "e.g. catch e { println(e.message) }"},
 		{"map entry without value", "fn main() {\n let m = [\"a\": 1, 2]\n}", "2:20", "expected ':' after a map key, found ']'", "write key: value"},
 		{"colon in a list", "fn main() {\n let m = [1, \"a\": 2]\n}", "2:17", "unexpected ':' in a list", "a list holds values, a map holds key: value pairs"},
+		{"interface field", "interface I {\n    x: int\n}", "2:5", "interfaces can't have fields", "add a method that returns it instead, e.g. fn name() -> string"},
+		{"interface static method", "interface I {\n    static fn x()\n}", "2:5", "interfaces can't have static methods", ""},
+		{"generic interface", "interface I<T> {\n}", "1:12", "interfaces can't be generic yet", ""},
+		{"interface extends", "interface I: J {\n}", "1:12", "interfaces can't extend other interfaces yet", "list the methods it needs instead"},
+		{"method without body", "struct S {\n    fn x()\n}", "2:11", "expected '{' or '=>' to start the body of x, found end of line", ""},
 		{"empty type parameters", "fn f<>() {\n}", "1:5", "empty type parameter list", "remove the <>, or name a type parameter: <T>"},
 		{"single ampersand", "fn main() {\n let x = a & b\n}", "2:12", "unexpected '&'", "use && for logical and"},
 		{"ternary", "fn main() {\n let n = ok ? 1 : 2\n}", "2:13", "Vex has no ? : operator", "write match cond { true => a, false => b }"},
