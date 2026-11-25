@@ -72,6 +72,12 @@ func TestPrograms(t *testing.T) {
 		name, src, stdin, want string
 	}{
 		{"hello", `fn main() { println("Hello, world!") }`, "", "Hello, world!\n"},
+		{"growing a list inside map and filter", `fn main() {
+    var xs = [1, 2]
+    let ys = xs.map(fn(x: int) -> int { xs.push(x); return x * 10 })
+    let zs = xs.filter(fn(x: int) -> bool { xs.push(x); return x > 1 })
+    println(ys, zs, xs.len)
+}`, "", "[10, 20] [2, 2] 8\n"},
 		{"printing cycles", `struct Node {
     name: string
     next: Node? = nil

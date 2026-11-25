@@ -1681,10 +1681,13 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 				} else {
 					resultElem = l.Elem
 				}
-				return fmt.Sprintf("({ vx_list *%s = %s; vx_fn %s = %s; vx_list *%s = vx_list_new(sizeof(%s), 0, NULL); "+
-					"for (int64_t %s = 0; %s < %s->len; %s++) { %s = ((%s*)%s->data)[%s]; %s } %s; })",
-					list, cs[0], f, cs[1], out, ctype(resultElem),
-					i, i, list, i, decl(l.Elem, x), elem, list, i, body, out)
+				// Like a for loop, it visits the elements there were at the
+				// start, and stops early if some are removed.
+				n := g.temp()
+				return fmt.Sprintf("({ vx_list *%s = %s; vx_fn %s = %s; vx_list *%s = vx_list_new(sizeof(%s), 0, NULL); int64_t %s = %s->len; "+
+					"for (int64_t %s = 0; %s < %s && %s < %s->len; %s++) { %s = ((%s*)%s->data)[%s]; %s } %s; })",
+					list, cs[0], f, cs[1], out, ctype(resultElem), n, list,
+					i, i, n, i, list, i, decl(l.Elem, x), elem, list, i, body, out)
 			case "contains":
 				list, v, i, found := g.temp(), g.temp(), g.temp(), g.temp()
 				item := fmt.Sprintf("((%s*)%s->data)[%s]", elem, list, i)
