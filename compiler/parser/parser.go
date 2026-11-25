@@ -33,6 +33,11 @@ type parser struct {
 	// the body instead of a trailing block.
 	noTrailing bool
 
+	// Set while parsing the header of an `if` or `for` element in a list
+	// or map literal, where a `(`, `[` or `-` after a space starts the
+	// element: in `if wide [1, 2]`, the list is the element.
+	elemHead bool
+
 	// Set inside an interface, where methods may leave out their body.
 	inInterface bool
 	inExtern    bool
@@ -776,9 +781,9 @@ func (p *parser) baseType() ast.TypeExpr {
 // Parses comma-separated items up to [end], allowing line breaks and a
 // trailing comma. [open] is the opening bracket, used when it is never closed.
 func (p *parser) list(open lexer.Token, end lexer.Kind, item func()) {
-	saved := p.noTrailing
-	p.noTrailing = false
-	defer func() { p.noTrailing = saved }()
+	saved, savedHead := p.noTrailing, p.elemHead
+	p.noTrailing, p.elemHead = false, false
+	defer func() { p.noTrailing, p.elemHead = saved, savedHead }()
 	p.skipNewlines()
 	for !p.at(end) {
 		item()
@@ -886,9 +891,9 @@ func (p *parser) typeArgsAhead() bool {
 // --- Statements ---
 
 func (p *parser) block() *ast.Block {
-	saved := p.noTrailing
-	p.noTrailing = false
-	defer func() { p.noTrailing = saved }()
+	saved, savedHead := p.noTrailing, p.elemHead
+	p.noTrailing, p.elemHead = false, false
+	defer func() { p.noTrailing, p.elemHead = saved, savedHead }()
 
 	open := p.expect(lexer.LBrace)
 	b := &ast.Block{}
@@ -965,6 +970,8 @@ func (p *parser) stmt() ast.Stmt {
 	case lexer.Break:
 		p.next()
 		return &ast.BreakStmt{Span: p.span(t.Pos)}
+	case lexer.Ellipsis:
+		return &ast.ExprStmt{X: p.spread()}
 	case lexer.Continue:
 		p.next()
 		return &ast.ContinueStmt{Span: p.span(t.Pos)}
@@ -1282,6 +1289,9 @@ func (p *parser) binary(min int) ast.Expr {
 		if prec == 0 || prec < min {
 			return x
 		}
+		if k == lexer.Minus && p.spacedInHead() && p.peek(1).Pos.Offset == p.tok().End {
+			return x
+		}
 		p.next()
 		p.skipNewlines()
 		next := prec + 1
@@ -1318,6 +1328,9 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 		}
 		switch p.tok().Kind {
 		case lexer.LParen:
+			if p.spacedInHead() {
+				return x
+			}
 			open := p.next()
 			call := &ast.CallExpr{Fn: x, TypeArgs: typeArgs}
 			p.list(open, lexer.RParen, func() { call.Args = append(call.Args, p.arg()) })
@@ -1327,15 +1340,24 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			call.Span = p.span(x.Pos())
 			x = call
 		case lexer.LBracket:
+			if p.spacedInHead() {
+				return x
+			}
 			p.next()
-			saved := p.noTrailing
-			p.noTrailing = false
+			saved, savedHead := p.noTrailing, p.elemHead
+			p.noTrailing, p.elemHead = false, false
 			p.skipNewlines()
 			idx := p.expr()
 			p.skipNewlines()
-			p.noTrailing = saved
+			p.noTrailing, p.elemHead = saved, savedHead
 			p.expect(lexer.RBracket)
 			x = &ast.IndexExpr{Span: p.span(x.Pos()), X: x, Index: idx}
+		case lexer.LBrace:
+			// `Column { ... }` is a call with only a trailing block.
+			if p.noTrailing || !qualifiable(x) {
+				return x
+			}
+			x = &ast.CallExpr{Fn: x, TypeArgs: typeArgs, Trailing: p.block(), Span: p.span(x.Pos())}
 		case lexer.Dot, lexer.QuestionDot:
 			opt := p.next().Kind == lexer.QuestionDot
 			name := p.ident("a member name")
@@ -1389,15 +1411,15 @@ func (p *parser) primary() ast.Expr {
 		return p.interpolated()
 	case lexer.LParen:
 		p.next()
-		saved := p.noTrailing
-		p.noTrailing = false
+		saved, savedHead := p.noTrailing, p.elemHead
+		p.noTrailing, p.elemHead = false, false
 		p.skipNewlines()
 		if p.at(lexer.RParen) {
 			p.fail(p.tok(), "", "expected an expression inside ( )")
 		}
 		x := p.expr()
 		p.skipNewlines()
-		p.noTrailing = saved
+		p.noTrailing, p.elemHead = saved, savedHead
 		p.expect(lexer.RParen)
 		return x
 	case lexer.Fn:
@@ -1411,6 +1433,9 @@ func (p *parser) primary() ast.Expr {
 	case lexer.LBracket:
 		return p.bracketLit()
 	}
+	if t.Kind == lexer.Ellipsis {
+		p.fail(t, "use it inside a list or map literal, e.g. [...xs, 4]", "'...' can only be used in a list or map literal")
+	}
 	p.fail(t, "", "expected an expression, found %s", describe(t))
 	return nil
 }
@@ -1423,33 +1448,171 @@ func (p *parser) bracketLit() ast.Expr {
 		p.next()
 		return &ast.MapLit{Span: p.span(open.Pos)}
 	}
-	list, m := &ast.ListLit{}, &ast.MapLit{}
-	first, isMap := true, false
-	p.list(open, lexer.RBracket, func() {
-		x := p.expr()
-		if first {
-			first, isMap = false, p.at(lexer.Colon)
+	var elems []ast.Stmt
+	kind := &litKind{first: true}
+	p.list(open, lexer.RBracket, func() { elems = append(elems, p.element(kind)) })
+	sp := p.span(open.Pos)
+	plain := true
+	for _, s := range elems {
+		if x, ok := s.(*ast.ExprStmt); !ok {
+			plain = false
+		} else if _, ok := x.X.(*ast.SpreadExpr); ok {
+			plain = false
 		}
-		switch {
-		case isMap:
-			if !p.at(lexer.Colon) {
-				p.fail(p.tok(), "write key: value", "expected ':' after a map key, found %s", describe(p.tok()))
-			}
-			p.next()
-			m.Keys = append(m.Keys, x)
-			m.Values = append(m.Values, p.expr())
-		case p.at(lexer.Colon):
-			p.fail(p.tok(), "a list holds values, a map holds key: value pairs", "unexpected ':' in a list")
-		default:
-			list.Elems = append(list.Elems, x)
+	}
+	if !plain {
+		body := &ast.Block{Span: sp, Stmts: elems}
+		if kind.isMap {
+			return &ast.MapLit{Span: sp, Body: body}
 		}
-	})
-	if isMap {
-		m.Span = p.span(open.Pos)
+		return &ast.ListLit{Span: sp, Body: body}
+	}
+	if kind.isMap {
+		m := &ast.MapLit{Span: sp}
+		for _, s := range elems {
+			e := s.(*ast.ExprStmt).X.(*ast.MapEntry)
+			m.Keys = append(m.Keys, e.Key)
+			m.Values = append(m.Values, e.Value)
+		}
 		return m
 	}
-	list.Span = p.span(open.Pos)
+	list := &ast.ListLit{Span: sp}
+	for _, s := range elems {
+		list.Elems = append(list.Elems, s.(*ast.ExprStmt).X)
+	}
 	return list
+}
+
+// Whether a list or map literal is being parsed, decided by its first
+// element that isn't `if`, `for` or `...`.
+type litKind struct {
+	first, isMap bool
+}
+
+// Parses one element of a list or map literal as a statement: a value or
+// `key: value` entry, `...xs`, or an `if` or `for` that produces elements.
+func (p *parser) element(kind *litKind) ast.Stmt {
+	start := p.tok().Pos
+	switch p.tok().Kind {
+	case lexer.Ellipsis:
+		return &ast.ExprStmt{X: p.spread()}
+	case lexer.If:
+		p.next()
+		s := &ast.IfStmt{}
+		if p.at(lexer.Let) {
+			p.next()
+			s.Bind = p.ident("a name after 'if let'")
+			if !p.at(lexer.Assign) {
+				p.fail(p.tok(), fmt.Sprintf("write if let %s = optionalValue %s", s.Bind.Name, s.Bind.Name), "expected '=' after 'if let %s', found %s", s.Bind.Name, describe(p.tok()))
+			}
+			p.next()
+		}
+		s.Cond = p.elemHeader(func() ast.Expr { return p.expr() })
+		s.Then = p.elemBody(kind)
+		if p.newlinesThen(lexer.Else) {
+			p.skipNewlines()
+		}
+		if p.at(lexer.Else) {
+			p.next()
+			p.skipNewlines()
+			if p.at(lexer.If) {
+				s.Else = p.element(kind)
+			} else {
+				s.Else = p.elemBody(kind)
+			}
+		}
+		s.Span = p.span(start)
+		return s
+	case lexer.For:
+		p.next()
+		s := &ast.ForStmt{Elem: p.ident("a loop variable")}
+		if p.at(lexer.Comma) {
+			p.next()
+			s.Index, s.Elem = s.Elem, p.ident("a loop variable")
+		}
+		if !p.at(lexer.In) {
+			p.fail(p.tok(), fmt.Sprintf("write for %s in items %s", s.Elem.Name, s.Elem.Name), "expected 'in', found %s", describe(p.tok()))
+		}
+		p.next()
+		s.Iter = p.elemHeader(func() ast.Expr {
+			iter := p.expr()
+			if p.at(lexer.DotDot) || p.at(lexer.DotDotEq) {
+				inclusive := p.next().Kind == lexer.DotDotEq
+				hi := p.expr()
+				iter = &ast.RangeExpr{Span: ast.Span{Start: iter.Pos(), End: p.lastEnd}, Lo: iter, Hi: hi, Inclusive: inclusive}
+			}
+			return iter
+		})
+		s.Body = p.elemBody(kind)
+		s.Span = p.span(start)
+		return s
+	}
+	x := p.expr()
+	if kind.first {
+		kind.first, kind.isMap = false, p.at(lexer.Colon)
+	}
+	switch {
+	case kind.isMap:
+		if !p.at(lexer.Colon) {
+			p.fail(p.tok(), "write key: value", "expected ':' after a map key, found %s", describe(p.tok()))
+		}
+		p.next()
+		v := p.expr()
+		return &ast.ExprStmt{X: &ast.MapEntry{Span: p.span(start), Key: x, Value: v}}
+	case p.at(lexer.Colon):
+		p.fail(p.tok(), "a list holds values, a map holds key: value pairs", "unexpected ':' in a list")
+	}
+	return &ast.ExprStmt{X: x}
+}
+
+// Parses the condition of an `if` element or the sequence of a `for`
+// element with [parse].
+func (p *parser) elemHeader(parse func() ast.Expr) ast.Expr {
+	saved, savedHead := p.noTrailing, p.elemHead
+	p.noTrailing, p.elemHead = true, true
+	x := parse()
+	p.noTrailing, p.elemHead = saved, savedHead
+	p.skipNewlines()
+	if !startsExpr(p.tok().Kind) && !p.at(lexer.If) && !p.at(lexer.For) && !p.at(lexer.Ellipsis) {
+		p.fail(p.tok(), "e.g. [if ok 1 else 2] or [for x in xs x * 2]", "expected an element after the condition or loop, found %s", describe(p.tok()))
+	}
+	return x
+}
+
+// Parses the single element that an `if` or `for` element produces, as a
+// block.
+func (p *parser) elemBody(kind *litKind) *ast.Block {
+	start := p.tok().Pos
+	s := p.element(kind)
+	return &ast.Block{Span: p.span(start), Stmts: []ast.Stmt{s}}
+}
+
+// Reports whether the next tokens are line breaks followed by [k].
+func (p *parser) newlinesThen(k lexer.Kind) bool {
+	i := 0
+	for p.peek(i).IsAutoSemi() {
+		i++
+	}
+	return i > 0 && p.peek(i).Kind == k
+}
+
+// Reports whether the current token is preceded by a space inside the
+// header of an `if` or `for` element, so it starts the element.
+func (p *parser) spacedInHead() bool {
+	return p.elemHead && p.tok().Pos.Offset != p.lastEnd
+}
+
+// Parses `...xs` or `...?xs`.
+func (p *parser) spread() *ast.SpreadExpr {
+	t := p.expect(lexer.Ellipsis)
+	s := &ast.SpreadExpr{}
+	if p.at(lexer.Question) && p.tok().Pos.Offset == t.End {
+		p.next()
+		s.Optional = true
+	}
+	s.X = p.expr()
+	s.Span = p.span(t.Pos)
+	return s
 }
 
 // Parses a closure: `fn(x: int) -> int => x * 2` or `fn() { ... }`.

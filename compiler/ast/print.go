@@ -357,12 +357,30 @@ func buildExpr(e Expr) *tree {
 		return t
 	case *MapLit:
 		t := branch("map")
+		if e.Body != nil {
+			for _, s := range e.Body.Stmts {
+				t.kids = append(t.kids, build(s))
+			}
+		}
 		for i, k := range e.Keys {
 			t.kids = append(t.kids, branch(":", buildExpr(k), buildExpr(e.Values[i])))
 		}
 		return t
+	case *MapEntry:
+		return branch(":", buildExpr(e.Key), buildExpr(e.Value))
+	case *SpreadExpr:
+		label := "..."
+		if e.Optional {
+			label = "...?"
+		}
+		return branch(label, buildExpr(e.X))
 	case *ListLit:
 		t := branch("list")
+		if e.Body != nil {
+			for _, s := range e.Body.Stmts {
+				t.kids = append(t.kids, build(s))
+			}
+		}
 		for _, el := range e.Elems {
 			t.kids = append(t.kids, buildExpr(el))
 		}

@@ -398,12 +398,36 @@ type InterpolatedString struct {
 type ListLit struct {
 	Span
 	Elems []Expr
+
+	// The elements as statements, set instead of [Elems] when the literal
+	// uses `if`, `for` or `...`, and for a builder block. Each expression
+	// statement in it is one element.
+	Body *Block
 }
 
 // A map literal: `["a": 1, "b": 2]`, or `[:]` when empty.
 type MapLit struct {
 	Span
 	Keys, Values []Expr
+
+	// The entries as statements, set instead of [Keys] and [Values] when
+	// the literal uses `if`, `for` or `...`. Each expression statement in
+	// it is a [MapEntry] or a spread map.
+	Body *Block
+}
+
+// A `key: value` entry of a map literal that has a [MapLit.Body].
+type MapEntry struct {
+	Span
+	Key, Value Expr
+}
+
+// A spread element: `...xs` adds every element of xs, and `...?xs` does
+// nothing when xs is nil.
+type SpreadExpr struct {
+	Span
+	X        Expr
+	Optional bool
 }
 
 // A prefix operation: `-x` or `!done`.
@@ -565,6 +589,8 @@ func (*StringLit) exprNode()          {}
 func (*InterpolatedString) exprNode() {}
 func (*ListLit) exprNode()            {}
 func (*MapLit) exprNode()             {}
+func (*MapEntry) exprNode()           {}
+func (*SpreadExpr) exprNode()         {}
 func (*UnaryExpr) exprNode()          {}
 func (*BinaryExpr) exprNode()         {}
 func (*RangeExpr) exprNode()          {}
