@@ -77,7 +77,9 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-102** Errors: `throws` functions, `try`, `catch` (L)
 - [x] **V-103** Closures / lambdas, needed for UI event handlers (L)
 - [ ] **V-104** Generics for functions and structs (XL)
-- [ ] **V-105** Modules and imports (`import "ui"`), multi-file projects (L)
+- [ ] **V-105** Modules and imports (`import "ui"`), multi-file projects, project file (L)
+- [ ] **V-121** Package manager: `vex get` from public git repos, `vex.lock` with hashes ([design](docs/design/packages.md)) (L)
+- [ ] **V-122** `vex doc`: API docs from `///` comments (M)
 - [ ] **V-106** Maps `[string: int]` (M)
 - [x] **V-107** Memory management: tracing GC, stage 1 mark and sweep ([design](docs/design/memory.md)) (XL)
 - [x] **V-113** Hardening: fuzzing, sanitizers, Linux and macOS CI, feature-combination tests (M)
@@ -155,7 +157,8 @@ Goal: the same Vex app running on Android with real Android views.
 - [ ] **V-602** Local storage (key-value plus SQLite) (L)
 - [ ] **V-603** Images (network and assets), fonts, theming, dark mode (L)
 - [ ] **V-604** Direct native API calls from Vex (Objective-C / JNI) without bridges (XL)
-- [ ] **V-605** Package manager (`vex get`) (XL)
+- [ ] **V-605** Package website: searchable index of packages in public git repos, with docs and scores (XL)
+- [ ] **V-607** Package cache and public checksum log (L)
 - [ ] **V-606** Accessibility checks (L)
 
 ---
@@ -197,3 +200,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | Integer overflow will stop the program by default, with explicit wrapping operators for hot code (V-120) |
 | 2026-11-25 | Two projects, like Dart and Flutter: the language in `vex-lang`, the UI framework in a separate `vex-ui` repo created once the language part is complete |
 | 2026-11-25 | No UI keywords in the compiler: `component` / `state` / `view` are dropped; the framework is built on interfaces, generics, builder blocks and property setters ([architecture](docs/design/architecture.md)) |
+| 2026-11-25 | Packages are public git repos with version tags, fetched directly by `vex get`; a website indexes them like pub.dev but stores no code ([packages](docs/design/packages.md)) |
