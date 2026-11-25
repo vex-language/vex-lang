@@ -292,7 +292,7 @@ struct Counter {
 }
 ```
 
-**Generics.** Functions and structs take type parameters, usually inferred. Each use compiles to its own specialised copy, so there's no runtime cost.
+**Generics.** Functions, structs, enums and methods take type parameters, usually inferred. Each use compiles to its own specialised copy, so there's no runtime cost.
 
 ```swift
 fn largest<T: Comparable>(xs: [T]) -> T? { ... }
@@ -304,6 +304,18 @@ struct Stack<T> {
 
 println(largest([4, 17, 9]), largest(["kiwi", "apple"]))   // 17 kiwi
 let s = Stack<string>()
+
+enum Result<T> {
+    ok(value: T)
+    err(message: string)
+    fn map<U>(f: fn(T) -> U) -> Result<U> => match self {
+        ok(v) => .ok(f(v))
+        err(m) => .err(m)
+    }
+}
+
+let r = Result.ok(5).map(fn(x) => "#{x}")   // Result<string>
+let pick = first<string>                    // a generic function as a value
 ```
 
 **Interfaces.** A struct names the interfaces it implements, and the compiler checks it there. Methods with a body are defaults.
@@ -464,7 +476,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, builder blocks, properties, standard library | In progress: 21 of 48 tasks; next are generics and interfaces next steps, C callbacks, async and isolates, then records, patterns and extensions |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, builder blocks, properties, standard library | In progress: 22 of 48 tasks; next are interfaces next steps, C callbacks, async and isolates, then records, patterns and extensions |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |

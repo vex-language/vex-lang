@@ -1,0 +1,96 @@
+// Generic enums, generic methods and generic functions as values.
+
+enum Result<T> {
+    ok(value: T)
+    err(message: string)
+
+    fn valueOr(fallback: T) -> T => match self {
+        ok(v) => v
+        err(_) => fallback
+    }
+
+    fn map<U>(f: fn(T) -> U) -> Result<U> => match self {
+        ok(v) => .ok(f(v))
+        err(m) => .err(m)
+    }
+}
+
+enum Tree<T: Comparable> {
+    leaf
+    node(left: Tree<T>, value: T, right: Tree<T>)
+
+    fn insert(x: T) -> Tree<T> => match self {
+        leaf => Tree.node(left: .leaf, value: x, right: .leaf)
+        node(l, v, r) => match x < v {
+            true => Tree.node(left: l.insert(x), value: v, right: r)
+            false => Tree.node(left: l, value: v, right: r.insert(x))
+        }
+    }
+
+    fn items() -> [T] => match self {
+        leaf => []
+        node(l, v, r) => [...l.items(), v, ...r.items()]
+    }
+}
+
+struct Box<T> {
+    item: T
+
+    fn map<U>(f: fn(T) -> U) -> Box<U> => Box(item: f(item))
+    fn zip<U>(other: Box<U>) -> string => "({item}, {other.item})"
+    fn both<U>(f: fn(T) -> U) -> [U] => [f(item), apply(f)]
+    fn apply<U>(f: fn(T) -> U) -> U => f(item)
+}
+
+struct Tools {
+    static fn repeat<T>(x: T, n: int) -> [T] => [for i in 0..n x]
+}
+
+fn parse(s: string) -> Result<int> {
+    if s == "" {
+        return .err("empty")
+    }
+    return .ok(s.len)
+}
+
+fn first<T>(xs: [T]) -> T? {
+    if xs.len == 0 {
+        return nil
+    }
+    return xs[0]
+}
+
+fn twice<T>(x: T, f: fn(T) -> T) -> T => f(f(x))
+
+fn double(x: int) -> int => x * 2
+
+fn main() {
+    // Generic enums.
+    println(parse("abc").valueOr(0), parse("").valueOr(-1))
+    let r = Result.ok(5)
+    let s = Result<string>.err("bad")
+    let rs: [Result<string>] = [.ok("a"), Result.err("x")]
+    println(r, s, rs)
+    println(parse("hello").map(fn(n) => n * 100).valueOr(0), s.map(fn(x) => x.len).valueOr(7))
+    match r {
+        ok(v) => println("value", v)
+        err(m) => println("error", m)
+    }
+    var t: Tree<int> = .leaf
+    for x in [5, 2, 8, 1, 9, 3] {
+        t = t.insert(x)
+    }
+    println(t.items(), Tree<string>.leaf.insert("b").insert("a").items())
+
+    // Generic methods.
+    let b = Box(item: 2).map(fn(x) => "#{x}")
+    println(b.item, Box(item: 1).zip(Box(item: "one")), Box(item: "s").both(fn(x) => x.len))
+    println(Box(item: 3).map<float>(fn(x) => float(x) / 2.0).item, Tools.repeat("ab", 3))
+
+    // Generic functions as values.
+    let f: fn([int]) -> int? = first
+    let g = first<string>
+    println(f([4, 5]), g(["z"]), g([]), twice(3, double))
+    let pick: [fn([string]) -> string?] = [first, first<string>]
+    println(pick.map(fn(p: fn([string]) -> string?) -> string => p(["q"]) ?? "-"))
+}

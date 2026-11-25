@@ -59,6 +59,9 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		}
 		return String
 	case *ast.Ident:
+		if g := c.genFuncOf(e); g != nil {
+			return c.genericFuncValue(e, g, want)
+		}
 		return c.ident(e)
 	case *ast.MapLit:
 		if e.Body != nil {
@@ -70,6 +73,8 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 			return c.collection(e, e.Body, want, false)
 		}
 		return c.listLit(e, want)
+	case *ast.TypeArgsExpr:
+		return c.typeArgsValue(e, want)
 	case *ast.SpreadExpr:
 		c.expr(e.X, nil)
 		c.errorAt(e, "use it inside a list or map literal, e.g. [...xs, 4]", "'...' can only be used in a list or map literal")
@@ -97,6 +102,9 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 	case *ast.IndexExpr:
 		return c.index(e)
 	case *ast.MemberExpr:
+		if g := c.genEnumRef(e.X); g != nil {
+			return c.genericCaseValue(e, g, e.Name, want)
+		}
 		return c.chain(e, e, c.member(e))
 	case *ast.FuncLit:
 		return c.funcLit(e, want)
@@ -164,10 +172,6 @@ func (c *checker) ident(id *ast.Ident) Type {
 	}
 	if s := c.structs[id.Name]; s != nil {
 		c.errorAt(id, fmt.Sprintf("create one with %s(...)", s.Name), "'%s' is a type, not a value", s.Name)
-		return Invalid
-	}
-	if g := c.genFuncs[id.Name]; g != nil {
-		c.errorAt(id, fmt.Sprintf("wrap it in a closure, e.g. fn(x: int) => %s(x)", id.Name), "generic function '%s' can't be used as a value", id.Name)
 		return Invalid
 	}
 	if g := c.genStructs[id.Name]; g != nil {

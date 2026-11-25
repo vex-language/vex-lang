@@ -233,6 +233,14 @@ func modTag(m *types.Module) string {
 	return b.String()
 }
 
+// Returns the suffix that tells apart the instances of a generic method.
+func typeArgsTag(f *types.Func) string {
+	if f.TypeArgs == nil {
+		return ""
+	}
+	return "__" + mangleList(f.TypeArgs)
+}
+
 func mangleList(ts []types.Type) string {
 	parts := make([]string, len(ts))
 	for i, t := range ts {
@@ -249,14 +257,14 @@ func funcName(f *types.Func) string {
 		// Accessors share their property's name, so each kind has its own
 		// prefix.
 		prefix := map[ast.Accessor]string{ast.Method: "m", ast.Getter: "g", ast.Setter: "s", ast.Observer: "o"}[f.Decl.Accessor]
-		return fmt.Sprintf("%s%d%s_%s", prefix, len(owner), owner, f.Name)
-	}
-	if f.TypeArgs != nil {
-		return "fn_" + modTag(f.Module) + f.Name + "__" + mangleList(f.TypeArgs)
+		return fmt.Sprintf("%s%d%s_%s", prefix, len(owner), owner, f.Name) + typeArgsTag(f)
 	}
 	if f.Enum != nil {
 		id := enumIdent(f.Enum)
-		return fmt.Sprintf("m%d%s_%s", len(id), id, f.Name)
+		return fmt.Sprintf("m%d%s_%s", len(id), id, f.Name) + typeArgsTag(f)
+	}
+	if f.TypeArgs != nil {
+		return "fn_" + modTag(f.Module) + f.Name + "__" + mangleList(f.TypeArgs)
 	}
 	if f.Iface != nil {
 		id := modTag(f.Iface.Module) + f.Iface.Name
@@ -1060,7 +1068,7 @@ func (g *gen) fnValueWrapper(f *types.Func) {
 		params = append(params, "void **vx_err")
 		args = append(args, "vx_err")
 	}
-	sig := decl(f.Result, "fnv_"+f.Name+"("+strings.Join(params, ", ")+")")
+	sig := decl(f.Result, "fnv_"+funcName(f)+"("+strings.Join(params, ", ")+")")
 	fmt.Fprintf(&g.lamDecls, "static %s;\n", sig)
 	call := funcName(f) + "(" + strings.Join(args, ", ") + ")"
 	if f.Result != types.Void {
@@ -1216,8 +1224,10 @@ func (g *gen) value(e ast.Expr) string {
 			return funcName(u.Get) + "(" + g.selfRef() + ")"
 		case *types.Func:
 			g.fnValues[u] = true
-			return "((vx_fn){(void *)fnv_" + u.Name + ", NULL})"
+			return "((vx_fn){(void *)fnv_" + funcName(u) + ", NULL})"
 		}
+	case *ast.TypeArgsExpr:
+		return g.expr(e.X)
 	case *ast.FuncLit:
 		return g.funcLit(e)
 	case *ast.ImplicitMember:

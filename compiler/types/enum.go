@@ -20,6 +20,10 @@ func (c *checker) declareEnum(ed *ast.EnumDecl) {
 		c.errorAt(ed.Name, "", "enum '%s' is already declared on line %d", e.Name, prev.Decl.Pos().Line)
 		return
 	}
+	if g := c.genEnums[e.Name]; g != nil {
+		c.errorAt(ed.Name, "", "enum '%s' is already declared on line %d", e.Name, g.decl.Pos().Line)
+		return
+	}
 	c.enums[e.Name] = e
 	c.info.Enums = append(c.info.Enums, e)
 }
@@ -51,7 +55,9 @@ func (c *checker) enumMembers(e *Enum) {
 	}
 	for _, md := range e.Decl.Methods {
 		m := &Func{Name: md.Name.Name, Decl: md, Enum: e, Static: md.Static}
-		c.info.FuncOf[md] = m
+		if !e.abstract {
+			c.info.FuncOf[md] = m
+		}
 		if c.reserved(md.Name, "a method") {
 			continue
 		}
@@ -64,7 +70,12 @@ func (c *checker) enumMembers(e *Enum) {
 			continue
 		}
 		e.Methods = append(e.Methods, m)
-		c.info.Funcs = append(c.info.Funcs, m)
+		if c.genericMethod(m, e.abstract, e.generic == nil || isTemplate(e.Args, e.generic.params)) {
+			continue
+		}
+		if !e.abstract {
+			c.info.Funcs = append(c.info.Funcs, m)
+		}
 		c.signature(m)
 	}
 }
@@ -72,6 +83,18 @@ func (c *checker) enumMembers(e *Enum) {
 // Returns the enum named by [x] when it is used as a type, as in
 // `Shape.circle(...)`, or nil.
 func (c *checker) enumRef(x ast.Expr) *Enum {
+	if ta, ok := x.(*ast.TypeArgsExpr); ok {
+		g := c.genEnumRef(ta.X)
+		if g == nil {
+			return nil
+		}
+		te := &ast.NamedType{Span: ta.Span, Name: g.decl.Name.Name, Args: ta.Args}
+		e, _ := c.genericEnumInst(te, g, c.typeArgs(te)).(*Enum)
+		if e == nil {
+			e = &Enum{Name: g.decl.Name.Name, Decl: g.decl}
+		}
+		return e
+	}
 	id, ok := x.(*ast.Ident)
 	if ok && id.Module != "" {
 		_, e := c.moduleRef(id)

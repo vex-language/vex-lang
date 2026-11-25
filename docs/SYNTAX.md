@@ -214,7 +214,7 @@ counter.count += 1           // runs didSet
 
 ## Generics
 
-Functions and structs can take type parameters in `< >`. The types are usually worked out from the arguments, or from the type the result is stored in; they can also be written at the call.
+Functions, structs, enums and methods can take type parameters in `< >`. The types are usually worked out from the arguments, or from the type the result is stored in; they can also be written at the call.
 
 ```swift
 fn first<T>(xs: [T]) -> T? {
@@ -252,7 +252,45 @@ struct Index<K: Hashable & Comparable, V> { ... }
 - Generic code is checked once, with `T` standing for any type that meets its constraints, so `a > b` on a plain `T` is an error that names the missing constraint.
 - Each use with new types compiles to its own copy, specialised for those types. Generic code runs as fast as code written for one type.
 - Type arguments in a call touch the name and the `(`: `first<int>(xs)`. With spaces, `<` and `>` are comparisons.
-- Not yet: methods with their own type parameters, generic enums, and using a generic function as a value (wrap it in a closure instead).
+
+**Generic enums.** The type arguments come from the case's values or from the expected type; write them out only when neither says, as in `Option<int>.none`:
+
+```swift
+enum Result<T> {
+    ok(value: T)
+    err(message: string)
+}
+
+fn parse(s: string) -> Result<int> {
+    if s == "" { return .err("empty") }     // T from the result type
+    return .ok(int(s))
+}
+
+let r = Result.ok(5)                         // Result<int>
+let e = Result<string>.err("bad")
+```
+
+**Generic methods.** A method can declare its own type parameters after its name, worked out at each call like a generic function's:
+
+```swift
+struct Box<T> {
+    item: T
+    fn map<U>(f: fn(T) -> U) -> Box<U> => Box(item: f(item))
+}
+
+let b = Box(item: 2).map(fn(x) => "#{x}")    // Box<string>
+let c = Box(item: 2).map<float>(fn(x) => float(x))
+```
+
+**Generic functions as values.** A generic function can be stored or passed once its types are known: from the expected function type, or written out.
+
+```swift
+let f: fn([int]) -> int? = first             // T from the type
+let g = first<string>
+let heads = groups.map(first<string>)        // groups: [[string]]
+```
+
+- Not yet: generic methods in interfaces, and methods as values.
 
 ## Interfaces
 

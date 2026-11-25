@@ -179,10 +179,11 @@ type Field struct {
 // values.
 type EnumDecl struct {
 	Span
-	Pub     bool
-	Name    *Ident
-	Cases   []*EnumCase
-	Methods []*FuncDecl
+	Pub        bool
+	Name       *Ident
+	TypeParams []*TypeParam
+	Cases      []*EnumCase
+	Methods    []*FuncDecl
 }
 
 // An interface: methods that implementing structs provide. A method with
@@ -443,6 +444,15 @@ type MapEntry struct {
 	Key, Value Expr
 }
 
+// A generic function or enum with its type arguments written out, used
+// without a call: `first<int>` as a value, or `Result<int>` before
+// `.case`.
+type TypeArgsExpr struct {
+	Span
+	X    Expr
+	Args []TypeExpr
+}
+
 // A spread element: `...xs` adds every element of xs, and `...?xs` does
 // nothing when xs is nil.
 type SpreadExpr struct {
@@ -612,6 +622,7 @@ func (*ListLit) exprNode()            {}
 func (*MapLit) exprNode()             {}
 func (*MapEntry) exprNode()           {}
 func (*SpreadExpr) exprNode()         {}
+func (*TypeArgsExpr) exprNode()       {}
 func (*UnaryExpr) exprNode()          {}
 func (*BinaryExpr) exprNode()         {}
 func (*RangeExpr) exprNode()          {}

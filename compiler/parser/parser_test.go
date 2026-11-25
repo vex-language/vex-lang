@@ -244,6 +244,10 @@ struct Box<T> {
     value: T
     fn get() -> T => value
 }
+enum Result<T> {
+    ok(value: T)
+    fn map<U>(f: fn(T) -> U) -> Result<U> => .ok(f(value))
+}
 fn wrap(b: Box<[Box<int>]>, m: [string: Pair<int, bool>]) {
 }
 `
@@ -255,6 +259,7 @@ fn wrap(b: Box<[Box<int>]>, m: [string: Pair<int, bool>]) {
 		"(fn first<T> param xs: [T] -> T? (=> nil))",
 		"(fn max<T: Comparable, U: Equatable & Hashable> param a: T param b: U -> T (=> a))",
 		"(struct Box<T> field value: T (fn get -> T (=> value)))",
+		"(enum Result<T> (case ok value: T) (fn map<U> param f: fn(T) -> U -> Result<U> (=> (call .ok (call f value)))))",
 		"(fn wrap param b: Box<[Box<int>]> param m: [string: Pair<int, bool>] block)",
 	}
 	for i, d := range f.Decls {
@@ -269,6 +274,11 @@ fn wrap(b: Box<[Box<int>]>, m: [string: Pair<int, bool>]) {
 		{"println(a < b, c > (d))", "(call println (< a b) (> c d))"},
 		{"x = a<b", "(= x (< a b))"},
 		{"x = f<a>(b) && c", "(= x (&& (call<a> f b) c))"},
+		{"let g = first<string>", "(let g (<string> first))"},
+		{"let g = first<string>\nprintln(g)", "(let g (<string> first)) (call println g)"},
+		{"let r = Result<int>.ok(1)", "(let r (call (. (<int> Result) ok) 1))"},
+		{"let b = box.map<float>(f)", "(let b (call<float> (. box map) f))"},
+		{"let c = a < b\nprintln(c)", "(let c (< a b)) (call println c)"},
 	}
 	for _, c := range cases {
 		if got, want := body(t, c.src), "(block "+c.want+")"; got != want {

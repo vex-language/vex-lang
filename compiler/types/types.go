@@ -233,6 +233,17 @@ type Enum struct {
 	Cases   []*Case
 	Methods []*Func
 	Decl    *ast.EnumDecl
+
+	// For an instance of a generic enum such as `Result<int>`: the generic
+	// enum's name and the type arguments. Name is then `Result<int>`.
+	Base string
+	Args []Type
+
+	generic *genericEnum
+
+	// Set for instances whose arguments are type parameters, used only
+	// while checking generic code.
+	abstract bool
 }
 
 // Returns the enum's name.
@@ -330,6 +341,10 @@ type Func struct {
 	// The interface a method belongs to. Only methods with a body, the
 	// defaults, are compiled; they receive `self` as the interface.
 	Iface *Interface
+
+	// For a method with its own type parameters, as seen by generic code:
+	// the parameters and the instances. [TypeArgs] is then the parameters.
+	gen *genericMethod
 }
 
 // Returns the signature, such as `fn add(a: int, b: int) -> int`.
