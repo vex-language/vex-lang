@@ -44,6 +44,7 @@ const (
 	Enum
 	Interface
 	Import
+	Extern
 	Pub
 	As
 	Match
@@ -130,6 +131,7 @@ var keywords = map[string]Kind{
 	"enum":      Enum,
 	"interface": Interface,
 	"import":    Import,
+	"extern":    Extern,
 	"pub":       Pub,
 	"as":        As,
 	"match":     Match,

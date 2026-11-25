@@ -76,7 +76,13 @@ type Ident struct {
 // A function or method: `fn add(a: int, b: int) -> int { ... }`.
 type FuncDecl struct {
 	Span
-	Pub        bool
+	Pub bool
+
+	// Set for `extern fn`, a function written in C, whose C name is
+	// [CName] when it differs from the Vex name.
+	Extern bool
+	CName  string
+
 	Name       *Ident
 	TypeParams []*TypeParam
 	Params     []*Param

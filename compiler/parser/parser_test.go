@@ -328,6 +328,29 @@ fn main() {
 	}
 }
 
+func TestExtern(t *testing.T) {
+	src := `extern fn strlen(s: string) -> int
+pub extern fn sqrt(x: float) -> float
+extern fn cpow(x: float, y: float) -> float as "pow"
+extern fn log(msg: string)
+`
+	f, errs := parse(t, src)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	want := []string{
+		"(extern fn strlen param s: string -> int)",
+		"(pub extern fn sqrt param x: float -> float)",
+		"(extern fn cpow as pow param x: float param y: float -> float)",
+		"(extern fn log param msg: string)",
+	}
+	for i, d := range f.Decls {
+		if got := ast.Sexpr(d); got != want[i] {
+			t.Errorf("decl %d\n got: %s\nwant: %s", i, got, want[i])
+		}
+	}
+}
+
 func TestErrorHandling(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{"let t = try load(p)", "(let t (try (call load p)))"},
@@ -561,6 +584,14 @@ func TestErrors(t *testing.T) {
 		{"colon in a list", "fn main() {\n let m = [1, \"a\": 2]\n}", "2:17", "unexpected ':' in a list", "a list holds values, a map holds key: value pairs"},
 		{"interface field", "interface I {\n    x: int\n}", "2:5", "interfaces can't have fields", "add a method that returns it instead, e.g. fn name() -> string"},
 		{"interface static method", "interface I {\n    static fn x()\n}", "2:5", "interfaces can't have static methods", ""},
+		{"extern body", "extern fn f() {\n}", "1:11", "extern functions have no body", "remove the body; the function is written in C"},
+		{"extern expression body", "extern fn f() -> int => 1", "1:11", "extern functions have no body", "remove the body; the function is written in C"},
+		{"extern generic", "extern fn f<T>(x: T)", "1:13", "extern functions can't be generic", "C has no generics; declare one extern fn per type"},
+		{"extern throws", "extern fn f() throws", "1:15", "extern functions can't throw", "C functions report failure through their result; check it in a Vex wrapper that throws"},
+		{"extern without fn", "extern struct S {}", "1:8", "expected 'fn' after 'extern', found 'struct'", "write extern fn name(...)"},
+		{"extern bad C name", "extern fn f() as \"no-dash\"", "1:18", "'no-dash' isn't a valid C name", "use letters, digits and _, not starting with a digit"},
+		{"extern C name without quotes", "extern fn f() as g", "1:18", "expected the C name in quotes, found 'g'", `e.g. as "c_name"`},
+		{"extern method", "struct S {\n    extern fn f()\n}", "2:5", "expected a field or method, found 'extern'", ""},
 		{"import after decl", "fn main() {}\nimport \"vex:math\"", "2:1", "imports go at the top of the file", "move it above the first declaration"},
 		{"import without path", "import math", "1:8", "expected the path of a module in quotes, found 'math'", `e.g. import "vex:math" or import "models"`},
 		{"empty import", "import \"\"", "1:8", "empty import path", `e.g. import "vex:math" or import "models"`},
