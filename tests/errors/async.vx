@@ -1,0 +1,28 @@
+async fn a() -> int {
+    return 1
+}
+fn notAsync() -> int {
+    return await a()
+}
+async fn b() {
+    let f = a
+    let g = fn() -> int { return await a() }
+    let x: Future = a()
+    let y = await 5
+    let z = all(5)
+    let w: Future<int, int> = a()
+    let v = run(a())
+}
+fn main() {
+    await a()
+}
+
+// error: 5:12: await is only allowed in async functions
+// error: 8:13: async functions can't be used as values yet
+// error: 9:34: closures can't await yet
+// error: 10:12: Future needs a type argument
+// error: 11:19: await needs a future or a call of an async function, found int
+// error: 12:17: all needs a list of futures, found int
+// error: 13:24: a future fails with Error or an enum, found int
+// error: 14:13: run waits for the whole loop, so async functions can't use it
+// error: 17:5: await is only allowed in async functions

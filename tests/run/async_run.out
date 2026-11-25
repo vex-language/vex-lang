@@ -1,0 +1,10 @@
+sync main
+background 0
+run 0
+background 1
+run 1
+20
+nil <Future<int>>
+main returns
+after main 0
+after main 1
