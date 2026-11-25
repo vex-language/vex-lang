@@ -39,6 +39,9 @@ func caseSig(cs *types.Case) string {
 // values of each case that carries any.
 func (g *gen) enumStruct(e *types.Enum) {
 	g.line("struct %s {", enumName(e))
+	if len(e.Interfaces) > 0 {
+		g.line("    const vx_desc *vx_t;")
+	}
 	g.line("    int32_t tag;")
 	if !e.Simple() {
 		g.line("    union {")
@@ -62,6 +65,9 @@ func (g *gen) caseConstructor(cs *types.Case) {
 	g.line("")
 	g.line("static %s {", caseSig(cs))
 	g.line("    %s *o = vx_alloc(sizeof(%s));", e, e)
+	if len(cs.Enum.Interfaces) > 0 {
+		g.line("    o->vx_t = &desc_%s;", e)
+	}
 	g.line("    o->tag = %d;", cs.Index)
 	for _, f := range cs.Fields {
 		g.line("    o->u.c_%s.f_%s = f_%s;", cs.Name, f.Name, f.Name)
