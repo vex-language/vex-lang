@@ -153,7 +153,12 @@ func Generate(info *types.Info, srcName string) string {
 	g.b.WriteString(g.lamDecls.String())
 	for _, s := range info.Structs {
 		if len(s.Interfaces) > 0 {
-			g.descriptor(s)
+			g.structDescriptor(s)
+		}
+	}
+	for _, e := range info.Enums {
+		if len(e.Interfaces) > 0 {
+			g.enumDescriptor(e)
 		}
 	}
 	g.b.WriteString(defs.String())
@@ -267,8 +272,9 @@ func funcName(f *types.Func) string {
 		return "fn_" + modTag(f.Module) + f.Name + "__" + mangleList(f.TypeArgs)
 	}
 	if f.Iface != nil {
-		id := modTag(f.Iface.Module) + f.Iface.Name
-		return fmt.Sprintf("i%d%s_%s", len(id), id, f.Name)
+		id := strings.TrimPrefix(ifaceName(f.Iface), "I")
+		prefix := map[ast.Accessor]string{ast.Method: "i", ast.Getter: "ig", ast.Setter: "is"}[f.Decl.Accessor]
+		return prefix + id + "_" + f.Name
 	}
 	return "fn_" + modTag(f.Module) + f.Name
 }
@@ -386,6 +392,14 @@ func (g *gen) varName(v *types.Var) string {
 }
 
 // Returns C code for the current method's `self`.
+// Returns the type of `self`, or nil when it isn't known here.
+func (g *gen) selfType() types.Type {
+	if g.self != nil {
+		return g.self.Type
+	}
+	return nil
+}
+
 func (g *gen) selfRef() string {
 	if g.self != nil {
 		return g.varName(g.self)
@@ -874,7 +888,7 @@ func (g *gen) assign(s *ast.AssignStmt) {
 		obj := g.temp()
 		setup = append(setup, fmt.Sprintf("%s = %s;", decl(g.info.Types[x.X], obj), g.expr(x.X)))
 		if p := g.info.Members[x].Property; p != nil {
-			g.setProperty(s, obj, p, setup)
+			g.setProperty(s, obj, g.info.Types[x.X], p, setup)
 			return
 		}
 		target = fmt.Sprintf("%s->f_%s", obj, x.Name.Name)
@@ -883,7 +897,7 @@ func (g *gen) assign(s *ast.AssignStmt) {
 		if id, ok := s.Target.(*ast.Ident); ok {
 			switch g.info.Uses[id].(type) {
 			case *types.Property:
-				g.setProperty(s, g.selfRef(), g.info.Uses[id].(*types.Property), nil)
+				g.setProperty(s, g.selfRef(), g.selfType(), g.info.Uses[id].(*types.Property), nil)
 				return
 			case *types.Field:
 				recv = g.selfRef()
@@ -932,13 +946,13 @@ func (g *gen) assign(s *ast.AssignStmt) {
 
 // Generates an assignment to the property [p] of [recv], after the lines
 // in [setup]. A compound assignment reads it with the getter first.
-func (g *gen) setProperty(s *ast.AssignStmt, recv string, p *types.Property, setup []string) {
+func (g *gen) setProperty(s *ast.AssignStmt, recv string, rt types.Type, p *types.Property, setup []string) {
 	t := g.info.Types[s.Target]
 	op, compound := compoundOps[s.Op]
 	var old string
 	if compound {
 		old = g.temp()
-		setup = append(setup, fmt.Sprintf("%s = %s(%s);", decl(t, old), funcName(p.Get), recv))
+		setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, old), g.memberCall(p.Get, rt, recv)))
 	}
 	v := g.temp()
 	setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, v), g.expr(s.Value)))
@@ -951,7 +965,7 @@ func (g *gen) setProperty(s *ast.AssignStmt, recv string, p *types.Property, set
 	for _, l := range setup {
 		g.line("%s", l)
 	}
-	g.line("%s(%s, %s);", funcName(p.Set), recv, value)
+	g.line("%s;", g.memberCall(p.Set, rt, recv, value))
 	g.ind--
 	g.line("}")
 }
@@ -1221,7 +1235,7 @@ func (g *gen) value(e ast.Expr) string {
 		case *types.Field:
 			return g.selfRef() + "->f_" + u.Name
 		case *types.Property:
-			return funcName(u.Get) + "(" + g.selfRef() + ")"
+			return g.memberCall(u.Get, g.selfType(), g.selfRef())
 		case *types.Func:
 			g.fnValues[u] = true
 			return "((vx_fn){(void *)fnv_" + funcName(u) + ", NULL})"
@@ -1296,7 +1310,7 @@ func (g *gen) value(e ast.Expr) string {
 		m := g.info.Members[e]
 		x := g.expr(e.X)
 		if m.Property != nil {
-			return funcName(m.Property.Get) + "(" + x + ")"
+			return g.memberCall(m.Property.Get, g.info.Types[e.X], x)
 		}
 		if m.Field != nil {
 			return fmt.Sprintf("%s->f_%s", x, m.Field.Name)

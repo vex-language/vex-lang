@@ -42,13 +42,34 @@ type genericStruct struct {
 func (c *checker) typeParams(tps []*ast.TypeParam) []*TypeParam {
 	var out []*TypeParam
 	seen := map[string]bool{}
+	env := map[string]Type{}
+	for n, t := range c.env {
+		env[n] = t
+	}
 	for _, tp := range tps {
 		p := &TypeParam{Name: tp.Name.Name}
 		if !c.reserved(tp.Name, "a type parameter") && seen[p.Name] {
 			c.errorAt(tp.Name, "", "type parameter '%s' is declared twice", p.Name)
 		}
 		seen[p.Name] = true
+		env[p.Name] = p
+		out = append(out, p)
+	}
+	saved := c.env
+	c.env = env
+	defer func() { c.env = saved }()
+	for n, tp := range tps {
+		p := out[n]
 		for _, id := range tp.Constraints {
+			if len(id.Args) > 0 || c.genIfaces[id.Name] != nil {
+				switch t := c.resolveType(id).(type) {
+				case *Interface:
+					p.Ifaces = append(p.Ifaces, t)
+				case *Struct, *Enum:
+					c.errorAt(id, "use an interface", "'%s' is not an interface", t)
+				}
+				continue
+			}
 			if id.Module != "" {
 				if i := c.qualifiedIface(id, false); i != nil {
 					p.Ifaces = append(p.Ifaces, i)
@@ -77,7 +98,6 @@ func (c *checker) typeParams(tps []*ast.TypeParam) []*TypeParam {
 			}
 			p.Constraints = append(p.Constraints, id.Name)
 		}
-		out = append(out, p)
 	}
 	return out
 }
@@ -171,6 +191,8 @@ func hasTypeParam(t Type) bool {
 		return t.abstract
 	case *Enum:
 		return t.abstract
+	case *Interface:
+		return t.abstract
 	}
 	return false
 }
@@ -210,6 +232,10 @@ func keyOf(t Type) string {
 			return t.Base + "<" + typeKey(t.Args) + ">"
 		}
 	case *Enum:
+		if t.generic != nil {
+			return t.Base + "<" + typeKey(t.Args) + ">"
+		}
+	case *Interface:
 		if t.generic != nil {
 			return t.Base + "<" + typeKey(t.Args) + ">"
 		}
@@ -266,6 +292,8 @@ func (c *checker) taken(id *ast.Ident) bool {
 		line, what = c.enums[name].Decl.Pos().Line, "an enum"
 	case c.interfaces[name] != nil:
 		line, what = c.interfaces[name].Decl.Pos().Line, "an interface"
+	case c.genIfaces[name] != nil:
+		line, what = c.genIfaces[name].decl.Pos().Line, "an interface"
 	default:
 		return false
 	}
@@ -332,6 +360,19 @@ func (c *checker) queueGenericBody(d ast.Decl) {
 				})
 				g.failed = len(c.errs) > n
 			})
+		case *ast.InterfaceDecl:
+			g := c.genIfaces[d.Name.Name]
+			if g == nil || g.decl != d {
+				return
+			}
+			c.jobs = append(c.jobs, func() {
+				n := len(c.errs)
+				i := c.ifaceTemplate(g)
+				c.scratch(true, func() {
+					c.withEnv(envOf(g.params, i.Args), func() { c.ifaceBodies(i) })
+				})
+				g.failed = len(c.errs) > n
+			})
 		}
 	}
 }
@@ -384,7 +425,7 @@ func (c *checker) paramDefaults(f *Func) {
 // Reports whether [f] belongs to an instance of a generic, whose body is
 // checked by its own job.
 func instanced(f *Func) bool {
-	return f.TypeArgs != nil || f.Owner != nil && f.Owner.generic != nil || f.Enum != nil && f.Enum.generic != nil
+	return f.TypeArgs != nil || f.Owner != nil && f.Owner.generic != nil || f.Enum != nil && f.Enum.generic != nil || f.Iface != nil && f.Iface.generic != nil
 }
 
 // --- Instances ---
@@ -567,7 +608,7 @@ func (c *checker) inferTypeArgs(e *ast.CallExpr, params []*TypeParam, slots []sl
 			c.checkArgs(e)
 			return nil
 		}
-		if !c.meetsConstraints(p, t, e.Fn, callee) {
+		if !c.meetsConstraints(p, t, e.Fn, callee, b.types) {
 			c.checkArgs(e)
 			return nil
 		}
@@ -697,6 +738,33 @@ func (b *binding) unify(p, a Type) {
 				b.unify(p.Args[i], a.Args[i])
 			}
 		}
+	case *Interface:
+		if p.generic == nil {
+			return
+		}
+		// A struct or enum passed as a generic interface tells its
+		// arguments through the instance it implements.
+		var ifaces []*Interface
+		switch a := a.(type) {
+		case *Interface:
+			ifaces = a.All()
+		case *Struct:
+			ifaces = a.Interfaces
+		case *Enum:
+			ifaces = a.Interfaces
+		case *TypeParam:
+			for _, i := range a.Ifaces {
+				ifaces = append(ifaces, i.All()...)
+			}
+		}
+		for _, i := range ifaces {
+			if i.generic == p.generic {
+				for n := range p.Args {
+					b.unify(p.Args[n], i.Args[n])
+				}
+				return
+			}
+		}
 	}
 }
 
@@ -786,6 +854,20 @@ func (b *binding) subst(t Type) Type {
 			return e
 		}
 		return nil
+	case *Interface:
+		if t.generic == nil || !t.abstract {
+			return t
+		}
+		args := make([]Type, len(t.Args))
+		for i, a := range t.Args {
+			if args[i] = b.subst(a); args[i] == nil {
+				return nil
+			}
+		}
+		if i := t.generic.insts[typeKey(args)]; i != nil {
+			return i
+		}
+		return nil
 	}
 	return t
 }
@@ -835,7 +917,7 @@ func (c *checker) genericFuncValue(id *ast.Ident, g *genericFunc, want Type) Typ
 				"can't tell the type of %s for generic function '%s'", p.Name, id.Name)
 			return Invalid
 		}
-		if !c.meetsConstraints(p, args[i], id, id.Name) {
+		if !c.meetsConstraints(p, args[i], id, id.Name, bindOf(g.params, args)) {
 			return Invalid
 		}
 	}
@@ -862,6 +944,8 @@ func (c *checker) typeArgsValue(e *ast.TypeArgsExpr, want Type) Type {
 	if g == nil {
 		if eg := c.genEnumRef(e.X); eg != nil {
 			c.errorAt(e, fmt.Sprintf("use one of its cases, e.g. %s<...>.%s", eg.decl.Name.Name, eg.decl.Cases[0].Name.Name), "'%s' is a type, not a value", eg.decl.Name.Name)
+		} else if ok && id.Module == "" && c.genIfaces[id.Name] != nil && c.lookupVar(id.Name) == nil {
+			c.errorAt(e, "", "'%s' is a type, not a value", id.Name)
 		} else {
 			c.expr(e.X, nil)
 			c.errorAt(e, "", "only generic functions can be given type arguments here")
@@ -877,7 +961,7 @@ func (c *checker) typeArgsValue(e *ast.TypeArgsExpr, want Type) Type {
 		return Invalid
 	}
 	for i, p := range g.params {
-		if args[i] == Invalid || !c.meetsConstraints(p, args[i], e.Args[i], id.Name) {
+		if args[i] == Invalid || !c.meetsConstraints(p, args[i], e.Args[i], id.Name, bindOf(g.params, args)) {
 			return Invalid
 		}
 	}

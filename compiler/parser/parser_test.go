@@ -324,6 +324,16 @@ struct Circle: Shape, Named {
 }
 struct Box<T>: Shape {
 }
+interface Store<T: Hashable>: Sized, m.Named {
+    get size -> int
+    set size(value: int)
+    fn get(key: string) -> T?
+}
+enum Suit: Drawable, Store<Suit> {
+    hearts
+    get name -> string => "suit"
+}
+fn largest<T: Ordered<T> & Equatable>(xs: [T]) -> T? => nil
 `
 	f, errs := parse(t, src)
 	if errs != nil {
@@ -333,6 +343,9 @@ struct Box<T>: Shape {
 		`(interface Shape (fn area -> float) (fn name -> string (=> "shape")) (fn scale param by: float throws))`,
 		"(struct Circle: Shape, Named field r: float)",
 		"struct Box<T>: Shape",
+		"(interface Store<T: Hashable>: Sized, m.Named (get size -> int) (set size param value: int) (fn get param key: string -> T?))",
+		`(enum Suit: Drawable, Store<Suit> case hearts (get name -> string (=> "suit")))`,
+		"(fn largest<T: Ordered<T> & Equatable> param xs: [T] -> T? (=> nil))",
 	}
 	for i, d := range f.Decls {
 		if got := ast.Sexpr(d); got != want[i] {
@@ -620,8 +633,7 @@ func TestErrors(t *testing.T) {
 		{"setter params", "struct R {\n set a(x: int, y: int) {}\n}", "2:7", "setter 'a' takes exactly one parameter, the new value", "write set a(value: int) { ... }"},
 		{"setter result", "struct R {\n set a(x: int) -> int {}\n}", "2:16", "setters don't return a value", "remove the result type"},
 		{"willSet", "struct R {\n n: int = 0 {\n  willSet {}\n }\n}", "3:3", "expected 'didSet' in the block of field 'n', found 'willSet'", "use didSet, which has the old value in oldValue"},
-		{"interface getter", "interface I {\n get a -> int\n}", "2:2", "interfaces can't have getters or setters yet", "use a method: fn a() -> ..."},
-		{"enum getter", "enum E {\n a\n get b -> int => 1\n}", "3:2", "enums can't have getters or setters yet", "use a method: fn b(...)"},
+		{"enum setter", "enum E {\n a\n set b(v: int) {}\n}", "3:2", "enums can't have setters, since their values never change", "use a method that returns a new value"},
 		{"element missing", "fn main() {\n let a = [if ok]\n}", "2:16", "expected an element after the condition or loop, found ']'", "e.g. [if ok 1 else 2] or [for x in xs x * 2]"},
 		{"spread outside literal", "fn main() {\n let a = ...xs\n}", "2:10", "'...' can only be used in a list or map literal", "use it inside a list or map literal, e.g. [...xs, 4]"},
 		{"entry in element list", "fn main() {\n let a = [1, if ok \"k\": 2]\n}", "2:23", "unexpected ':' in a list", "a list holds values, a map holds key: value pairs"},
@@ -650,7 +662,7 @@ func TestErrors(t *testing.T) {
 		{"catch without block", "fn main() {\n let n = try f() catch e\n}", "2:25", "expected '{' after catch, found end of line", "e.g. catch e { println(e.message) }"},
 		{"map entry without value", "fn main() {\n let m = [\"a\": 1, 2]\n}", "2:20", "expected ':' after a map key, found ']'", "write key: value"},
 		{"colon in a list", "fn main() {\n let m = [1, \"a\": 2]\n}", "2:17", "unexpected ':' in a list", "a list holds values, a map holds key: value pairs"},
-		{"interface field", "interface I {\n    x: int\n}", "2:5", "interfaces can't have fields", "add a method that returns it instead, e.g. fn name() -> string"},
+		{"interface field", "interface I {\n    x: int\n}", "2:5", "interfaces can't have fields", "require a getter instead, e.g. get name -> string"},
 		{"interface static method", "interface I {\n    static fn x()\n}", "2:5", "interfaces can't have static methods", ""},
 		{"extern body", "extern fn f() {\n}", "1:11", "extern functions have no body", "remove the body; the function is written in C"},
 		{"extern expression body", "extern fn f() -> int => 1", "1:11", "extern functions have no body", "remove the body; the function is written in C"},
@@ -668,8 +680,6 @@ func TestErrors(t *testing.T) {
 		{"pub member twice", "struct S {\n    pub pub x: int\n}", "2:9", "unexpected 'pub'", "one pub is enough"},
 		{"pub case", "enum E {\n    pub a\n}", "2:9", "cases can't be marked pub", "remove pub: cases are public whenever their enum is"},
 		{"pub interface method", "interface I {\n    pub fn x()\n}", "2:5", "interface methods can't be marked pub", "remove pub: interface methods are public whenever the interface is"},
-		{"generic interface", "interface I<T> {\n}", "1:12", "interfaces can't be generic yet", ""},
-		{"interface extends", "interface I: J {\n}", "1:12", "interfaces can't extend other interfaces yet", "list the methods it needs instead"},
 		{"method without body", "struct S {\n    fn x()\n}", "2:11", "expected '{' or '=>' to start the body of x, found end of line", ""},
 		{"empty type parameters", "fn f<>() {\n}", "1:5", "empty type parameter list", "remove the <>, or name a type parameter: <T>"},
 		{"single ampersand", "fn main() {\n let x = a & b\n}", "2:12", "unexpected '&'", "use && for logical and"},

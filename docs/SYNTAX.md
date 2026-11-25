@@ -294,7 +294,7 @@ let heads = groups.map(first<string>)        // groups: [[string]]
 
 ## Interfaces
 
-An interface lists methods. A struct names the interfaces it implements after a `:`, and the compiler checks there that it has every method with the right types.
+An interface lists methods and properties. A struct or enum names the interfaces it implements after a `:`, and the compiler checks there that it has every member with the right types.
 
 ```swift
 interface Shape {
@@ -319,8 +319,74 @@ fn largest<T: Shape>(items: [T]) -> T? { ... }
 - A struct can be used wherever an interface it implements is expected: in a `[Shape]`, a `Shape` parameter or a `Shape?`. Without a written type, values must have the same type, so write `let shapes: [Shape] = [...]` for a mixed list.
 - Methods with a body are defaults. A struct that leaves one out gets it, and a default calls the struct's own versions of the other methods.
 - Calls on an interface value go through a table of the struct's methods, which is as fast as Go's interfaces. In generic code like `largest<T: Shape>`, each type gets its own copy and calls go straight to its methods.
-- Interface values print as the struct inside them, and can't be compared with `==`.
-- Not yet: generic interfaces, interfaces that extend others, and enums that implement interfaces.
+- Interface values print as the value inside them, and can't be compared with `==`.
+
+**Extending.** An interface can extend others after a `:`. It requires their members too, and its values can be used as any of them.
+
+```swift
+interface Drawable { fn draw() -> string }
+interface Shape: Drawable {
+    fn area() -> float
+    fn describe() -> string => "{area()}: {draw()}"
+}
+
+struct Square: Shape { ... }                 // needs draw() and area()
+let d: Drawable = Square(side: 2)            // a Shape is a Drawable
+```
+
+**Properties.** `get name -> T` requires a getter and `set name(value: T)` a setter. A struct can provide either with a getter or setter, or with a stored field of that type.
+
+```swift
+interface Sized {
+    get size -> int
+}
+
+struct Text: Sized {
+    value: string
+    get size -> int => value.len             // a getter
+}
+
+struct Block: Sized {
+    size: int                                // a field also counts
+}
+
+fn total(xs: [Sized]) -> int { ... x.size ... }
+```
+
+**Enums** implement interfaces the same way, usually with a `match` on `self`. Enums can have getters, but not setters, since their values never change.
+
+```swift
+enum Suit: Drawable {
+    hearts
+    spades
+    fn draw() -> string => match self {
+        hearts => "♥"
+        spades => "♠"
+    }
+}
+
+let items: [Drawable] = [Suit.hearts, Square(side: 2)]
+```
+
+**Generic interfaces** take type parameters like structs. A type parameter's constraint can name itself, as in `T: Ordered<T>`:
+
+```swift
+interface Store<T> {
+    fn get(key: string) -> T?
+    fn put(key: string, value: T)
+    fn getOr(key: string, fallback: T) -> T => get(key) ?? fallback
+}
+
+interface Ordered<T> { fn compare(other: T) -> int }
+
+struct Cache: Store<int> { ... }
+struct MapStore<T>: Store<T> { ... }
+struct Money: Ordered<Money> { ... }
+
+fn largest<T: Ordered<T>>(xs: [T]) -> T? { ... }
+```
+
+- Not yet: generic methods in interfaces, and static members.
 
 ## Modules
 

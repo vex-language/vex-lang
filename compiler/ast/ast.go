@@ -182,16 +182,21 @@ type EnumDecl struct {
 	Pub        bool
 	Name       *Ident
 	TypeParams []*TypeParam
+	Interfaces []*NamedType
 	Cases      []*EnumCase
 	Methods    []*FuncDecl
 }
 
-// An interface: methods that implementing structs provide. A method with
-// a body is a default that structs may leave out.
+// An interface: methods and properties that implementing structs and
+// enums provide. A method with a body is a default they may leave out.
 type InterfaceDecl struct {
 	Span
-	Pub     bool
-	Name    *Ident
+	Pub        bool
+	Name       *Ident
+	TypeParams []*TypeParam
+
+	// The interfaces it extends: `interface Shape: Drawable`.
+	Supers  []*NamedType
 	Methods []*FuncDecl
 }
 

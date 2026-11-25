@@ -311,6 +311,30 @@ func (p *parser) qualName(what string) *ast.NamedType {
 	return nt
 }
 
+// Parses an interface name with any type arguments: `Store<int>`.
+func (p *parser) ifaceRef(what string) *ast.NamedType {
+	nt := p.qualName(what)
+	if p.at(lexer.Lt) {
+		nt.Args = p.typeArgs()
+		nt.Span = p.span(nt.Start)
+	}
+	return nt
+}
+
+// Parses the interfaces after `:` in a declaration's header, if any.
+func (p *parser) ifaceList() []*ast.NamedType {
+	if !p.at(lexer.Colon) {
+		return nil
+	}
+	p.next()
+	list := []*ast.NamedType{p.ifaceRef("an interface name")}
+	for p.at(lexer.Comma) {
+		p.next()
+		list = append(list, p.ifaceRef("an interface name"))
+	}
+	return list
+}
+
 // Parses an identifier, naming [what] in the error if it is missing.
 func (p *parser) ident(what string) *ast.Ident {
 	t := p.tok()
@@ -419,12 +443,8 @@ func (p *parser) interfaceDecl() *ast.InterfaceDecl {
 	start := p.tok().Pos
 	p.expect(lexer.Interface)
 	d := &ast.InterfaceDecl{Name: p.ident("an interface name")}
-	if p.at(lexer.Lt) {
-		p.fail(p.tok(), "", "interfaces can't be generic yet")
-	}
-	if p.at(lexer.Colon) {
-		p.fail(p.tok(), "list the methods it needs instead", "interfaces can't extend other interfaces yet")
-	}
+	d.TypeParams = p.typeParams()
+	d.Supers = p.ifaceList()
 	open := p.expect(lexer.LBrace)
 	p.inInterface = true
 	defer func() { p.inInterface = false }()
@@ -448,9 +468,10 @@ func (p *parser) interfaceDecl() *ast.InterfaceDecl {
 				p.fail(t, "remove pub: interface methods are public whenever the interface is", "interface methods can't be marked pub")
 			case lexer.Ident, lexer.Let, lexer.Var:
 				if (t.Text == "get" || t.Text == "set") && p.peek(1).Kind == lexer.Ident {
-					p.fail(t, fmt.Sprintf("use a method: fn %s() -> ...", p.peek(1).Text), "interfaces can't have getters or setters yet")
+					d.Methods = append(d.Methods, p.accessor())
+					return
 				}
-				p.fail(t, "add a method that returns it instead, e.g. fn name() -> string", "interfaces can't have fields")
+				p.fail(t, "require a getter instead, e.g. get name -> string", "interfaces can't have fields")
 			default:
 				p.fail(t, "", "expected a method, found %s", describe(t))
 			}
@@ -466,14 +487,7 @@ func (p *parser) structDecl() *ast.StructDecl {
 	p.expect(lexer.Struct)
 	s := &ast.StructDecl{Name: p.ident("a struct name")}
 	s.TypeParams = p.typeParams()
-	if p.at(lexer.Colon) {
-		p.next()
-		s.Interfaces = append(s.Interfaces, p.qualName("an interface name"))
-		for p.at(lexer.Comma) {
-			p.next()
-			s.Interfaces = append(s.Interfaces, p.qualName("an interface name"))
-		}
-	}
+	s.Interfaces = p.ifaceList()
 	open := p.expect(lexer.LBrace)
 	for {
 		for p.at(lexer.Semi) || p.at(lexer.Comma) {
@@ -497,6 +511,7 @@ func (p *parser) enumDecl() *ast.EnumDecl {
 	p.expect(lexer.Enum)
 	e := &ast.EnumDecl{Name: p.ident("an enum name")}
 	e.TypeParams = p.typeParams()
+	e.Interfaces = p.ifaceList()
 	open := p.expect(lexer.LBrace)
 	for {
 		for p.at(lexer.Semi) || p.at(lexer.Comma) {
@@ -539,8 +554,14 @@ func (p *parser) enumMember(e *ast.EnumDecl) {
 		e.Methods = append(e.Methods, m)
 		return
 	case lexer.Ident:
-		if (t.Text == "get" || t.Text == "set") && p.peek(1).Kind == lexer.Ident {
-			p.fail(t, fmt.Sprintf("use a method: fn %s(...)", p.peek(1).Text), "enums can't have getters or setters yet")
+		if t.Text == "set" && p.peek(1).Kind == lexer.Ident {
+			p.fail(t, "use a method that returns a new value", "enums can't have setters, since their values never change")
+		}
+		if t.Text == "get" && p.peek(1).Kind == lexer.Ident {
+			m := p.accessor()
+			m.Pub = pub
+			e.Methods = append(e.Methods, m)
+			return
 		}
 		if pub {
 			p.fail(t, "remove pub: cases are public whenever their enum is", "cases can't be marked pub")
@@ -768,6 +789,7 @@ func (p *parser) accessor() *ast.FuncDecl {
 		fn.ExprBody = p.expr()
 	case p.at(lexer.LBrace):
 		fn.Body = p.block()
+	case p.inInterface && (p.at(lexer.Semi) || p.at(lexer.RBrace)):
 	default:
 		p.fail(p.tok(), "", "expected '{' or '=>' to start the body of %s, found %s", name, describe(p.tok()))
 	}
@@ -910,10 +932,10 @@ func (p *parser) typeParams() []*ast.TypeParam {
 		tp := &ast.TypeParam{Name: p.ident("a type parameter name")}
 		if p.at(lexer.Colon) {
 			p.next()
-			tp.Constraints = append(tp.Constraints, p.qualName("a constraint such as Comparable"))
+			tp.Constraints = append(tp.Constraints, p.ifaceRef("a constraint such as Comparable"))
 			for p.at(lexer.Amp) {
 				p.next()
-				tp.Constraints = append(tp.Constraints, p.qualName("a constraint after '&'"))
+				tp.Constraints = append(tp.Constraints, p.ifaceRef("a constraint after '&'"))
 			}
 		}
 		tp.Span = p.span(tp.Name.Start)

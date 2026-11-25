@@ -54,15 +54,55 @@ type Interface struct {
 	Name   string
 	Module *Module
 
-	// The methods, in declaration order; a method's place is its slot in
-	// the table. Methods with a body are defaults.
+	// The methods, getters and setters, in declaration order; a member's
+	// place is its slot in the table. Members with a body are defaults.
 	Methods []*Func
 	Decl    *ast.InterfaceDecl
+
+	// The interfaces it extends directly.
+	Supers []*Interface
 
 	// The interface's position in [Info.Interfaces].
 	Index int
 
+	// For an instance of a generic interface such as `Store<int>`: the
+	// generic interface's name and the type arguments.
+	Base string
+	Args []Type
+
+	generic  *genericIface
+	abstract bool
 	resolved bool
+}
+
+// Returns [i] and every interface it extends, directly or not.
+func (i *Interface) All() []*Interface {
+	var out []*Interface
+	var add func(j *Interface)
+	add = func(j *Interface) {
+		for _, k := range out {
+			if k == j {
+				return
+			}
+		}
+		out = append(out, j)
+		for _, s := range j.Supers {
+			add(s)
+		}
+	}
+	add(i)
+	return out
+}
+
+// Reports whether a value of interface [i] can be used as interface [j]:
+// [j] is [i] or one it extends.
+func (i *Interface) Extends(j *Interface) bool {
+	for _, k := range i.All() {
+		if k == j {
+			return true
+		}
+	}
+	return false
 }
 
 // Returns the interface's name.
@@ -77,13 +117,31 @@ func qualified(m *Module, name string) string {
 }
 
 // Returns the method called [name], or nil.
-func (i *Interface) Method(name string) *Func {
-	for _, m := range i.Methods {
-		if m.Name == name {
+func (i *Interface) Method(name string) *Func { return memberOf(i.Methods, name, ast.Method) }
+
+// Returns the property called [name] that [i] itself requires, or nil.
+func (i *Interface) Property(name string) *Property {
+	return propertyOf(i.Methods, name)
+}
+
+// Returns the member of [ms] called [name] of [kind], or nil.
+func memberOf(ms []*Func, name string, kind ast.Accessor) *Func {
+	for _, m := range ms {
+		if m.Name == name && m.Decl.Accessor == kind {
 			return m
 		}
 	}
 	return nil
+}
+
+// Returns the property in [ms] called [name], or nil when there is
+// neither a getter nor a setter of that name.
+func propertyOf(ms []*Func, name string) *Property {
+	p := &Property{Get: memberOf(ms, name, ast.Getter), Set: memberOf(ms, name, ast.Setter)}
+	if p.Get == nil && p.Set == nil {
+		return nil
+	}
+	return p
 }
 
 // Returns the slot of [m] in the interface's method table.
@@ -195,22 +253,9 @@ func (s *Struct) Method(name string) *Func { return s.member(name, ast.Method) }
 
 // Returns the property called [name], or nil when the struct has neither a
 // getter nor a setter of that name.
-func (s *Struct) Property(name string) *Property {
-	p := &Property{Get: s.member(name, ast.Getter), Set: s.member(name, ast.Setter)}
-	if p.Get == nil && p.Set == nil {
-		return nil
-	}
-	return p
-}
+func (s *Struct) Property(name string) *Property { return propertyOf(s.Methods, name) }
 
-func (s *Struct) member(name string, kind ast.Accessor) *Func {
-	for _, m := range s.Methods {
-		if m.Name == name && m.Decl.Accessor == kind {
-			return m
-		}
-	}
-	return nil
-}
+func (s *Struct) member(name string, kind ast.Accessor) *Func { return memberOf(s.Methods, name, kind) }
 
 // An optional type: a value of [Elem], or nil.
 type Optional struct {
@@ -239,6 +284,9 @@ type Enum struct {
 	Base string
 	Args []Type
 
+	// The interfaces it implements, including those they extend.
+	Interfaces []*Interface
+
 	generic *genericEnum
 
 	// Set for instances whose arguments are type parameters, used only
@@ -260,7 +308,10 @@ func (e *Enum) Case(name string) *Case {
 }
 
 // Returns the method called [name], or nil.
-func (e *Enum) Method(name string) *Func {
+func (e *Enum) Method(name string) *Func { return memberOf(e.Methods, name, ast.Method) }
+
+// Returns the method or getter called [name], or nil.
+func (e *Enum) member(name string) *Func {
 	for _, m := range e.Methods {
 		if m.Name == name {
 			return m
@@ -268,6 +319,9 @@ func (e *Enum) Method(name string) *Func {
 	}
 	return nil
 }
+
+// Returns the getter called [name], as a property, or nil.
+func (e *Enum) Property(name string) *Property { return propertyOf(e.Methods, name) }
 
 // Reports whether no case carries values, so values can be compared with ==.
 func (e *Enum) Simple() bool {

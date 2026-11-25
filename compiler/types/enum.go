@@ -61,8 +61,8 @@ func (c *checker) enumMembers(e *Enum) {
 		if c.reserved(md.Name, "a method") {
 			continue
 		}
-		if prev := e.Method(m.Name); prev != nil {
-			c.errorAt(md.Name, "", "method '%s' is already declared on line %d", m.Name, prev.Decl.Pos().Line)
+		if prev := e.member(m.Name); prev != nil {
+			c.errorAt(md.Name, "", "'%s' is already declared on line %d", m.Name, prev.Decl.Pos().Line)
 			continue
 		}
 		if e.Case(m.Name) != nil {
@@ -78,6 +78,7 @@ func (c *checker) enumMembers(e *Enum) {
 		}
 		c.signature(m)
 	}
+	c.enumConformances(e)
 }
 
 // Returns the enum named by [x] when it is used as a type, as in

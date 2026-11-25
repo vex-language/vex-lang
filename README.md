@@ -318,7 +318,7 @@ let r = Result.ok(5).map(fn(x) => "#{x}")   // Result<string>
 let pick = first<string>                    // a generic function as a value
 ```
 
-**Interfaces.** A struct names the interfaces it implements, and the compiler checks it there. Methods with a body are defaults.
+**Interfaces.** A struct or enum names the interfaces it implements, and the compiler checks it there. Methods with a body are defaults. Interfaces can be generic, extend others, and require properties.
 
 ```swift
 interface Shape {
@@ -333,6 +333,17 @@ struct Circle: Shape {
 
 let shapes: [Shape] = [Circle(radius: 1), Rect(width: 2, height: 3)]
 for s in shapes { println(s.name(), s.area()) }
+
+interface Ordered<T> { fn compare(other: T) -> int }
+interface Sized { get size -> int }
+
+enum Suit: Sized {
+    hearts
+    spades
+    get size -> int => 1
+}
+
+fn largest<T: Ordered<T>>(xs: [T]) -> T? { ... }
 ```
 
 **Modules.** A folder is a module, and a project is a folder with a `package.toml`. Names are used through their module, and only those marked `pub` are visible outside it.
@@ -476,7 +487,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, builder blocks, properties, standard library | In progress: 22 of 48 tasks; next are interfaces next steps, C callbacks, async and isolates, then records, patterns and extensions |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, builder blocks, properties, standard library | In progress: 23 of 48 tasks; next are C callbacks, async and isolates, then records, patterns and extensions |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |
