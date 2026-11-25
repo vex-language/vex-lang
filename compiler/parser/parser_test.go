@@ -277,6 +277,32 @@ fn wrap(b: Box<[Box<int>]>, m: [string: Pair<int, bool>]) {
 	}
 }
 
+func TestProperties(t *testing.T) {
+	src := `struct Slider {
+    _value: float = 0
+    count: int = 0 {
+        didSet {
+            redraw()
+        }
+    }
+    get: int = 1
+    pub get value -> float => _value
+    set value(v: float) {
+        _value = v
+    }
+    fn get() {}
+}
+`
+	f, errs := parse(t, src)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	want := `(struct Slider (field _value: float 0) (field count: int 0) (field get: int 1) (didSet count param oldValue: int (block (call redraw))) (pub get value -> float (=> _value)) (set value param v: float (block (= _value v))) (fn get block))`
+	if got := ast.Sexpr(f.Decls[0]); got != want {
+		t.Errorf("\n got: %s\nwant: %s", got, want)
+	}
+}
+
 func TestInterfaces(t *testing.T) {
 	src := `interface Shape {
     fn area() -> float
@@ -579,6 +605,13 @@ func TestErrors(t *testing.T) {
 		{"typed var without value", "fn main() {\n var n: int\n}", "2:12", "'var n' needs a value", "give it a starting value, e.g. var n: int = ..."},
 		{"missing let", "fn main() {\n x: int = 5\n}", "2:2", "missing 'let' or 'var' before 'x'", "write let x = ... or var x = ..."},
 		{"go style declare", "fn main() {\n x := 5\n}", "2:2", "missing 'let' or 'var' before 'x'", "write let x = ... or var x = ..."},
+		{"getter params", "struct R {\n get a(x: int) -> int => 1\n}", "2:7", "getters take no parameters", "write get a -> T, or make it a method: fn a(...)"},
+		{"getter type", "struct R {\n get a => 1\n}", "2:8", "getter 'a' needs a result type", "write get a -> int => ..."},
+		{"setter params", "struct R {\n set a(x: int, y: int) {}\n}", "2:7", "setter 'a' takes exactly one parameter, the new value", "write set a(value: int) { ... }"},
+		{"setter result", "struct R {\n set a(x: int) -> int {}\n}", "2:16", "setters don't return a value", "remove the result type"},
+		{"willSet", "struct R {\n n: int = 0 {\n  willSet {}\n }\n}", "3:3", "expected 'didSet' in the block of field 'n', found 'willSet'", "use didSet, which has the old value in oldValue"},
+		{"interface getter", "interface I {\n get a -> int\n}", "2:2", "interfaces can't have getters or setters yet", "use a method: fn a() -> ..."},
+		{"enum getter", "enum E {\n a\n get b -> int => 1\n}", "3:2", "enums can't have getters or setters yet", "use a method: fn b(...)"},
 		{"element missing", "fn main() {\n let a = [if ok]\n}", "2:16", "expected an element after the condition or loop, found ']'", "e.g. [if ok 1 else 2] or [for x in xs x * 2]"},
 		{"spread outside literal", "fn main() {\n let a = ...xs\n}", "2:10", "'...' can only be used in a list or map literal", "use it inside a list or map literal, e.g. [...xs, 4]"},
 		{"entry in element list", "fn main() {\n let a = [1, if ok \"k\": 2]\n}", "2:23", "unexpected ':' in a list", "a list holds values, a map holds key: value pairs"},

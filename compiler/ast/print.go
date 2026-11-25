@@ -202,6 +202,14 @@ func build(n Node) *tree {
 
 	case *FuncDecl:
 		label := "fn " + n.Name.Name + typeParamsString(n.TypeParams)
+		switch n.Accessor {
+		case Getter:
+			label = "get " + n.Name.Name
+		case Setter:
+			label = "set " + n.Name.Name
+		case Observer:
+			label = "didSet " + n.Name.Name
+		}
 		if n.Static {
 			label = "static " + label
 		}
