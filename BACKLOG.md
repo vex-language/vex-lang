@@ -94,6 +94,8 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-117** Interfaces: a struct declares which interfaces it implements (L)
 - [ ] **V-118** Builder blocks: several values in a trailing `{ }` become a list argument (M)
 - [ ] **V-119** Property setters: code that runs when a field is assigned (M)
+- [ ] **V-123** Stack traces: runtime errors list the chain of calls with their lines (M)
+- [ ] **V-124** Benchmark suite in the repo (`bench/`): Vex programs with Go equivalents and a script that compares them (M)
 - [x] **V-120** Integer overflow stops the program by default; `&+` `&-` `&*` wrap; benchmarked against Go (M)
 
 ---
@@ -146,6 +148,7 @@ Goal: the same Vex app running on Android with real Android views.
 - [ ] **V-501** VS Code extension: syntax highlighting, then an LSP (errors, go-to-definition, autocomplete) (L)
 - [ ] **V-502** `vex fmt` code formatter (M)
 - [ ] **V-503** `vex new myapp` project template (S)
+- [ ] **V-505** `vex repl`: type a line, see its result (compiled behind the scenes) (M)
 - [ ] **V-504** Debugging: line info in the generated C (`#line`) so lldb shows `.vx` lines (M)
 
 ---
