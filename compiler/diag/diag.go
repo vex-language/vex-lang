@@ -24,6 +24,10 @@ func (p Pos) String() string { return fmt.Sprintf("%d:%d", p.Line, p.Col) }
 type Diagnostic struct {
 	Pos Pos
 
+	// The file the problem is in, when a program has several; nil means
+	// the file being reported on.
+	File *File
+
 	// The number of characters to underline, starting at [Pos].
 	Len int
 
@@ -53,9 +57,14 @@ func (l List) Error() string {
 	return fmt.Sprintf("%s (and %d more errors)", l[0].Error(), len(l)-1)
 }
 
-// Sorts the list by position in the file.
+// Sorts the list by file, then by position in the file.
 func (l List) Sort() {
-	sort.SliceStable(l, func(i, j int) bool { return l[i].Pos.Offset < l[j].Pos.Offset })
+	sort.SliceStable(l, func(i, j int) bool {
+		if a, b := l[i].File, l[j].File; a != b && a != nil && b != nil {
+			return a.Name < b.Name
+		}
+		return l[i].Pos.Offset < l[j].Pos.Offset
+	})
 }
 
 // A named source file with fast access to its lines.
@@ -116,6 +125,12 @@ func Format(f *File, d Diagnostic, color bool) string {
 	s := plain
 	if color {
 		s = colored
+	}
+	if d.File != nil {
+		f = d.File
+	}
+	if f == nil {
+		return fmt.Sprintf("%serror%s: %s\n", s.err, s.reset, d.Message)
 	}
 	var b strings.Builder
 	if d.Warning {

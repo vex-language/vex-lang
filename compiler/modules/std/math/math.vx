@@ -1,0 +1,66 @@
+/// Common math on integers and other comparable values.
+
+/// Returns [x] without its sign.
+pub fn abs(x: int) -> int {
+    if x < 0 {
+        return -x
+    }
+    return x
+}
+
+/// Returns the larger of [a] and [b].
+pub fn max<T: Comparable>(a: T, b: T) -> T {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+/// Returns the smaller of [a] and [b].
+pub fn min<T: Comparable>(a: T, b: T) -> T {
+    if a < b {
+        return a
+    }
+    return b
+}
+
+/// Returns [x] limited to the range from [low] to [high].
+pub fn clamp<T: Comparable>(x: T, low: T, high: T) -> T {
+    if x < low {
+        return low
+    }
+    if x > high {
+        return high
+    }
+    return x
+}
+
+/// Returns [base] raised to the power [exp], which must not be negative.
+pub fn pow(base: int, exp: int) -> int {
+    assert(exp >= 0, "pow needs an exponent of 0 or more")
+    var result = 1
+    var b = base
+    var e = exp
+    while e > 0 {
+        if e % 2 == 1 {
+            result *= b
+        }
+        e = e / 2
+        if e > 0 {
+            b *= b
+        }
+    }
+    return result
+}
+
+/// Returns the greatest common divisor of [a] and [b].
+pub fn gcd(a: int, b: int) -> int {
+    var x = abs(a)
+    var y = abs(b)
+    while y != 0 {
+        let t = x % y
+        x = y
+        y = t
+    }
+    return x
+}
