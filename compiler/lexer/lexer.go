@@ -292,8 +292,15 @@ func (l *lexer) number() {
 			}
 		}
 		if leadingZero && kind == Int && !isLetter(l.peek(0)) {
-			text := strings.ReplaceAll(l.src[start:l.pos], "_", "")
-			l.errorAt(start, l.pos-start, "write "+strings.TrimLeft(text[:len(text)-1], "0")+text[len(text)-1:]+", or 0o"+strings.TrimLeft(text, "0")+" for octal", "numbers can't start with 0")
+			digits := strings.TrimLeft(strings.ReplaceAll(l.src[start:l.pos], "_", ""), "0")
+			hint := "write " + digits
+			switch {
+			case digits == "":
+				hint = "write 0"
+			case !strings.ContainsAny(digits, "89"):
+				hint += ", or 0o" + digits + " for octal"
+			}
+			l.errorAt(start, l.pos-start, hint, "numbers can't start with 0")
 			l.emit(Int, start, l.pos, "0")
 			return
 		}
@@ -395,7 +402,9 @@ func tail(first bool) Kind {
 func (l *lexer) escape(b *strings.Builder) {
 	start := l.pos
 	l.pos++
-	if l.pos >= len(l.src) || l.src[l.pos] == '\n' {
+	// A backslash at the end of a line leaves the string unterminated,
+	// which is reported once, whatever the line ending.
+	if l.pos >= len(l.src) || l.src[l.pos] == '\n' || strings.HasPrefix(l.src[l.pos:], "\r\n") {
 		return
 	}
 	c := l.src[l.pos]

@@ -47,6 +47,14 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		}
 		return Int
 	case *ast.FloatLit:
+		v, err := strconv.ParseFloat(e.Value, 64)
+		mantissa, _, _ := strings.Cut(strings.ToLower(e.Value), "e")
+		switch {
+		case err != nil:
+			c.errorAt(e, "the largest float is about 1.8e308", "number %s is too big for float", e.Value)
+		case v == 0 && strings.ContainsAny(mantissa, "123456789"):
+			c.errorAt(e, "the smallest float above 0 is about 5e-324; write 0.0 for zero", "number %s is too small for float, so it would be 0", e.Value)
+		}
 		return Float
 	case *ast.BoolLit:
 		return Bool
@@ -569,10 +577,14 @@ func wrapping(k lexer.Kind) bool {
 	return false
 }
 
-// Reports whether values of type [t] can be ordered with `<`.
+// Reports whether values of type [t] can be ordered with `<`. Enums whose
+// cases carry no values are ordered as their cases are declared.
 func ordered(t Type) bool {
-	if tp, ok := t.(*TypeParam); ok {
-		return tp.Has("Comparable")
+	switch t := t.(type) {
+	case *TypeParam:
+		return t.Has("Comparable")
+	case *Enum:
+		return t.Simple()
 	}
 	return t == Int || t == Float || t == String
 }
@@ -668,6 +680,9 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 			hint := didYouMean(name, x.FieldNames())
 			if strings.HasPrefix(name, "$") && hint == "" {
 				hint = "positional fields count from $1"
+				if i, err := strconv.Atoi(name[1:]); err == nil && x.Field(fmt.Sprintf("$%d", i)) != nil {
+					hint = fmt.Sprintf("write $%d", i)
+				}
 			}
 			c.errorAt(e.Name, hint, "%s has no field '%s'", x, name)
 			return Invalid

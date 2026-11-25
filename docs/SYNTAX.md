@@ -279,7 +279,7 @@ A type parameter can require what the generic code needs from it: an [interface]
 | Constraint | Allows | Met by |
 |---|---|---|
 | `Equatable` | `==`, `!=`, `list.contains` | int, float, bool, string, enums whose cases carry no values |
-| `Comparable` | `<`, `<=`, `>`, `>=`, and `==` | int, float, string |
+| `Comparable` | `<`, `<=`, `>`, `>=`, and `==` | int, float, string, enums whose cases carry no values |
 | `Hashable` | map keys, and `==` | int, bool, string, enums whose cases carry no values |
 | an interface, such as `Shape` | its methods | structs that implement it, and the interface itself |
 
@@ -1058,7 +1058,7 @@ The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, m
   The checks are cheap. In a tight loop where they cost speed, the wrapping operators remove them.
 - `int` and `float` never mix silently: `count * price` is an error until one side is converted with `float(count)` or `int(price)`.
 - Strings join with `+` only to other strings. Use interpolation for anything else: `"{count} items"`.
-- `==` and `!=` compare `int`, `float`, `bool`, `string` and enums whose cases carry no values; `<`, `<=`, `>`, `>=` also work on these except `bool`.
+- `==` and `!=` compare `int`, `float`, `bool`, `string` and enums whose cases carry no values; `<`, `<=`, `>`, `>=` also work on these except `bool`. Enum cases are ordered as they are declared, so in `enum Level { low, high }`, `Level.low < Level.high`.
 - Conditions must be `bool`: write `if xs.len > 0`, not `if xs`.
 - Structs are shared references: after `let b = a`, changing `b.name` also changes `a.name`. `let` stops the name being reassigned, not the fields being changed.
 - A name can be declared again in an inner block, which hides the outer one; declaring it twice in the same block is an error.
