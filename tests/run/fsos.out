@@ -1,0 +1,20 @@
+true true false
+first
+second
+13 made by append
+true
+["a.txt", "b.txt", "c.txt", "new.txt", "notes.txt"]
+["a.txt", "c.txt", "new.txt", "notes.txt"]
+["a"]
+no file
+nil nil
+true
+true
+can't read TMP/x: No such file or directory
+[] nil
+from vex
+FROM VEX
+7 0
+exit 3 caught
+true
+false

@@ -1,0 +1,54 @@
+// Files, folders, the environment and other programs.
+import "vex:fs"
+import "vex:os"
+import "vex:strings"
+
+fn main() throws {
+    let tmp = (try os.output("mktemp -d")).split("\n")[0]
+    let dir = tmp + "/a/b"
+    try fs.makeDir(dir)
+    try fs.makeDir(dir)
+    println(fs.exists(dir), fs.isDir(dir), fs.isDir(tmp + "/none"))
+
+    let file = dir + "/notes.txt"
+    try fs.write(file, "first\n")
+    try fs.append(file, "second\n")
+    try fs.append(dir + "/new.txt", "made by append")
+    print(try fs.read(file))
+    println(try fs.size(file), try fs.read(dir + "/new.txt"))
+
+    // A long file reads back whole.
+    let long = strings.repeat("0123456789", 2000)
+    try fs.write(file, long)
+    println((try fs.read(file)).len == long.len)
+
+    for name in ["c.txt", "a.txt", "b.txt"] {
+        try fs.write(dir + "/" + name, name)
+    }
+    println(try fs.list(dir))
+    try fs.remove(dir + "/b.txt")
+    println(try fs.list(dir))
+    println(try fs.list(tmp))
+
+    // Failures throw errors that name the path.
+    let missing = try fs.read(tmp + "/missing.txt") catch { "no file" }
+    println(missing)
+    println(try? fs.size(tmp + "/missing.txt"), try? fs.list(tmp + "/missing"))
+    try fs.remove(tmp + "/a") catch e { println(e.message.contains("can't remove")) }
+    try fs.makeDir(file + "/sub") catch e { println(e.message.contains("can't create")) }
+    let msg = try fs.read(tmp + "/x") catch e { strings.join(e.message.split(tmp), "TMP") }
+    println(msg)
+
+    println(os.args(), os.env("VEX_UNSET_VARIABLE_42"))
+    os.setEnv("VEX_FSOS", "from vex")
+    println(os.env("VEX_FSOS") ?? "unset")
+    print(try os.output("echo \"$VEX_FSOS\" | tr a-z A-Z"))
+    println(try os.run("exit 7"), try os.run("true"))
+    let failed = try os.output("echo partial; exit 3") catch { "exit 3 caught" }
+    println(failed)
+    println((try os.cwd()).len > 0)
+
+    try os.run("rm -rf '{tmp}'")
+    println(fs.exists(tmp))
+    os.exit(0)
+}
