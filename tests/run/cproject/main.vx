@@ -1,0 +1,16 @@
+import "geo"
+
+extern fn next() -> int as "counter_next"
+extern fn past(limit: int) -> bool as "counter_past"
+extern fn shout(s: string) -> string
+extern fn findWord(s: string?, n: int) -> string? as "find_word"
+extern fn logLine(s: string) as "log_line"
+
+fn main() {
+    println(next(), next(), past(105), past(200))
+    println(shout("hello"), shout(""))
+    println(findWord("word", 1), findWord("word", 2), findWord(nil, 1))
+    logLine("ignored")
+    let m = geo.Point(x: 0.0, y: 2.0).midpoint(geo.Point(x: 4.0, y: 4.0))
+    println(m.x, m.y)
+}

@@ -1,0 +1,16 @@
+struct User {
+    name: string
+}
+
+extern fn save(u: User) -> bool
+extern fn all() -> [int]
+extern fn find(x: int?) -> int
+extern fn maybe() -> int?
+extern fn ok(a: int, b: float, c: bool, d: string, e: string?) -> string?
+extern fn main()
+
+// error: 5:19: User can't be passed to C
+// error: 6:20: [int] can't be returned from C
+// error: 7:19: int? can't be passed to C
+// error: 8:22: int? can't be returned from C
+// error: 10:11: main can't be extern

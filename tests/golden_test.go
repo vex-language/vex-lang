@@ -27,15 +27,21 @@ var update = flag.Bool("update", false, "rewrite the .out files of the examples"
 // Loads and checks the program at [path], a file or a project folder,
 // returning its C code.
 func compile(path string) (string, error) {
+	src, _, err := compileProgram(path)
+	return src, err
+}
+
+// Like [compile], also returning the C code the project brings along.
+func compileProgram(path string) (string, cc.Options, error) {
 	prog, err := modules.Load(path)
 	if err != nil {
-		return "", err
+		return "", cc.Options{}, err
 	}
 	info, err := types.CheckProgram(prog)
 	if err != nil {
-		return "", err
+		return "", cc.Options{}, err
 	}
-	return codegen.Generate(info, filepath.Base(path)), nil
+	return codegen.Generate(info, filepath.Base(path)), prog.CCOptions(), nil
 }
 
 // Returns the project folders, those with a project file, matching [glob].
@@ -80,12 +86,12 @@ func TestExamples(t *testing.T) {
 		base := strings.TrimSuffix(path, ".vx")
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			src, err := compile(path)
+			src, opts, err := compileProgram(path)
 			if err != nil {
 				t.Fatalf("compile errors:\n%v", err)
 			}
 			exe := filepath.Join(t.TempDir(), name)
-			if err := cc.Compile(src, exe); err != nil {
+			if err := cc.CompileWith(src, exe, opts); err != nil {
 				t.Fatal(err)
 			}
 			cmd := exec.Command(exe)

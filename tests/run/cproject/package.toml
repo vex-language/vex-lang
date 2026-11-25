@@ -1,0 +1,10 @@
+[package]
+name = "cproject"
+
+# C code built into the program.
+[c]
+sources = [
+    "native/counter.c",
+    "native/text.c",
+]
+flags = ["-DSTART=100", "-Inative"]

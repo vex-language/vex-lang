@@ -1,0 +1,9 @@
+// A module that wraps C functions behind a Vex interface.
+extern fn average(a: float, b: float) -> float
+
+pub struct Point {
+    pub x: float
+    pub y: float
+
+    pub fn midpoint(other: Point) -> Point => Point(x: average(x, other.x), y: average(y, other.y))
+}
