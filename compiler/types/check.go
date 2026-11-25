@@ -39,6 +39,7 @@ type checker struct {
 	enums   map[string]*Enum
 	funcs   map[string]*Func
 
+	interfaces map[string]*Interface
 	genFuncs   map[string]*genericFunc
 	genStructs map[string]*genericStruct
 	decls      []ast.Decl
@@ -94,6 +95,7 @@ func Check(f *diag.File, file *ast.File) (info *Info, err error) {
 		structs:    map[string]*Struct{},
 		enums:      map[string]*Enum{},
 		funcs:      map[string]*Func{},
+		interfaces: map[string]*Interface{},
 		genFuncs:   map[string]*genericFunc{},
 		genStructs: map[string]*genericStruct{},
 		decls:      file.Decls,
@@ -164,6 +166,11 @@ func conversionHint(want, got Type) string {
 	if o, ok := got.(*Optional); ok && Identical(o.Elem, want) && want != Invalid {
 		return "it may be nil: unwrap it with if let, or give a default with ?? value"
 	}
+	if i, ok := want.(*Interface); ok {
+		if s, ok := got.(*Struct); ok {
+			return fmt.Sprintf("declare it: struct %s: %s", s.Name, i.Name)
+		}
+	}
 	return ""
 }
 
@@ -173,7 +180,7 @@ func (c *checker) assignable(want, got Type, n ast.Node, what string) {
 		c.errorAt(n, "", "this expression has no value")
 		return
 	}
-	if !Identical(want, got) {
+	if !assignableType(want, got) {
 		c.mismatch(n, want, got, what)
 	}
 }
@@ -232,6 +239,11 @@ func (c *checker) lookupVar(name string) *Var {
 // Registers all structs and functions so bodies can refer to them in any order.
 func (c *checker) collect(file *ast.File) {
 	for _, d := range file.Decls {
+		if id, ok := d.(*ast.InterfaceDecl); ok {
+			c.declareInterface(id)
+		}
+	}
+	for _, d := range file.Decls {
 		if sd, ok := d.(*ast.StructDecl); ok && len(sd.TypeParams) == 0 {
 			c.declareStruct(sd)
 		}
@@ -256,6 +268,9 @@ func (c *checker) collect(file *ast.File) {
 		}
 	}
 	c.queueGenericBodies()
+	for _, i := range c.info.Interfaces {
+		c.ifaceMembers(i)
+	}
 	for _, s := range append([]*Struct(nil), c.info.Structs...) {
 		if s != c.info.Error && s.generic == nil {
 			c.structMembers(s)
@@ -265,7 +280,7 @@ func (c *checker) collect(file *ast.File) {
 		c.enumMembers(e)
 	}
 	for _, f := range append([]*Func(nil), c.info.Funcs...) {
-		if f.Owner == nil && f.Enum == nil && f.TypeArgs == nil {
+		if f.Owner == nil && f.Enum == nil && f.Iface == nil && f.TypeArgs == nil {
 			c.signature(f)
 		}
 	}
@@ -276,7 +291,7 @@ func (c *checker) collect(file *ast.File) {
 
 func (c *checker) declareStruct(sd *ast.StructDecl) {
 	s := &Struct{Name: sd.Name.Name, Decl: sd}
-	if c.reserved(sd.Name, "a struct") {
+	if c.reserved(sd.Name, "a struct") || c.ifaceTaken(sd.Name) {
 		return
 	}
 	if g := c.genStructs[s.Name]; g != nil {
@@ -294,7 +309,7 @@ func (c *checker) declareStruct(sd *ast.StructDecl) {
 func (c *checker) declareFunc(fd *ast.FuncDecl) {
 	f := &Func{Name: fd.Name.Name, Decl: fd}
 	c.info.FuncOf[fd] = f
-	if c.reserved(fd.Name, "a function") {
+	if c.reserved(fd.Name, "a function") || c.ifaceTaken(fd.Name) {
 		return
 	}
 	switch {
@@ -352,11 +367,21 @@ func (c *checker) structMembers(s *Struct) {
 		}
 		c.signature(m)
 	}
+	c.conformances(s)
+}
+
+// Reports, and returns true, if [id] names an interface.
+func (c *checker) ifaceTaken(id *ast.Ident) bool {
+	if i := c.interfaces[id.Name]; i != nil {
+		c.errorAt(id, "", "'%s' is already declared as an interface on line %d", id.Name, i.Decl.Pos().Line)
+		return true
+	}
+	return false
 }
 
 // Resolves the parameter and result types of [f].
 func (c *checker) signature(f *Func) {
-	if len(f.Decl.TypeParams) > 0 && (f.Owner != nil || f.Enum != nil) {
+	if len(f.Decl.TypeParams) > 0 && (f.Owner != nil || f.Enum != nil || f.Iface != nil) {
 		c.errorAt(f.Decl.TypeParams[0], "make it a top-level generic function", "methods can't have their own type parameters yet")
 		env := map[string]Type{}
 		for n, t := range c.env {
@@ -430,6 +455,9 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 		}
 		if e := c.enums[te.Name]; e != nil {
 			return e
+		}
+		if i := c.interfaces[te.Name]; i != nil {
+			return i
 		}
 		if te.Name == "void" {
 			c.errorAt(te, "leave out the return type for functions that return nothing", "'void' is not a type")
@@ -559,7 +587,7 @@ func (c *checker) genericType(te *ast.NamedType) Type {
 	}
 	g := c.genStructs[te.Name]
 	if g == nil {
-		if c.structs[te.Name] == nil && c.enums[te.Name] == nil && builtinTypes[te.Name] == nil {
+		if c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && builtinTypes[te.Name] == nil {
 			c.errorAt(te, "", "unknown type '%s'", te.Name)
 		} else {
 			c.errorAt(te, "", "'%s' is not generic, so it takes no type arguments", te.Name)
@@ -574,11 +602,8 @@ func (c *checker) genericType(te *ast.NamedType) Type {
 		if args[i] == Invalid {
 			return Invalid
 		}
-		for _, cst := range p.Constraints {
-			if !satisfies(args[i], cst) {
-				c.errorAt(te.Args[i], constraintHint(cst), "%s needs %s to be %s, but %s isn't", te.Name, p.Name, cst, args[i])
-				return Invalid
-			}
+		if !c.meetsConstraints(p, args[i], te.Args[i], te.Name) {
+			return Invalid
 		}
 	}
 	if s := c.instStruct(g, args, te); s != nil {
@@ -612,6 +637,10 @@ func (c *checker) funcBody(f *Func) {
 	}
 	if f.Enum != nil && !f.Static {
 		c.self = &Var{Name: "self", Type: f.Enum, Kind: SelfVar, Decl: f.Decl.Name}
+		c.info.Selves[f.Decl] = c.self
+	}
+	if f.Iface != nil {
+		c.self = &Var{Name: "self", Type: f.Iface, Kind: SelfVar, Decl: f.Decl.Name}
 		c.info.Selves[f.Decl] = c.self
 	}
 	for i, p := range f.Decl.Params {

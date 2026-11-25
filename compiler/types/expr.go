@@ -26,7 +26,7 @@ func (c *checker) expr(e ast.Expr, want Type) Type {
 	t := c.exprType(e, hint)
 	c.info.Types[e] = t
 	if opt && t != Invalid && t != Void {
-		if _, isOpt := t.(*Optional); !isOpt && Identical(t, o.Elem) {
+		if _, isOpt := t.(*Optional); !isOpt && assignableType(o.Elem, t) {
 			c.info.Wraps[e] = o
 			return o
 		}
@@ -149,6 +149,10 @@ func (c *checker) ident(id *ast.Ident) Type {
 		c.errorAt(id, fmt.Sprintf("create one with %s(...)", id.Name), "'%s' is a type, not a value", id.Name)
 		return Invalid
 	}
+	if i := c.interfaces[id.Name]; i != nil {
+		c.errorAt(id, "", "'%s' is a type, not a value", i.Name)
+		return Invalid
+	}
 	if en := c.enums[id.Name]; en != nil {
 		c.errorAt(id, caseHint("use one of its cases, e.g. ", en, true), "'%s' is a type, not a value", en.Name)
 		return Invalid
@@ -233,7 +237,7 @@ func (c *checker) listLit(e *ast.ListLit, want Type) Type {
 			}
 			continue
 		}
-		if !Identical(elem, t) {
+		if !assignableType(elem, t) {
 			c.mismatch(x, elem, t, fmt.Sprintf("list item %d", i+1))
 		}
 	}
@@ -557,6 +561,15 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		return Int
 	}
 	if x == Invalid {
+		return Invalid
+	}
+	switch x.(type) {
+	case *Interface, *TypeParam:
+		if _, m := ifaceMethod(x, name); m != nil {
+			c.errorAt(e.Name, fmt.Sprintf("call it: %s()", name), "method '%s' must be called", name)
+		} else {
+			c.errorAt(e.Name, didYouMean(name, ifaceNames(x)), "%s has no member '%s'", x, name)
+		}
 		return Invalid
 	}
 	if sig := builtinMember(x, name); sig != nil {

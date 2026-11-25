@@ -95,7 +95,7 @@ func (c *checker) mapLit(e *ast.MapLit, want Type) Type {
 			if _, ok := vt.(*Optional); ok {
 				c.errorAt(e.Values[i], "leave the key out instead of storing nil", "map values can't be optional, since a missing key already reads as nil")
 			}
-		} else if !Identical(value, vt) {
+		} else if !assignableType(value, vt) {
 			c.mismatch(e.Values[i], value, vt, fmt.Sprintf("value %d", i+1))
 		}
 	}
