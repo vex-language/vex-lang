@@ -459,7 +459,7 @@ These cover list indexes out of range, `pop()` on an empty list, division by zer
 The UI framework is a separate package built from general language features, with no UI keywords in the compiler. A sketch, not approved syntax (see [design/architecture.md](design/architecture.md)):
 
 ```swift
-import "ui"
+import "package:ui"
 
 struct Counter: View {
     let count = State(0)

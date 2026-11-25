@@ -50,7 +50,7 @@ Because of this rule, the earlier `component`, `state` and `view { }` keywords a
 A sketch of what this allows. It is **not approved syntax**: each feature's syntax is approved when it is built.
 
 ```swift
-import "ui"
+import "package:ui"
 
 struct Counter: View {
     let count = State(0)

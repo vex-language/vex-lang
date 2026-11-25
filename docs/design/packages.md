@@ -1,88 +1,95 @@
 # Packages
 
-A Vex package is a public git repository with version tags. There is no upload step and no central storage: `vex get` downloads straight from the repository, and a website lists the packages it knows about, as pkg.go.dev does for Go.
+A Vex package is a public git repository with version tags. There is no upload step and no central storage: `vex get` downloads straight from the repository, and a website lists the packages it knows about.
+
+Code imports a package by its name, and the project file says where that name comes from, as in Dart and Flutter. Moving a repository only changes one line in the project file, never the imports.
+
+## Imports
+
+| Form | Imports | Example |
+|---|---|---|
+| `vex:name` | The standard library, built in; no download and no project file entry | `import "vex:math"` |
+| `package:name` | A package listed in the project file | `import "package:ui"` |
+| `package:name/folder` | A folder inside a package | `import "package:charts/line"` |
+| `"folder"` | A folder of the current project, relative to the importing file | `import "models"` |
+
+```swift
+import "vex:math"
+import "package:ui"
+import "models"
+
+fn main() {
+    println(math.sqrt(2.0))
+    let u = models.User(name: "Ann")
+}
+```
+
+A folder is one module: all `.vx` files in it share their names and use each other without imports. Code in another module refers to a name through the module, as in `math.sqrt` or `models.User`. Which names a module exposes to others is decided with V-105.
 
 ## Using a package
 
 ```sh
-vex get github.com/ann/charts@0.3.1   # a tagged version
-vex get github.com/ann/charts         # the newest tag
+vex get https://github.com/ann/charts           # the newest tag
+vex get https://github.com/ann/charts@0.3.1     # a tagged version
 ```
 
-```swift
-import "github.com/ann/charts"
-
-fn main() {
-    charts.bar([3, 5, 2])
-}
-```
-
-`vex get` records the dependency in the project file and its exact hash in the lock file. `vex run` and `vex build` fetch whatever is missing, so a fresh clone builds with no extra step.
-
-## Publishing a package
-
-1. Put the code in a public git repository with a project file at the root.
-2. Tag a release: `git tag v0.3.1 && git push --tags`.
-
-Versions follow semantic versioning: `v1.4.2` is major.minor.patch, and a new major version may break code that uses the package.
+`vex get` adds the dependency to `vex.toml` under the package's name and records its exact hash in `vex.lock`. `vex run` and `vex build` fetch whatever is missing, so a fresh clone builds with no extra step.
 
 ## Files
 
 | File | Written by | Purpose |
 |---|---|---|
-| Project file | The developer, and `vex get` | Package name, version, dependencies |
+| `vex.toml` | The developer, and `vex get` | Package name, Vex version, dependencies |
 | `vex.lock` | `vex get`, never by hand | Exact version and content hash of every dependency, including indirect ones |
+
+```toml
+[package]
+name = "myapp"
+vex = "0.2"
+
+[dependencies]
+ui = { git = "https://github.com/vex-lang/ui", version = "0.3" }
+camera = { git = "https://github.com/vex-lang/packages", path = "camera", version = "0.2" }
+charts = { git = "https://github.com/ann/charts", version = "0.3.1" }
+```
+
+- The key is the name used in `import "package:..."`. It is usually the package's own name from its `vex.toml`, and can be changed to resolve a clash between two packages with the same name.
+- `path` names a folder inside the repository, for repositories that hold several packages.
+- TOML was chosen because it is simple, allows comments and has no indentation rules. YAML (as in `pubspec.yaml`) was left out for its indentation mistakes and surprising values (`no` becomes false), and JSON because it allows no comments.
 
 The lock file is committed, so a build that works today builds identically later, and a dependency whose content changed under the same tag is rejected.
 
-Downloads go into one shared cache, `~/.vex/pkg/<host>/<path>@<version>`, not a folder inside each project.
+Downloads go into one shared cache, `~/.vex/pkg/<repository>@<version>`, not a folder inside each project.
 
-### Project file format
+## Publishing a package
 
-To be approved together with V-105. The candidates:
+1. Put the code in a public git repository with a `vex.toml` at the root (or at its `path`).
+2. Tag a release: `git tag v0.3.1 && git push --tags`. For a repository with several packages, tags carry the folder: `camera/v0.2.0`.
 
-| Format | Example | For | Against |
-|---|---|---|---|
-| TOML, `vex.toml` | Rust (`Cargo.toml`), Python | Simple, allows comments, no indentation rules, existing libraries | One more format to learn |
-| YAML, `vex.yaml` | Flutter (`pubspec.yaml`) | Familiar to Flutter developers | Indentation mistakes, surprising values (`no` becomes false) |
-| Own format, `vex.mod` | Go (`go.mod`) | Tiny, made for exactly this, no dependency | A custom parser to maintain |
-| Vex code, `project.vx` | Swift, Zig | One language for everything | Tools must run the compiler to read it; config can grow into a program |
-
-JSON is left out because it allows no comments.
+Versions follow semantic versioning: `v1.4.2` is major.minor.patch, and a new major version may break code that uses the package.
 
 ## Official packages
 
 Where a package made by the Vex project lives depends on what it needs:
 
-| Kind | Where | Examples |
+| Kind | Where | Imported as |
 |---|---|---|
-| Useful to every program, needs no phone | Standard library, inside `vex-lang`; imported with no `vex get` | `http`, `json`, `fs`, `time`, `math`, `strings` |
-| Draws on screen | `vex-ui` | Widgets, layout, state, `Image`, navigation, theming |
-| Needs native iOS or Android code | `vex-packages`, one repo with a folder per package | `camera`, `image_picker`, `location`, `storage`, `notifications`, `maps` |
+| Useful to every program, needs no phone | Standard library, inside `vex-lang` | `vex:http`, `vex:json`, `vex:fs`, `vex:time`, `vex:math`, `vex:strings` |
+| Draws on screen | `vex-ui` | `package:ui` |
+| Needs native iOS or Android code | `vex-packages`, one repo with a folder per package | `package:camera`, `package:image_picker`, `package:location`, `package:storage`, `package:notifications`, `package:maps` |
 
-Each folder in `vex-packages` is a separate package with its own tags (`camera/v0.2.0`), so an app carries only the packages it imports.
-
-### Addresses
-
-The import path is where a package is found, so moving a repo would break every app that imports it. Official packages therefore use addresses on the project's own domain:
-
-```swift
-import "vexlang.com/ui"
-import "vexlang.com/packages/camera"
-```
-
-Each address serves a small page with a tag naming the real repository, which `vex get` follows (Go uses the same scheme). Official repositories live in a GitHub organisation rather than a personal account, and can move without breaking any import.
+Official repositories live in a GitHub organisation rather than a personal account. `vex new` writes their entries into `vex.toml`, and the website lists them first.
 
 ## Choosing versions
 
-When two packages need different versions of a third, Vex picks the lowest version that satisfies all of them (minimal version selection, as in Go). A build never picks up a newer release by itself; versions change only when someone runs `vex get`. Two major versions of the same package can be used side by side, because their import paths differ (`.../charts` and `.../charts/v2`).
+When two packages need different versions of a third, Vex picks the lowest version that satisfies all of them (minimal version selection, as in Go). A build never picks up a newer release by itself; versions change only when someone runs `vex get`. A build holds one version of each package, so packages that need different major versions of the same dependency can't be used together, as in Dart.
 
 ## The website
 
-A searchable index at `pkg.vexlang.com` (or `vexlang.com/packages`). It stores no code.
+A searchable package index. It stores no code.
 
-- **Listing.** A package appears when someone submits its URL, when `vex get` fetches it for the first time, or when its repository has the `vex` topic on GitHub.
-- **Pages.** README, versions, licence, dependencies and the packages that use it, plus API docs generated from `///` comments by `vex doc`.
+- **Listing.** A package appears when someone submits its repository, when `vex get` fetches it for the first time, or when its repository has the `vex` topic on GitHub.
+- **Pages.** README, versions, licence, dependencies and the packages that use it, the `vex.toml` line to copy, plus API docs generated from `///` comments by `vex doc`.
 - **Scores.** Whether it compiles with the current Vex, has docs and tests, which platforms it supports (iOS, Android, desktop), and how widely it is used.
 
 If the website is down, `vex get` still works, because it talks to git directly.
@@ -98,8 +105,8 @@ Both are optional for `vex get`, which can always fall back to git.
 
 ## Order
 
-1. V-105 modules: multi-file projects and `import`.
-2. V-121 `vex get`, the project file and `vex.lock`, fetching from git.
+1. V-105 modules: folders as modules, `import` of project folders and `vex:` libraries, `vex.toml`.
+2. V-121 `vex get` and `vex.lock`, fetching `package:` dependencies from git.
 3. V-122 `vex doc`, which the website reuses.
 4. V-605 the website, together with the `vex-ui` repo, its first real package.
 5. V-607 cache and checksum log.
