@@ -626,6 +626,43 @@ let evens = nums.filter(fn(x) => x % 2 == 0)
 let labels = nums.map(fn(x) => "#{x}")      // [string]
 ```
 
+## Records
+
+A record groups a few values without declaring a struct, so a function can return several things. Types and values are written as in Dart 3: positional fields in parentheses, named fields in braces in the type.
+
+```swift
+fn divmod(a: int, b: int) -> (int, int) {
+    return (a / b, a % b)
+}
+
+fn bounds(xs: [int]) -> ({int min, int max}) {
+    return (min: xs[0], max: xs[xs.len - 1])
+}
+
+let r = divmod(17, 5)
+println(r)                     // (3, 2)
+println(r.$1, r.$2)            // positional fields count from $1
+
+let b = bounds([1, 5, 9])
+println(b.max)                 // 9
+
+let (q, rem) = divmod(9, 4)    // take a record apart
+let (:min, :max) = b           // a named field into a variable of the same name
+var (min: lo, max: _) = b      // into another name; _ skips a field
+
+for (name, score) in [("ann", 3), ("bob", 5)] {
+    println(name, score)
+}
+```
+
+- A record can mix both kinds: `(int, {string name})`, written `(3, name: "vex")`. A record with one positional field is written `(int,)` and `(1,)`; `(x)` is just `x` in parentheses.
+- Records are values. Two records are equal with `==` when their fields are, and the order of named fields doesn't matter: `(a: 1, b: 2) == (b: 2, a: 1)`.
+- The type is the shape: any `(int, string)` is the same type as any other, with no declaration.
+- Fields can't be changed; make a new record instead.
+- A pattern names every field of the record, using `_` for the ones it doesn't need. Patterns in `match` and nested patterns come later (V-137).
+- Records print like their values, with named fields in alphabetical order: `(3, color: Color.green, name: "vex")`.
+- Records work with generics (`fn swap<A, B>(p: (A, B)) -> (B, A)`), optionals, lists, `contains`, and isolates. They can't be map keys yet.
+
 ## Optionals
 
 A type ending in `?` holds either a value or `nil`. Values of every other type always exist, so there are no null crashes: Vex makes you check before using an optional.
@@ -902,7 +939,7 @@ async fn main() {
 
 ## Types
 
-The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, structs, enums, function types `fn(T) -> R`, optionals `T?` and futures `Future<T>`.
+The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, structs, enums, function types `fn(T) -> R`, optionals `T?`, records `(int, string)` and futures `Future<T>`.
 
 - `let x = ...` takes its type from the value. An empty list or map needs the type written: `let xs: [int] = []`, `let m: [string: int] = [:]`.
 - Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.
