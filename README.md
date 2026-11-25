@@ -168,6 +168,7 @@ The [examples](examples) folder has small complete programs, each with its expec
 | [closures.vx](examples/closures.vx) | Closures, trailing blocks, functions returning functions, `filter` and `map` |
 | [enums.vx](examples/enums.vx) | Enums with values, methods, `match` and `.case` shorthand |
 | [optionals.vx](examples/optionals.vx) | `T?`, `nil`, `if let`, `guard let`, `?.` and `??` |
+| [errors.vx](examples/errors.vx) | `throws`, `throw`, `try`, `catch`, `try?` and typed errors |
 | [input.vx](examples/input.vx) | Reading from the keyboard with `input()` |
 
 ```sh
@@ -299,9 +300,23 @@ guard let user = findUser(2) else { return }
 let boss = findUser(3)?.manager?.name ?? "nobody"
 ```
 
+**Errors.** A function that can fail is marked `throws`, and every call to it needs `try`, so you can see each line that may fail. Errors are returned like values, with no slow unwinding.
+
+```swift
+fn parsePort(s: string) throws -> int {
+    let n = int(s)
+    if n < 1 || n > 65535 { throw Error("port {n} out of range") }
+    return n
+}
+
+let port = try parsePort(text)                  // passes the error up
+let safe = try parsePort(text) catch { 8080 }   // handles it here
+let maybe = try? parsePort(text)                // int?: nil on error
+```
+
 **Built-ins.** `print`, `println`, `input`, `int`, `float`, `str`, `panic` and `assert`.
 
-**Errors.** The compiler explains mistakes and suggests a fix:
+**Error messages.** The compiler explains mistakes and suggests a fix:
 
 ```
 error: can't use '+' with string and int
@@ -352,7 +367,7 @@ go test ./compiler/codegen ./tests
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
 | 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, modules | In progress |
-| 3 | v0.3 | UI core: `component`, `state`, `view`, view diffing | Planned |
+| 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |
 | 6 | v0.6 | Hot reload, VS Code extension, formatter | Planned |

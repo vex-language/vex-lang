@@ -276,6 +276,69 @@ let message = match code {             // a match can be a value
 - Used as a value, every arm needs an expression of the same type; an arm that calls `panic(...)` is allowed too.
 - Used as a statement, an arm can be a block or a single statement like `return`, `break` or `count += 1`.
 
+## Errors
+
+A function that can fail declares `throws` before its result type, and `throw` stops it with an error. Every call to it needs `try`, so each line that may fail is visible.
+
+```swift
+fn parsePort(s: string) throws -> int {
+    if s == "" {
+        throw Error("empty port")            // the built-in Error has a message
+    }
+    let n = int(s)
+    if n < 1 || n > 65535 {
+        throw Error("port {n} out of range")
+    }
+    return n
+}
+
+fn loadPort(path: string) throws -> int {
+    let text = try readConfig(path)          // try passes the error up to the caller
+    return try parsePort(text)
+}
+```
+
+Three ways to handle an error:
+
+```swift
+let port = try parsePort(s)                  // pass it up: the enclosing function must throw
+
+let port = try parsePort(s) catch e {        // handle it here; e is the error
+    println("bad port: {e.message}")
+    8080                                     // the last line gives the value
+}
+
+let port = try? parsePort(s) ?? 8080         // try? gives nil instead of the error
+```
+
+**Typed errors.** `throws(E)` names an enum, so callers can `match` every kind of failure:
+
+```swift
+enum LoadError {
+    notFound(path: string)
+    denied
+}
+
+fn open(path: string) throws(LoadError) -> File {
+    throw .notFound(path: path)
+}
+
+let file = try open(path) catch e {
+    match e {
+        notFound(p) => File.empty(p)
+        denied => File.empty("locked")
+    }
+}
+```
+
+- `try` covers every throwing call in the expression after it: `try save(load(path))`. Nothing after a failing call runs.
+- A `catch` block that gives a value ends with an expression of the try's type, or leaves with `return`, `break`, `continue`, `throw` or `panic(...)`. Without a value it is a statement: `try save(x) catch e { println(e.message) }`.
+- A typed error passed up through a plain `throws` function becomes an `Error` whose message describes it, such as `LoadError.notFound(path: "a.txt")`. Passing it up through a function that throws a different enum is an error: catch it there.
+- A catch receives the enum when every call in the try throws the same enum, and `Error` otherwise.
+- Closures and function types can throw too: `fn(int) throws -> int`. A closure passed where a throwing function is expected may throw.
+- `fn main() throws` lets errors reach the top: the program prints `error: <message>` and exits with code 1.
+- Errors are passed back like return values, not by unwinding the stack, so code that doesn't throw pays nothing and a `try` costs one check after each call.
+
 ## Built-ins
 
 | Name | Description |
@@ -326,13 +389,6 @@ error: index 5 is out of range for a list of length 3
 These cover list indexes out of range, `pop()` on an empty list, division by zero, integer overflow, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`.
 
 ## Planned
-
-### Errors (v0.2)
-
-```swift
-fn load(path: string) -> string throws { ... }
-let text = try load("data.txt")
-```
 
 ### Mobile UI (v0.3+)
 

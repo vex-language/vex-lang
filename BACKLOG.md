@@ -74,7 +74,7 @@ Goal: the language features real apps need before any UI work.
 
 - [x] **V-100** Enums with data plus `match` (exhaustive) (L)
 - [x] **V-101** Optionals `User?` with `if let`, `??` and `?.`; no null crashes (L)
-- [ ] **V-102** Errors: `throws` functions, `try`, `catch` (L)
+- [x] **V-102** Errors: `throws` / `throws(E)`, `throw`, `try`, `catch`, `try?` (L)
 - [x] **V-103** Closures / lambdas, needed for UI event handlers (L)
 - [ ] **V-104** Generics for functions and structs (XL)
 - [ ] **V-105** Modules and imports (`import "ui"`), multi-file projects, project file (L)
@@ -201,6 +201,7 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-24 | Warnings (which still build) for habits from C-style languages: `;` at line ends, parentheses around conditions |
 | 2026-11-24 | A loop over a list visits the items present when it started (like Go); removing items ends it early |
 | 2026-11-25 | Integer overflow stops the program by default; `&+`, `&-`, `&*` (and `&+=`, `&-=`, `&*=`) wrap around, as in Swift (V-120) |
+| 2026-11-25 | Errors: `throws` before `->`; plain `throws` uses the built-in `Error(message)`, `throws(E)` names an enum; every throwing call needs `try`; handled with `try`, `try ... catch e { }` (last line gives the value) or `try?`; errors are returned through a hidden argument, not by unwinding |
 | 2026-11-25 | Two projects, like Dart and Flutter: the language in `vex-lang`, the UI framework in a separate `vex-ui` repo created once the language part is complete |
 | 2026-11-25 | No UI keywords in the compiler: `component` / `state` / `view` are dropped; the framework is built on interfaces, generics, builder blocks and property setters ([architecture](docs/design/architecture.md)) |
 | 2026-11-25 | Packages are public git repos with version tags, fetched directly by `vex get`; a website indexes them like pub.dev but stores no code ([packages](docs/design/packages.md)) |
