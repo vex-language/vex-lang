@@ -1,0 +1,63 @@
+// C pointer types, sized C numbers, callbacks into Vex and functions
+// exported to C.
+
+extern type Counter
+extern type Window as "UIWindow"
+
+extern fn counter_new(name: string) -> Counter
+extern fn counter_add(c: Counter, n: int32)
+extern fn counter_get(c: Counter) -> int32
+extern fn counter_name(c: Counter) -> string
+extern fn counter_find(id: int32) -> Counter?
+extern fn counter_free(c: Counter)
+extern fn low_byte(x: int32) -> uint8
+extern fn halve(x: float32) -> float32
+extern fn each(n: int32, f: fn(int, string))
+extern fn store(f: fn(int) -> int)
+extern fn fire(x: int) -> int
+extern fn call_back_in() -> int
+extern fn greet_in(c: Counter) -> int32
+
+export fn vex_twice(x: int) -> int => x * 2
+
+export fn vex_greet(name: string, c: Counter) -> int32 {
+    println("greet", name, counter_get(c))
+    return 7
+}
+
+struct Holder {
+    c: Counter
+    w: Window? = nil
+}
+
+fn churn() -> int {
+    var xs: [[int]] = []
+    for i in 0..2000 {
+        xs.push([i, i])
+    }
+    return xs.len
+}
+
+fn main() {
+    // Handles and sized numbers.
+    let c = counter_new("hits")
+    counter_add(c, 5)
+    counter_add(c, 3)
+    println(counter_name(c), counter_get(c), low_byte(300), halve(3.0))
+    println(counter_find(1) == nil, c == c, Holder(c: c).w, [Holder(c: c).c].contains(c))
+    println("{c}".startsWith("<Counter 0x"), "{counter_find(2)}")
+
+    // Callbacks: one C calls during the call, one it keeps and calls later.
+    var seen: [string] = []
+    each(3, fn(i: int, s: string) {
+        seen.push("{i}:{s}")
+    })
+    println(seen)
+    let base = 100
+    store(fn(x: int) -> int => x + base)
+    println(fire(1), churn(), fire(2))
+
+    // C calling exported Vex functions.
+    println(call_back_in(), greet_in(c), vex_twice(4))
+    counter_free(c)
+}

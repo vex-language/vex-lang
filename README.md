@@ -358,11 +358,18 @@ fn main() {
 }
 ```
 
-**C functions.** `extern fn` calls C directly: no header and no glue code. Strings convert on the way in and out, and a project can build its own C files.
+**C functions.** `extern fn` calls C directly: no header and no glue code. Strings and sized numbers convert on the way in and out, C pointers get their own types, closures can be passed as callbacks, and C can call `export fn` functions. A project can build its own C and Objective-C files.
 
 ```swift
 extern fn getenv(name: string) -> string?
 extern fn next() -> int as "counter_next"   // from native/counter.c
+
+extern type View as "UIView"
+extern fn on_tap(view: View, handler: fn())
+extern fn set_alpha(view: View, alpha: float32)
+
+on_tap(button, fn() => println("tapped"))
+export fn vex_frame(t: float) -> int => render(t)
 ```
 
 **Closures.** Functions without a name, written like `fn` declarations. They capture variables by reference, and a trailing block passes one as the last argument.
@@ -487,7 +494,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, builder blocks, properties, standard library | In progress: 23 of 48 tasks; next are C callbacks, async and isolates, then records, patterns and extensions |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, builder blocks, properties, standard library | In progress: 24 of 48 tasks; next are async and isolates, then records, patterns and extensions |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |

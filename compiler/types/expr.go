@@ -196,7 +196,7 @@ func (c *checker) ident(id *ast.Ident) Type {
 		c.errorAt(id, "", "'%s' is a type, not a value", i.Name)
 		return Invalid
 	}
-	if c.genIfaces[id.Name] != nil {
+	if c.genIfaces[id.Name] != nil || c.handles[id.Name] != nil {
 		c.errorAt(id, "", "'%s' is a type, not a value", id.Name)
 		return Invalid
 	}
@@ -528,6 +528,9 @@ func comparable(t Type) bool {
 		return t.Simple()
 	case *TypeParam:
 		return t.Has("Equatable")
+	}
+	if _, ok := t.(*Handle); ok {
+		return true
 	}
 	return t == Int || t == Float || t == Bool || t == String
 }

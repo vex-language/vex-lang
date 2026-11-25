@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 )
 
@@ -32,9 +33,10 @@ func Command() ([]string, error) {
 // C code a program brings along: source files and built objects to
 // compile and link with it, libraries to link, and extra flags.
 type Options struct {
-	Sources []string
-	Libs    []string
-	Flags   []string
+	Sources    []string
+	Libs       []string
+	Flags      []string
+	Frameworks []string
 }
 
 // Compiles the C source [src] into the executable [out]. Flags in
@@ -59,9 +61,22 @@ func CompileWith(src, out string, opts Options) error {
 	args := append(append(command[1:len(command):len(command)], flags...), strings.Fields(os.Getenv("VEX_CFLAGS"))...)
 	args = append(args, opts.Flags...)
 	args = append(args, "-o", out, cfile)
-	args = append(args, opts.Sources...)
+	for _, s := range opts.Sources {
+		if filepath.Ext(s) == ".m" {
+			// Objective-C, with automatic reference counting.
+			args = append(args, "-x", "objective-c", "-fobjc-arc", s, "-x", "none")
+			continue
+		}
+		args = append(args, s)
+	}
 	for _, l := range opts.Libs {
 		args = append(args, "-l"+l)
+	}
+	if len(opts.Frameworks) > 0 && runtime.GOOS != "darwin" {
+		return fmt.Errorf("frameworks in package.toml (%s) can only be linked on macOS", strings.Join(opts.Frameworks, ", "))
+	}
+	for _, f := range opts.Frameworks {
+		args = append(args, "-framework", f)
 	}
 	args = append(args, "-lm")
 	cmd := exec.Command(command[0], args...)
@@ -69,7 +84,7 @@ func CompileWith(src, out string, opts Options) error {
 	cmd.Stdout, cmd.Stderr = &output, &output
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError
-		if errors.As(err, &exit) && len(opts.Sources)+len(opts.Libs)+len(opts.Flags) > 0 {
+		if errors.As(err, &exit) && len(opts.Sources)+len(opts.Libs)+len(opts.Flags)+len(opts.Frameworks) > 0 {
 			return fmt.Errorf("the C compiler (%s) failed; check the C code and the [c] section of package.toml\n%s", command[0], strings.TrimSpace(output.String()))
 		}
 		if errors.As(err, &exit) {

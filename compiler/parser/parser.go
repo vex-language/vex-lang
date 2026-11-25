@@ -273,6 +273,9 @@ func (p *parser) decl() ast.Decl {
 		case *ast.InterfaceDecl:
 			d.Pub = true
 			return d
+		case *ast.ExternTypeDecl:
+			d.Pub = true
+			return d
 		}
 		return nil
 	}
@@ -282,7 +285,14 @@ func (p *parser) decl() ast.Decl {
 	case lexer.Fn:
 		return p.funcDecl(false)
 	case lexer.Extern:
+		if p.peek(1).Kind == lexer.Ident && p.peek(1).Text == "type" {
+			return p.externType()
+		}
 		return p.externDecl()
+	case lexer.Ident:
+		if t.Text == "export" && p.peek(1).Kind == lexer.Fn {
+			return p.exportDecl()
+		}
 	case lexer.Struct:
 		return p.structDecl()
 	case lexer.Enum:
@@ -405,20 +415,59 @@ func (p *parser) externDecl() *ast.FuncDecl {
 	if fn.Body != nil || fn.ExprBody != nil {
 		p.errorAt(lexer.Token{Pos: fn.Name.Start, Text: fn.Name.Name}, "remove the body; the function is written in C", "extern functions have no body")
 	}
-	if p.at(lexer.As) {
-		p.next()
-		t := p.tok()
-		if t.Kind != lexer.String {
-			p.fail(t, `e.g. as "c_name"`, "expected the C name in quotes, found %s", describe(t))
-		}
-		p.next()
-		if !cIdent.MatchString(t.Value) {
-			p.fail(t, "use letters, digits and _, not starting with a digit", "'%s' isn't a valid C name", t.Value)
-		}
-		fn.CName = t.Value
+	fn.CName = p.cName()
+	fn.Span = p.span(start)
+	return fn
+}
+
+// Parses `extern type Name`, optionally followed by `as "c_name"`.
+func (p *parser) externType() *ast.ExternTypeDecl {
+	start := p.next().Pos
+	p.next()
+	d := &ast.ExternTypeDecl{Name: p.ident("a type name")}
+	if p.at(lexer.Lt) {
+		p.fail(p.tok(), "declare one extern type per C type", "extern types can't be generic")
+	}
+	if p.at(lexer.LBrace) {
+		p.fail(p.tok(), "C structs are reached through extern fn calls on the handle", "extern types have no body")
+	}
+	d.CName = p.cName()
+	d.Span = p.span(start)
+	return d
+}
+
+// Parses `export fn name(params) -> T { ... }`, a function C can call.
+func (p *parser) exportDecl() *ast.FuncDecl {
+	start := p.next().Pos
+	fn := p.funcDecl(false)
+	fn.Export = true
+	if len(fn.TypeParams) > 0 {
+		p.errorAt(lexer.Token{Pos: fn.TypeParams[0].Start, Text: fn.TypeParams[0].Name.Name}, "C has no generics; export one fn per type", "export functions can't be generic")
+		fn.TypeParams = nil
+	}
+	if fn.Throws != nil {
+		p.errorAt(lexer.Token{Pos: fn.Throws.Start, Text: "throws"}, "catch errors inside and return a status instead", "export functions can't throw")
+		fn.Throws = nil
 	}
 	fn.Span = p.span(start)
 	return fn
+}
+
+// Parses an optional `as "c_name"`, returning the name or "".
+func (p *parser) cName() string {
+	if !p.at(lexer.As) {
+		return ""
+	}
+	p.next()
+	t := p.tok()
+	if t.Kind != lexer.String {
+		p.fail(t, `e.g. as "c_name"`, "expected the C name in quotes, found %s", describe(t))
+	}
+	p.next()
+	if !cIdent.MatchString(t.Value) {
+		p.fail(t, "use letters, digits and _, not starting with a digit", "'%s' isn't a valid C name", t.Value)
+	}
+	return t.Value
 }
 
 var cIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)

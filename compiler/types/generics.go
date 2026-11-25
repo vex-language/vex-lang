@@ -294,6 +294,8 @@ func (c *checker) taken(id *ast.Ident) bool {
 		line, what = c.interfaces[name].Decl.Pos().Line, "an interface"
 	case c.genIfaces[name] != nil:
 		line, what = c.genIfaces[name].decl.Pos().Line, "an interface"
+	case c.handles[name] != nil:
+		line, what = c.handles[name].Decl.Pos().Line, "an extern type"
 	default:
 		return false
 	}

@@ -1,0 +1,6 @@
+[package]
+name = "objc"
+
+[c]
+sources = ["native/glue.m", "native/plain.c"]
+frameworks = ["Foundation"]

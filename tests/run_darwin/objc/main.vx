@@ -1,0 +1,16 @@
+// Objective-C code using Foundation, reached through an extern type.
+
+extern type Text as "NSMutableString"
+extern fn str_make(s: string) -> Text
+extern fn str_append(t: Text, s: string)
+extern fn str_upper(t: Text) -> string
+extern fn str_len(t: Text) -> int
+extern fn str_free(t: Text)
+extern fn plain_add(a: int32, b: int32) -> int32
+
+fn main() {
+    let t = str_make("hello")
+    str_append(t, ", vex")
+    println(str_upper(t), str_len(t), plain_add(2, 3))
+    str_free(t)
+}

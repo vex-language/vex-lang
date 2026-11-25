@@ -40,6 +40,7 @@ type tables struct {
 	genStructs map[string]*genericStruct
 	genEnums   map[string]*genericEnum
 	genIfaces  map[string]*genericIface
+	handles    map[string]*Handle
 }
 
 func newTables() tables {
@@ -52,6 +53,7 @@ func newTables() tables {
 		genStructs: map[string]*genericStruct{},
 		genEnums:   map[string]*genericEnum{},
 		genIfaces:  map[string]*genericIface{},
+		handles:    map[string]*Handle{},
 	}
 }
 
@@ -153,6 +155,11 @@ func (m *Module) publicNames() []string {
 			names = append(names, n)
 		}
 	}
+	for n, h := range m.handles {
+		if h.Decl.Pub {
+			names = append(names, n)
+		}
+	}
 	for n, i := range m.interfaces {
 		if i.Decl.Pub {
 			names = append(names, n)
@@ -177,6 +184,8 @@ func declPub(d ast.Decl) bool {
 	case *ast.EnumDecl:
 		return d.Pub
 	case *ast.InterfaceDecl:
+		return d.Pub
+	case *ast.ExternTypeDecl:
 		return d.Pub
 	}
 	return false
@@ -369,6 +378,9 @@ func (c *checker) qualifiedType(te *ast.NamedType) Type {
 	case m.interfaces[te.Name] != nil:
 		i := m.interfaces[te.Name]
 		t, pub = i, i.Decl.Pub
+	case m.handles[te.Name] != nil:
+		h := m.handles[te.Name]
+		t, pub = h, h.Decl.Pub
 	default:
 		c.unknownIn(te, m, te.Name)
 		return Invalid
@@ -443,7 +455,7 @@ func (c *checker) moduleIdent(id *ast.Ident) Type {
 		return funcValue(f)
 	}
 	switch {
-	case m.structs[name] != nil && m.structs[name].Decl != nil, m.genStructs[name] != nil, m.genEnums[name] != nil, m.interfaces[name] != nil, m.genIfaces[name] != nil:
+	case m.structs[name] != nil && m.structs[name].Decl != nil, m.genStructs[name] != nil, m.genEnums[name] != nil, m.interfaces[name] != nil, m.genIfaces[name] != nil, m.handles[name] != nil:
 		c.errorAt(id, "", "'%s.%s' is a type, not a value", id.Module, name)
 	case m.enums[name] != nil:
 		c.errorAt(id, caseHint("use one of its cases, e.g. "+id.Module+".", m.enums[name], true), "'%s.%s' is a type, not a value", id.Module, name)

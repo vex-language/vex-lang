@@ -1,0 +1,20 @@
+extern type Db
+struct Db {}
+extern fn f(cb: fn(int) -> string)
+extern fn g(cb: fn([int]))
+export fn h() -> string => ""
+export fn vx_x() {}
+export fn k(cb: fn()) {}
+fn main() {
+    let x: int32 = 5
+    let d = Db()
+}
+
+// error: 2:8: 'Db' is already declared as an extern type on line 1
+// error: 3:17: a callback passed to C can't return string
+// error: 4:17: C can't pass [int] to a callback
+// error: 5:18: export functions can't return strings yet, since C would hold memory Vex manages
+// error: 6:11: names starting with vx_ are kept for the Vex runtime
+// error: 7:17: fn() can't be taken from C
+// error: 9:12: int32 is only for the signatures of extern fn and export fn
+// error: 10:13: Db is a C type, so it can't be created in Vex

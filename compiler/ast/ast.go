@@ -73,6 +73,15 @@ type Ident struct {
 
 // --- Declarations ---
 
+// A C pointer type: `extern type Db`, optionally `as "sqlite3"`, the C
+// name it is shown with.
+type ExternTypeDecl struct {
+	Span
+	Pub   bool
+	Name  *Ident
+	CName string
+}
+
 // A function or method: `fn add(a: int, b: int) -> int { ... }`.
 type FuncDecl struct {
 	Span
@@ -82,6 +91,9 @@ type FuncDecl struct {
 	// [CName] when it differs from the Vex name.
 	Extern bool
 	CName  string
+
+	// Set for `export fn`, which C code can call by its name.
+	Export bool
 
 	Name       *Ident
 	TypeParams []*TypeParam
@@ -209,10 +221,11 @@ type EnumCase struct {
 	Fields []*Field
 }
 
-func (*FuncDecl) declNode()      {}
-func (*StructDecl) declNode()    {}
-func (*EnumDecl) declNode()      {}
-func (*InterfaceDecl) declNode() {}
+func (*FuncDecl) declNode()       {}
+func (*StructDecl) declNode()     {}
+func (*EnumDecl) declNode()       {}
+func (*InterfaceDecl) declNode()  {}
+func (*ExternTypeDecl) declNode() {}
 
 // --- Types ---
 

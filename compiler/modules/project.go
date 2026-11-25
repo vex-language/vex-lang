@@ -23,6 +23,9 @@ type Project struct {
 	CSources []string
 	CLibs    []string
 	CFlags   []string
+
+	// Apple frameworks to link, such as Foundation or UIKit.
+	CFrameworks []string
 }
 
 var (
@@ -110,8 +113,12 @@ func ParseProject(f *diag.File) (*Project, diag.List) {
 				case "sources":
 					if item == "" || path.IsAbs(item) || strings.Contains(item, "\\") || strings.HasPrefix(path.Clean(item), "..") {
 						fail(vcol, 1, "list files inside the project, relative to it, with /", "'%s' is outside the project", item)
-					} else if ext := path.Ext(item); ext != ".c" && ext != ".o" && ext != ".a" {
-						fail(vcol, 1, "list .c files, or built .o and .a files", "'%s' isn't a C source file", item)
+					} else if ext := path.Ext(item); ext != ".c" && ext != ".m" && ext != ".o" && ext != ".a" {
+						fail(vcol, 1, "list .c and Objective-C .m files, or built .o and .a files", "'%s' isn't a C source file", item)
+					}
+				case "frameworks":
+					if !cLib.MatchString(item) {
+						fail(vcol, 1, `name the framework without -framework, e.g. "Foundation"`, "'%s' isn't a framework name", item)
 					}
 				case "libs":
 					if !cLib.MatchString(item) {
@@ -134,8 +141,10 @@ func ParseProject(f *diag.File) (*Project, diag.List) {
 				proj.CLibs = list
 			case "flags":
 				proj.CFlags = list
+			case "frameworks":
+				proj.CFrameworks = list
 			default:
-				fail(col, len(key), "known keys are sources, libs and flags", "unknown key '%s' in [c]", key)
+				fail(col, len(key), "known keys are sources, libs, frameworks and flags", "unknown key '%s' in [c]", key)
 			}
 			continue
 		}
