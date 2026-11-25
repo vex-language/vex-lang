@@ -1,0 +1,62 @@
+// Line breaks, type arguments and literals in less common places.
+
+interface Loader {
+    fn load() throws
+    fn name() -> string
+}
+
+struct Job: Loader {
+    run: fn() throws
+    n: int
+    fn load() throws => try run()
+    fn name() -> string => "job {n}"
+}
+
+fn start() -> int => 3
+
+enum Mode { a, b }
+
+struct Counter {
+    count: int = start() {
+        didSet { println("count was {oldValue}") }
+    }
+    mode: Mode = Mode.a {
+        didSet { println("mode was {oldValue}") }
+    }
+}
+
+struct Box<T> { v: T }
+
+fn pair() -> (
+    int,
+    {
+        string name
+    }
+) => (1, name: "a")
+
+fn f(x: int) -> int => x
+
+fn main() throws {
+    let j = Job(run: fn() throws {}, n: 2)
+    try j.load()
+    println(j.name())
+
+    let c = Counter()
+    c.count = 5
+    c.mode = Mode.b
+
+    // `>=` straight after type arguments.
+    let b: Box<int>= Box(v: 1)
+    let bb: Box<Box<int>>= Box(v: b)
+    println(bb.v.v, pair())
+
+    let ps = [(1, 2), (3, 4)]
+    println([for (x, y) in ps x + y], [for i, (x, _) in ps if x > 1 i: x])
+
+    let xs = [1, 2]
+    println([for x in xs if "{f (x)}" == "1" x])
+    println([for x in xs if match x { 1 => f (x) == 1, _ => false } x])
+
+    let smallest = -9223372036854775808
+    println(smallest, smallest == -9223372036854775807 - 1, -0x8000000000000000 == smallest)
+}
