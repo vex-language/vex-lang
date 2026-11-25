@@ -418,6 +418,9 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 	if en, ok := x.(*Enum); ok {
 		operandWant = en
 	}
+	if r, ok := x.(*Record); ok && (e.Op == lexer.Eq || e.Op == lexer.NotEq) {
+		operandWant = r
+	}
 	y := c.expr(e.Y, operandWant)
 	if x == Int && y == Float && isIntConst(e.X) {
 		c.toFloat(e.X)

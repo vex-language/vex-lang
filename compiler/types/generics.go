@@ -639,6 +639,15 @@ func (c *checker) inferTypeArgs(e *ast.CallExpr, params []*TypeParam, slots []sl
 	} else {
 		c.scratch(false, func() { c.inferFromArgs(e, slots, b) })
 		if want != nil {
+			// The expected type wins where the arguments fit it, so
+			// `let b: Box<Shape> = Box(v: Circle())` gives a Box<Shape>.
+			w := &binding{params: params, types: map[*TypeParam]Type{}}
+			w.unify(result, want)
+			for p, t := range w.types {
+				if got := b.types[p]; got != nil && !Identical(got, t) && assignableType(t, got) {
+					b.types[p] = t
+				}
+			}
 			b.unify(result, want)
 		}
 	}
