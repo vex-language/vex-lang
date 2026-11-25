@@ -276,6 +276,22 @@ println(ann)                 // User(name: "Ann", age: 31)
 println(User.guest().age)    // 18
 ```
 
+**Getters, setters and didSet.** Computed properties read like fields; `didSet` reacts to changes, which is what UI state needs.
+
+```swift
+struct Rect {
+    width: float
+    height: float
+    get area -> float => width * height
+}
+
+struct Counter {
+    count: int = 0 {
+        didSet { println("{oldValue} -> {count}") }
+    }
+}
+```
+
 **Generics.** Functions and structs take type parameters, usually inferred. Each use compiles to its own specialised copy, so there's no runtime cost.
 
 ```swift
@@ -448,7 +464,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, builder blocks, standard library | In progress: 19 of 47 tasks; next are getters and setters, generics and interfaces next steps for the UI, then records, patterns, extensions and async |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, builder blocks, properties, standard library | In progress: 21 of 48 tasks; next are generics and interfaces next steps, C callbacks, async and isolates, then records, patterns and extensions |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |

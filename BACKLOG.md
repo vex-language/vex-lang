@@ -72,7 +72,7 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 
 Goal: the language features real apps need before any UI work.
 
-**Progress:** 19 of 47 tasks done. The language has enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, collection `if`/`for`/spread, builder blocks and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
+**Progress:** 21 of 48 tasks done. The language has enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, collection `if`/`for`/spread, builder blocks, getters, setters and `didSet`, and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
 
 ### Done
 - [x] **V-100** Enums with data plus `match` (exhaustive) (L)
@@ -94,14 +94,15 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-108** Standard library: strings, math, time and files, delivered by V-127, V-129 and V-131 (L)
 - [x] **V-118** Builder blocks: a trailing `{ }` for a list parameter builds the list, one element per line, with `let`, `if`, `for` and `...`; `Column { }` without `()` (M)
 - [x] **V-133** Collection `if`, `for` and spread `...`/`...?` inside list and map literals, as in Dart (M)
+- [x] **V-119** Setters `set name(v: T)` and `didSet` blocks on fields with `oldValue` (M)
+- [x] **V-134** Getters `get name -> T`, read like fields (S)
 
 ### Needed by the UI framework (Phase 3 starts after these)
-- [ ] **V-119** Property setters: code that runs when a field is assigned (M)
 - [ ] **V-125** Generics, next steps: methods with their own type parameters, generic enums such as `Result<T>`, generic functions as values (M)
 - [ ] **V-126** Interfaces, next steps: generic interfaces such as `Comparable<T>`, interfaces that extend others, enums that implement interfaces (M)
 - [ ] **V-130** C interop, next steps: C `int`, `float` and pointer types for extern signatures, callbacks into Vex, Objective-C sources for iOS (M)
-- [ ] **V-134** Getters: computed properties read like fields, next to V-119 setters (S)
 - [ ] **V-135** `async`/`await` with an event loop, for UI events, timers and HTTP (V-601) (XL)
+- [ ] **V-147** Isolates and threads: isolates run in parallel on their own threads with their own heaps and talk by sending messages, as in Dart; a `compute`-style helper runs a function on another core (XL)
 
 ### Modern language features
 - [ ] **V-136** Records: anonymous `(int, string)` and named `(x: int, y: int)` values, so functions can return several values (M)
@@ -250,3 +251,5 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | String indexes (`indexOf`, `substring`) count characters, like `len`; `indexOf` returns `int?` rather than -1; substrings share the original text |
 | 2026-11-25 | New features follow modern languages, Dart 3 first (records, patterns, collection `if`/`for`, extensions, sealed types, async), so Phase 2 gains V-133 to V-146; each still needs its syntax approved |
 | 2026-11-25 | Collection `if`/`for`/`...`/`...?` in literals follow Dart, without braces; a `(`, `[` or `-` after a space in their header starts the element. Builder blocks: a trailing block for a list parameter builds the list (decided by the parameter type, no annotation); lines may be elements, `let`/`var`, `if`, `for` and `...`, and anything else is an error. `Name { }` is a call with only a trailing block. Both compile to one list filled in place (V-118, V-133) |
+| 2026-11-25 | Properties follow Dart: `get name -> T` and `set name(v: T)`, with Swift's `didSet { }` after a field (`oldValue` in scope; not run on creation or inside its own block). `get`, `set` and `didSet` are contextual, not keywords. Accessors compile to plain C functions that the C compiler inlines (V-119, V-134) |
+| 2026-11-25 | Concurrency will use Dart-style isolates (separate heaps, message passing), which keeps the garbage collector free of locks; planned as V-147 next to async/await (V-135) |
