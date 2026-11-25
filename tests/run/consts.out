@@ -1,0 +1,14 @@
+100 2.5 2.0 vex 201 true -9223372036854775808 1.25
+hello from vex, max 100
+(x: 0, y: 0) 0 Light.red Light.green
+[2, 3, 5, 7] 4 7 404
+[[1, 2], [3, 4]] 3
+3.14159 (label: "unit", radius: 1.0) unit 12.56636
+[Light.red, Light.yellow, Light.green] 3
+ok missing other
+true false
+pi is 3.14159
+[2, 3, 5, 7, 11] [2, 3, 5, 7]
+3 2
+true
+2 3 5 7 

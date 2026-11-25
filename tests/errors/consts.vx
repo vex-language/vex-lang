@@ -1,0 +1,46 @@
+const big = 9223372036854775807 + 1
+const zero = 10 / (5 - 5)
+const loopA = loopB + 1
+const loopB = loopA + 1
+const called = helper()
+const typed: string = 3
+const nums = [1, 2]
+const built = [...nums]
+const fns = helper
+
+fn helper() -> int => 1
+
+struct Box {
+    static const size = 3
+    static const size = 4
+    value: int
+    static const value = 1
+}
+
+fn main() {
+    nums.push(3)
+    nums[0] = 9
+    big = 1
+    Box.size = 5
+    let local = 1
+    match 5 {
+        fns => 1
+        _ => 2
+    }
+    println(Box.missing, local)
+}
+
+// error: 1:13: this constant overflows int
+// error: 2:14: this constant divides by zero
+// error: 3:7: constant 'loopA' depends on itself
+// error: 5:16: a constant must be known when compiling, but a call isn't
+// error: 6:23: constant 'typed': expected string, found int
+// error: 8:15: a constant must be known when compiling, but a list built with if, for or ... isn't
+// error: 9:13: a constant must be known when compiling, but 'helper' isn't
+// error: 15:18: constant 'size' is already declared on line 14
+// error: 17:18: 'value' is already a member of this type
+// error: 21:5: can't change a constant list: 'nums' is constant
+// error: 22:5: can't change a constant list: 'nums' is constant
+// error: 23:5: can't change constant 'big'
+// error: 24:5: can't change constant 'Box.size'
+// error: 30:17: Box has no static method 'missing'
