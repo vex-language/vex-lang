@@ -43,6 +43,44 @@ let text = "Tab\tquote\" brace\{ smile \u{1F600}"
 
 Escapes: `\n` `\t` `\r` `\\` `\"` `\{` `\}` and `\u{...}`. Strings stay on one line.
 
+## Constants
+
+`const` declares a value fixed when the program is compiled. The type is inferred, or written after the name.
+
+```swift
+const maxUsers = 100
+const timeout: float = 2.5
+pub const appName = "vex"                  // usable from other modules
+const greeting = "hello from {appName}"
+const limit = maxUsers * 2 + 1
+const origin = (x: 0, y: 0)
+const defaultLight = Light.red
+const primes = [2, 3, 5, 7]
+const codes = ["ok": 200, "missing": 404]
+
+struct Circle {
+    static const pi = 3.14159              // Circle.pi, or pi inside its methods
+    radius: float
+    fn area() -> float => pi * radius * radius
+}
+
+match code {
+    okCode => "ok"                         // a constant as a pattern
+    _ => "other"
+}
+
+var mine = primes.copy()                   // a changeable copy
+mine.push(11)
+```
+
+- A constant's value is made of literals, other constants, operators, string interpolation, records, enum cases, and lists and maps of those. It can't call functions or use `if`, `for` or `...` inside a list.
+- `int`, `bool` and `string` constants are worked out by the compiler and written into the code where they are used. Overflow and division by zero are compile errors.
+- Lists, maps and other values are built once when the program starts, before `main`, and shared by every isolate.
+- Constant lists and maps can't change: `primes.push(11)` is a compile error, and changing one through another name fails when the program runs. Use `.copy()` for a changeable copy.
+- Constants can be declared in any order; one that depends on itself is an error.
+- In a pattern, a name that refers to a constant matches values equal to it, unless a local variable has the same name.
+- Generic structs and enums can't have constants.
+
 ## Functions
 
 ```swift
@@ -95,6 +133,7 @@ nums.push(4)
 println(nums.len)        // 4
 println(nums[0])         // 1
 println(nums)            // [1, 2, 3, 4]
+let snapshot = nums.copy()   // a separate list with the same elements
 
 let empty: [string] = []
 ```
@@ -127,6 +166,7 @@ let a = ages["ann"]            // int?, nil when the key is missing
 let z = ages["zoe"] ?? 0
 if let b = ages["bob"] { println(b) }
 ages.remove("bob")             // returns the removed value, an int?
+let backup = ages.copy()       // a separate map with the same entries
 println(ages.len, ages.contains("cat"), ages.keys, ages.values)
 
 for name, age in ages { println(name, age) }
