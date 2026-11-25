@@ -219,10 +219,22 @@ func build(n Node) *tree {
 				label += " as " + n.CName
 			}
 		}
+		if n.Export {
+			label = "export " + label
+		}
 		if n.Pub {
 			label = "pub " + label
 		}
 		return funcTree(label, n.Params, n.Throws, n.Result, n.Body, n.ExprBody)
+	case *ExternTypeDecl:
+		label := "extern type " + n.Name.Name
+		if n.CName != "" {
+			label += " as " + n.CName
+		}
+		if n.Pub {
+			label = "pub " + label
+		}
+		return leaf(label)
 	case *StructDecl:
 		label := "struct " + n.Name.Name + typeParamsString(n.TypeParams)
 		if n.Pub {

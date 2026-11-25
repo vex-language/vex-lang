@@ -404,6 +404,10 @@ func TestExtern(t *testing.T) {
 pub extern fn sqrt(x: float) -> float
 extern fn cpow(x: float, y: float) -> float as "pow"
 extern fn log(msg: string)
+extern type Db
+pub extern type View as "UIView"
+extern fn on_tap(v: View, handler: fn(int)) -> int32
+export fn vex_frame(t: float) -> int => 0
 `
 	f, errs := parse(t, src)
 	if errs != nil {
@@ -414,6 +418,10 @@ extern fn log(msg: string)
 		"(pub extern fn sqrt param x: float -> float)",
 		"(extern fn cpow as pow param x: float param y: float -> float)",
 		"(extern fn log param msg: string)",
+		"extern type Db",
+		"pub extern type View as UIView",
+		"(extern fn on_tap param v: View param handler: fn(int) -> int32)",
+		"(export fn vex_frame param t: float -> int (=> 0))",
 	}
 	for i, d := range f.Decls {
 		if got := ast.Sexpr(d); got != want[i] {
@@ -669,6 +677,10 @@ func TestErrors(t *testing.T) {
 		{"extern generic", "extern fn f<T>(x: T)", "1:13", "extern functions can't be generic", "C has no generics; declare one extern fn per type"},
 		{"extern throws", "extern fn f() throws", "1:15", "extern functions can't throw", "C functions report failure through their result; check it in a Vex wrapper that throws"},
 		{"extern without fn", "extern struct S {}", "1:8", "expected 'fn' after 'extern', found 'struct'", "write extern fn name(...)"},
+		{"extern type generic", "extern type Db<T>", "1:15", "extern types can't be generic", "declare one extern type per C type"},
+		{"extern type body", "extern type Db {}", "1:16", "extern types have no body", "C structs are reached through extern fn calls on the handle"},
+		{"export generic", "export fn f<T>(x: T) {}", "1:13", "export functions can't be generic", "C has no generics; export one fn per type"},
+		{"export throws", "export fn f() throws {}", "1:15", "export functions can't throw", "catch errors inside and return a status instead"},
 		{"extern bad C name", "extern fn f() as \"no-dash\"", "1:18", "'no-dash' isn't a valid C name", "use letters, digits and _, not starting with a digit"},
 		{"extern C name without quotes", "extern fn f() as g", "1:18", "expected the C name in quotes, found 'g'", `e.g. as "c_name"`},
 		{"extern method", "struct S {\n    extern fn f()\n}", "2:5", "expected a field or method, found 'extern'", ""},
