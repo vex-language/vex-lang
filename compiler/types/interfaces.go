@@ -363,6 +363,8 @@ func (c *checker) conformMember(t conformer, i *Interface, im *Func, report func
 		report(m.Decl.Name, "remove static", "'%s' can't be static, since it implements %s", m.Name, i.Name)
 	case !Identical(methodType(m), methodType(im)):
 		report(at(m), "", "'%s' doesn't match %s: expected %s, found %s", m.Name, i.Name, memberType(im), memberType(m))
+	case m.Async != im.Async:
+		report(at(m), "remove async", "'%s' can't be async, since it implements %s", m.Name, i.Name)
 	}
 }
 
