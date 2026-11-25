@@ -72,7 +72,7 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 
 Goal: the language features real apps need before any UI work.
 
-**Progress:** 17 of 33 tasks done. The language has enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on.
+**Progress:** 17 of 47 tasks done. The language has enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
 
 ### Done
 - [x] **V-100** Enums with data plus `match` (exhaustive) (L)
@@ -99,6 +99,22 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-125** Generics, next steps: methods with their own type parameters, generic enums such as `Result<T>`, generic functions as values (M)
 - [ ] **V-126** Interfaces, next steps: generic interfaces such as `Comparable<T>`, interfaces that extend others, enums that implement interfaces (M)
 - [ ] **V-130** C interop, next steps: C `int`, `float` and pointer types for extern signatures, callbacks into Vex, Objective-C sources for iOS (M)
+- [ ] **V-133** Collection `if`, `for` and spread `...` inside list and map literals and builder blocks, as in Dart (M)
+- [ ] **V-134** Getters: computed properties read like fields, next to V-119 setters (S)
+- [ ] **V-135** `async`/`await` with an event loop, for UI events, timers and HTTP (V-601) (XL)
+
+### Modern language features
+- [ ] **V-136** Records: anonymous `(int, string)` and named `(x: int, y: int)` values, so functions can return several values (M)
+- [ ] **V-137** Destructuring and richer patterns: `let (a, b) = pair`, struct and list patterns, guards in `match` arms, ranges, `if case` (L)
+- [ ] **V-138** Constants: top-level `const` values computed at compile time (S)
+- [ ] **V-139** Extensions: add methods to existing types, built-in ones included (M)
+- [ ] **V-140** Type aliases for long types (S)
+- [ ] **V-141** Multi-line and raw strings (S)
+- [ ] **V-142** Operator overloading for structs: arithmetic, `==`, ordering and indexing (M)
+- [ ] **V-143** Tear-offs: methods and constructors as values, as in `names.map(user.greet)` (S)
+- [ ] **V-144** Sealed interfaces: a closed set of structs that `match` checks exhaustively, with type patterns (M)
+- [ ] **V-145** Null-aware elements in collections and `?[ ]` indexing (S)
+- [ ] **V-146** Extension types: zero-cost wrappers that make `UserId` and `int` different types (M)
 
 ### Tools and packages
 - [ ] **V-121** Package manager: `vex get` from public git repos, `package.lock` with hashes ([design](docs/design/packages.md)) (L)
@@ -232,3 +248,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | C interop: `extern fn` without a body, `as "c_name"` for another C name; strings cross as NUL-terminated `const char *` copies; a project's C code goes in a `[c]` section of `package.toml`. Externs are called through an assembly-label alias, so their declarations can't clash with system headers, and well-known math functions use the C compiler's built-ins |
 | 2026-11-25 | `vex:fs` and `vex:os` are Vex wrappers over small C helpers in the runtime; failures throw `Error`s naming the path and the reason. Files are text for now; binary data waits for a bytes type |
 | 2026-11-25 | String indexes (`indexOf`, `substring`) count characters, like `len`; `indexOf` returns `int?` rather than -1; substrings share the original text |
+| 2026-11-25 | New features follow modern languages, Dart 3 first (records, patterns, collection `if`/`for`, extensions, sealed types, async), so Phase 2 gains V-133 to V-146; each still needs its syntax approved |
