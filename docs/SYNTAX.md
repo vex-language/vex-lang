@@ -274,10 +274,52 @@ fn helper() { }                         // private to models
 
 - `pub` goes on functions, structs, enums, interfaces, fields and methods. Enum cases and interface methods are public whenever their enum or interface is, and so is a method a struct writes for one of its interfaces.
 - Another module can only create a struct whose private fields all have defaults. Otherwise give it a `pub static fn` that creates it.
-- `vex:` modules come with the compiler. So far there are `vex:math` (`abs`, `min`, `max`, `clamp`, `pow`, `gcd`) and `vex:strings` (`repeat`, `join`, `padLeft`, `padRight`).
+- `vex:` modules come with the compiler:
+  - `vex:math`: `abs`, `min`, `max`, `clamp`, `pow` and `gcd` for integers and comparable values; `sqrt`, `cbrt`, `powf`, `exp`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `hypot`, `floor`, `ceil`, `round`, `trunc`, `absf` and `pi()` for floats
+  - `vex:strings`: `repeat`, `join`, `padLeft`, `padRight`
+  - `vex:time`: `nanos()` for measuring and `unix()` for the date
 - Modules may import each other. A name that is already an import, such as a variable called `math`, is an error, so `math.max` always means the module.
 - `vex run` with no file runs the project in the current folder, and `vex run store` runs the one in `store/`. A single file can import too: `vex run hello.vx`.
 - `package:` imports come with the package manager (V-121).
+
+## C functions
+
+`extern fn` declares a function written in C. It has no body, and `as "name"` calls it under a different C name. It can be `pub`, so a module can wrap C code behind Vex names, the way `vex:math` does.
+
+```swift
+extern fn strlen(s: string) -> int
+extern fn getenv(name: string) -> string?
+extern fn sqrt(x: float) -> float
+extern fn next() -> int as "counter_next"
+
+println(strlen("hello"), getenv("HOME") ?? "no home")
+println(["a", "bb"].map(strlen))          // a C function is a value like any other
+```
+
+| Vex | C |
+|---|---|
+| `int` | `int64_t` (`long` on 64-bit systems, not `int`) |
+| `float` | `double` |
+| `bool` | `bool` |
+| `string` | `const char *`: a NUL-terminated copy, valid during the call |
+| `string?` | `const char *` that may be `NULL` (`nil`) |
+| no result | `void` |
+
+- A string result is copied into a Vex string, and `NULL` gives `nil` for `string?` (or `""` for `string`).
+- No header is needed: the compiler writes the declaration from the Vex signature. It must match the C function, as in C itself. A C function that returns `int` must be declared without a result, or wrapped in C, since only the low 32 bits of the result are set.
+- Well-known math functions such as `sqrt` and `sin` compile to the C compiler's built-ins, so they run as fast as in C.
+- Extern functions can't be generic, throw, or be methods.
+
+A project adds its own C code in `package.toml`:
+
+```toml
+[c]
+sources = ["native/sqlite3.c", "native/glue.c"]   # .c files, or built .o and .a
+libs = ["z"]                                       # linked as -lz
+flags = ["-DSQLITE_OMIT_LOAD_EXTENSION", "-Inative"]
+```
+
+Paths are relative to the project. Flags may start with `-D`, `-U`, `-I`, `-L`, `-O`, `-f`, `-W`, `-m` or `-std=`.
 
 ## Closures
 

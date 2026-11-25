@@ -430,6 +430,31 @@ func (c *checker) signature(f *Func) {
 	if f.Decl.Throws != nil {
 		f.Throws = c.throwsType(f.Decl.Throws)
 	}
+	if f.Decl.Extern {
+		c.externTypes(f)
+	}
+}
+
+// Reports types in the signature of an extern function that C can't
+// take: only int, float, bool and string (or string?) cross over.
+func (c *checker) externTypes(f *Func) {
+	ok := func(t Type) bool {
+		switch t {
+		case Int, Float, Bool, String, Invalid:
+			return true
+		}
+		o, isOpt := t.(*Optional)
+		return isOpt && o.Elem == String
+	}
+	const hint = "C functions take and return int, float, bool, string and string?"
+	for i, p := range f.Params {
+		if !ok(p.Type) {
+			c.errorAt(f.Decl.Params[i].Type, hint, "%s can't be passed to C", p.Type)
+		}
+	}
+	if f.Result != Void && !ok(f.Result) {
+		c.errorAt(f.Decl.Result, hint, "%s can't be returned from C", f.Result)
+	}
 }
 
 // Returns the type written as [te].
@@ -586,6 +611,10 @@ func (c *checker) checkMain() {
 		return
 	}
 	defer c.enter(main.Decl)()
+	if main.Decl.Extern {
+		c.errorAt(main.Decl.Name, "", "main can't be extern")
+		return
+	}
 	if len(main.Params) > 0 {
 		c.errorAt(main.Decl.Name, "", "main can't take parameters")
 	}
@@ -669,6 +698,9 @@ func dedupe(errs diag.List) diag.List {
 }
 
 func (c *checker) funcBody(f *Func) {
+	if f.Decl.Extern {
+		return
+	}
 	defer c.enter(f.Decl)()
 	c.fn, c.self, c.loops, c.lits = f, nil, 0, nil
 	c.scope = nil

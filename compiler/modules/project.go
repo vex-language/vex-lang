@@ -2,6 +2,8 @@ package modules
 
 import (
 	"fmt"
+	"path"
+	"regexp"
 	"strings"
 
 	"github.com/irshadio/vex-lang/compiler/diag"
@@ -15,10 +17,22 @@ type Project struct {
 
 	// The Vex version the package needs, such as "0.2".
 	Vex string
+
+	// C code built into the program: source files relative to the project
+	// folder, libraries to link, and extra flags for the C compiler.
+	CSources []string
+	CLibs    []string
+	CFlags   []string
 }
 
-// Parses a project file: `[section]` headers and `key = "value"` lines,
-// with `#` comments.
+var (
+	cLib   = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.+-]*$`)
+	cFlags = []string{"-D", "-U", "-I", "-L", "-O", "-f", "-W", "-m", "-std="}
+)
+
+// Parses a project file: `[section]` headers and `key = value` lines,
+// where a value is a string in quotes or a list of them, with `#`
+// comments.
 func ParseProject(f *diag.File) (*Project, diag.List) {
 	proj := &Project{}
 	var errs diag.List
@@ -35,12 +49,12 @@ func ParseProject(f *diag.File) (*Project, diag.List) {
 	section := ""
 	seen := map[string]int{}
 	lines := strings.Split(f.Src, "\n")
-	for i, raw := range lines {
-		if i > 0 {
-			start += len(lines[i-1]) + 1
-		}
+	next := 0
+	for i := 0; i < len(lines); i++ {
+		start = next
+		next += len(lines[i]) + 1
 		n := i + 1
-		raw = strings.TrimSuffix(raw, "\r")
+		raw := strings.TrimSuffix(lines[i], "\r")
 		line := strings.TrimSpace(stripComment(raw))
 		col := strings.Index(raw, line) + 1
 		switch {
@@ -53,9 +67,9 @@ func ParseProject(f *diag.File) (*Project, diag.List) {
 			}
 			section = strings.TrimSpace(line[1 : len(line)-1])
 			switch section {
-			case "package", "dependencies", "dev-dependencies":
+			case "package", "c", "dependencies", "dev-dependencies":
 			default:
-				fail(col, len(line), "use [package], [dependencies] or [dev-dependencies]", "unknown section [%s]", section)
+				fail(col, len(line), "use [package], [c], [dependencies] or [dev-dependencies]", "unknown section [%s]", section)
 			}
 			continue
 		}
@@ -66,16 +80,65 @@ func ParseProject(f *diag.File) (*Project, diag.List) {
 		}
 		key := strings.TrimSpace(line[:eq])
 		val := strings.TrimSpace(line[eq+1:])
-		if section != "package" {
+		vcol := col + strings.Index(line, val)
+		if strings.HasPrefix(val, "[") {
+			// A list may continue over the following lines.
+			for !strings.Contains(stripQuoted(val), "]") && i+1 < len(lines) {
+				i++
+				next += len(lines[i]) + 1
+				val += " " + strings.TrimSpace(stripComment(strings.TrimSuffix(lines[i], "\r")))
+			}
+		}
+		if section != "package" && section != "c" {
 			// Dependencies are read by vex get.
 			continue
 		}
-		if prev, ok := seen[key]; ok {
+		id := section + "." + key
+		if prev, ok := seen[id]; ok {
 			fail(col, len(key), "", "'%s' is already set on line %d", key, prev)
 			continue
 		}
-		seen[key] = n
-		vcol := col + strings.Index(line, val)
+		seen[id] = n
+		if section == "c" {
+			list, ok := parseList(val)
+			if !ok {
+				fail(vcol, len(strings.SplitN(val, " ", 2)[0]), fmt.Sprintf(`%s = ["..."]`, key), "the value of '%s' must be a list of strings", key)
+				continue
+			}
+			for _, item := range list {
+				switch key {
+				case "sources":
+					if item == "" || path.IsAbs(item) || strings.Contains(item, "\\") || strings.HasPrefix(path.Clean(item), "..") {
+						fail(vcol, 1, "list files inside the project, relative to it, with /", "'%s' is outside the project", item)
+					} else if ext := path.Ext(item); ext != ".c" && ext != ".o" && ext != ".a" {
+						fail(vcol, 1, "list .c files, or built .o and .a files", "'%s' isn't a C source file", item)
+					}
+				case "libs":
+					if !cLib.MatchString(item) {
+						fail(vcol, 1, `name the library without -l, e.g. "z" for libz`, "'%s' isn't a library name", item)
+					}
+				case "flags":
+					allowed := false
+					for _, p := range cFlags {
+						allowed = allowed || strings.HasPrefix(item, p) && len(item) > len(p)
+					}
+					if !allowed {
+						fail(vcol, 1, "allowed flags start with -D, -U, -I, -L, -O, -f, -W, -m or -std=", "flag '%s' isn't allowed", item)
+					}
+				}
+			}
+			switch key {
+			case "sources":
+				proj.CSources = list
+			case "libs":
+				proj.CLibs = list
+			case "flags":
+				proj.CFlags = list
+			default:
+				fail(col, len(key), "known keys are sources, libs and flags", "unknown key '%s' in [c]", key)
+			}
+			continue
+		}
 		if len(val) < 2 || val[0] != '"' || val[len(val)-1] != '"' {
 			fail(vcol, len(val), fmt.Sprintf("%s = \"...\"", key), "the value of '%s' must be a string in quotes", key)
 			continue
@@ -104,11 +167,67 @@ func ParseProject(f *diag.File) (*Project, diag.List) {
 	return proj, errs
 }
 
+// Parses a list of strings such as `["a", "b"]`, allowing a trailing comma.
+func parseList(val string) ([]string, bool) {
+	if len(val) < 2 || val[0] != '[' || val[len(val)-1] != ']' {
+		return nil, false
+	}
+	out := []string{}
+	rest := strings.TrimSpace(val[1 : len(val)-1])
+	for rest != "" {
+		if rest[0] != '"' {
+			return nil, false
+		}
+		var b strings.Builder
+		i := 1
+		for ; i < len(rest) && rest[i] != '"'; i++ {
+			if rest[i] == '\\' && i+1 < len(rest) {
+				i++
+			}
+			b.WriteByte(rest[i])
+		}
+		if i >= len(rest) {
+			return nil, false
+		}
+		out = append(out, b.String())
+		rest = strings.TrimSpace(rest[i+1:])
+		if rest == "" {
+			break
+		}
+		if rest[0] != ',' {
+			return nil, false
+		}
+		rest = strings.TrimSpace(rest[1:])
+	}
+	return out, true
+}
+
+// Returns [s] without the text inside quotes.
+func stripQuoted(s string) string {
+	var b strings.Builder
+	in := false
+	for i := 0; i < len(s); i++ {
+		switch {
+		case in && s[i] == '\\':
+			i++
+		case s[i] == '"':
+			in = !in
+		case !in:
+			b.WriteByte(s[i])
+		}
+	}
+	return b.String()
+}
+
 // Returns [line] without a trailing `#` comment outside quotes.
 func stripComment(line string) string {
 	in := false
 	for i := 0; i < len(line); i++ {
 		switch line[i] {
+		case '\\':
+			if in {
+				i++
+			}
 		case '"':
 			in = !in
 		case '#':

@@ -3,6 +3,7 @@ package parser
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 	"unicode/utf8"
 
@@ -34,6 +35,7 @@ type parser struct {
 
 	// Set inside an interface, where methods may leave out their body.
 	inInterface bool
+	inExtern    bool
 }
 
 // Parses [f] into a syntax tree.
@@ -274,6 +276,8 @@ func (p *parser) decl() ast.Decl {
 		p.fail(t, "move it above the first declaration", "imports go at the top of the file")
 	case lexer.Fn:
 		return p.funcDecl(false)
+	case lexer.Extern:
+		return p.externDecl()
 	case lexer.Struct:
 		return p.structDecl()
 	case lexer.Enum:
@@ -340,12 +344,55 @@ func (p *parser) funcDecl(static bool) *ast.FuncDecl {
 	case p.at(lexer.Colon):
 		p.fail(p.tok(), "write the return type as -> int", "expected '->' before the return type, found ':'")
 	case p.inInterface && (p.at(lexer.Semi) || p.at(lexer.RBrace)):
+	case p.inExtern && (p.at(lexer.Semi) || p.at(lexer.As) || p.at(lexer.EOF)):
 	default:
 		p.fail(p.tok(), "", "expected '{' or '=>' to start the body of %s, found %s", fn.Name.Name, describe(p.tok()))
 	}
 	fn.Span = p.span(start)
 	return fn
 }
+
+// Parses `extern fn name(params) -> T`, optionally followed by
+// `as "c_name"`.
+func (p *parser) externDecl() *ast.FuncDecl {
+	start := p.next().Pos
+	if !p.at(lexer.Fn) {
+		p.fail(p.tok(), "write extern fn name(...)", "expected 'fn' after 'extern', found %s", describe(p.tok()))
+	}
+	p.inExtern = true
+	fn := func() *ast.FuncDecl {
+		defer func() { p.inExtern = false }()
+		return p.funcDecl(false)
+	}()
+	fn.Extern = true
+	if len(fn.TypeParams) > 0 {
+		p.errorAt(lexer.Token{Pos: fn.TypeParams[0].Start, Text: fn.TypeParams[0].Name.Name}, "C has no generics; declare one extern fn per type", "extern functions can't be generic")
+		fn.TypeParams = nil
+	}
+	if fn.Throws != nil {
+		p.errorAt(lexer.Token{Pos: fn.Throws.Start, Text: "throws"}, "C functions report failure through their result; check it in a Vex wrapper that throws", "extern functions can't throw")
+		fn.Throws = nil
+	}
+	if fn.Body != nil || fn.ExprBody != nil {
+		p.errorAt(lexer.Token{Pos: fn.Name.Start, Text: fn.Name.Name}, "remove the body; the function is written in C", "extern functions have no body")
+	}
+	if p.at(lexer.As) {
+		p.next()
+		t := p.tok()
+		if t.Kind != lexer.String {
+			p.fail(t, `e.g. as "c_name"`, "expected the C name in quotes, found %s", describe(t))
+		}
+		p.next()
+		if !cIdent.MatchString(t.Value) {
+			p.fail(t, "use letters, digits and _, not starting with a digit", "'%s' isn't a valid C name", t.Value)
+		}
+		fn.CName = t.Value
+	}
+	fn.Span = p.span(start)
+	return fn
+}
+
+var cIdent = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 func (p *parser) param() *ast.Param {
 	name := p.ident("a parameter name")

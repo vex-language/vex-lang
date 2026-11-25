@@ -311,6 +311,13 @@ fn main() {
 }
 ```
 
+**C functions.** `extern fn` calls C directly: no header and no glue code. Strings convert on the way in and out, and a project can build its own C files.
+
+```swift
+extern fn getenv(name: string) -> string?
+extern fn next() -> int as "counter_next"   // from native/counter.c
+```
+
 **Closures.** Functions without a name, written like `fn` declarations. They capture variables by reference, and a trailing block passes one as the last argument.
 
 ```swift

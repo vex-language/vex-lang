@@ -11,6 +11,7 @@ fn main() {
     println(str.repeat("ab", 3), "[{str.repeat("x", 0)}]", "[{str.repeat("x", -1)}]")
     println(str.join(["a", "b", "c"], ", "), "[{str.join([], "-")}]")
     println("[{str.padLeft("7", 3, "0")}] [{str.padRight("ab", 4)}] [{str.padLeft("long", 2)}]")
+    println(math.sqrt(16.0), math.sqrt(0.25), math.floor(1.7), math.pi())
     let sizes = [-3, 0, 5].map(math.abs)
     println(sizes)
 }

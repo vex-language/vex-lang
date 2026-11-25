@@ -444,6 +444,11 @@ func (g *gen) signature(f *types.Func, define bool) string {
 }
 
 func (g *gen) function(f *types.Func) {
+	if f.Decl.Extern {
+		g.enter(g.b)
+		g.externFunction(f)
+		return
+	}
 	g.file = g.info.FileOf[f.Decl]
 	g.enter(g.b)
 	g.result, g.throws, g.tries = f.Result, f.Throws, nil

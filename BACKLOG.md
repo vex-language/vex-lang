@@ -90,14 +90,16 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-112** GC stage 3: generational collection, returning memory to the OS (XL)
 - [ ] **V-108** Standard library: strings, math, time, files (L)
 - [ ] **V-109** JSON encode/decode built in, no codegen step (L)
-- [ ] **V-110** C interop: call C functions directly (`extern fn`) (M)
+- [x] **V-110** C interop: `extern fn` with `as "c_name"`, string conversion, `[c]` sources, libs and flags in `package.toml` (M)
 - [x] **V-117** Interfaces: a struct declares which interfaces it implements (L)
 - [ ] **V-118** Builder blocks: several values in a trailing `{ }` become a list argument (M)
 - [ ] **V-119** Property setters: code that runs when a field is assigned (M)
 - [ ] **V-123** Stack traces: runtime errors list the chain of calls with their lines (M)
 - [ ] **V-124** Benchmark suite in the repo (`bench/`): Vex programs with Go equivalents and a script that compares them (M)
 - [ ] **V-125** Generics, next steps: methods with their own type parameters, generic enums such as `Result<T>`, generic functions as values (M)
-- [ ] **V-127** Standard library: native functions behind `vex:` modules (`sqrt`, `sin`, time, files) and more modules (M)
+- [x] **V-127** Standard library: float math in `vex:math` through C (`sqrt`, `sin`, …) and `vex:time` (M)
+- [ ] **V-129** Standard library: files, processes and environment (`vex:fs`, `vex:os`) (M)
+- [ ] **V-130** C interop, next steps: C `int`, `float` and pointer types for extern signatures, callbacks into Vex, Objective-C sources for iOS (M)
 - [ ] **V-128** Modules, next steps: warn about unused imports, `pub` names whose types are private, and errors sorted with the root module first (S)
 - [ ] **V-126** Interfaces, next steps: generic interfaces such as `Comparable<T>`, interfaces that extend others, enums that implement interfaces (M)
 - [x] **V-120** Integer overflow stops the program by default; `&+` `&-` `&*` wrap; benchmarked against Go (M)
@@ -216,3 +218,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | The project file is `package.toml`, with `package.lock` beside it, matching `package:` imports (replaces `vex.toml`) |
 | 2026-11-25 | Modules: a folder is a module; names are private unless marked `pub` and are used as `module.name`, with `as` to rename; imports belong to each file; modules may import each other; C names of other modules get a tag starting with a digit, so they can't collide |
 | 2026-11-25 | `vex:math` leaves out float functions such as `sqrt` until standard library modules can call native code: Newton's method in Vex can't round the last digit correctly |
+| 2026-11-25 | C interop: `extern fn` without a body, `as "c_name"` for another C name; strings cross as NUL-terminated `const char *` copies; a project's C code goes in a `[c]` section of `package.toml`. Externs are called through an assembly-label alias, so their declarations can't clash with system headers, and well-known math functions use the C compiler's built-ins |

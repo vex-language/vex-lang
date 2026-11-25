@@ -165,3 +165,66 @@ func TestParseProject(t *testing.T) {
 		}
 	}
 }
+
+func TestProjectC(t *testing.T) {
+	src := `[package]
+name = "app"
+
+[c]
+sources = [
+    "native/a.c",   # first
+    "lib/b.o",
+]
+libs = ["z", "sqlite3"]
+flags = ["-DNAME=\"x, y\"", "-Inative", "-O3"]
+`
+	p, errs := ParseProject(diag.NewFile("package.toml", src))
+	if len(errs) > 0 {
+		t.Fatal(errs)
+	}
+	got := fmt.Sprintf("%q %q %q", p.CSources, p.CLibs, p.CFlags)
+	if want := `["native/a.c" "lib/b.o"] ["z" "sqlite3"] ["-DNAME=\"x, y\"" "-Inative" "-O3"]`; got != want {
+		t.Errorf("\n got %s\nwant %s", got, want)
+	}
+	prog := &Program{Dir: "/proj", CSources: p.CSources, CLibs: p.CLibs, CFlags: p.CFlags}
+	opts := prog.CCOptions()
+	got = fmt.Sprintf("%q %q %q", opts.Sources, opts.Libs, opts.Flags)
+	if want := `["/proj/native/a.c" "/proj/lib/b.o"] ["z" "sqlite3"] ["-DNAME=\"x, y\"" "-I/proj/native" "-O3"]`; got != want {
+		t.Errorf("options\n got %s\nwant %s", got, want)
+	}
+
+	tests := []struct{ src, want string }{
+		{"[c]\nsources = \"a.c\"\n", "2:11: the value of 'sources' must be a list of strings"},
+		{"[c]\nsources = [\"../x.c\"]\n", "2:11: '../x.c' is outside the project"},
+		{"[c]\nsources = [\"/x.c\"]\n", "2:11: '/x.c' is outside the project"},
+		{"[c]\nsources = [\"x.py\"]\n", "2:11: 'x.py' isn't a C source file"},
+		{"[c]\nlibs = [\"-lz\"]\n", "2:8: '-lz' isn't a library name"},
+		{"[c]\nflags = [\"-o\", \"out\"]\n", "2:9: flag '-o' isn't allowed\n2:9: flag 'out' isn't allowed"},
+		{"[c]\nflags = [\"-D\"]\n", "2:9: flag '-D' isn't allowed"},
+		{"[c]\ncolour = []\n", "2:1: unknown key 'colour' in [c]"},
+		{"[c]\nlibs = [\"z\"]\nlibs = []\n", "3:1: 'libs' is already set on line 4"},
+		{"[c]\nlibs = [\"z\"\n", "2:8: the value of 'libs' must be a list of strings"},
+	}
+	for _, tt := range tests {
+		_, errs := ParseProject(diag.NewFile("package.toml", "[package]\nname = \"app\"\n"+tt.src))
+		var got []string
+		for _, d := range errs {
+			d.Pos.Line -= 2
+			got = append(got, d.Error())
+		}
+		if strings.Join(got, "\n") != tt.want {
+			t.Errorf("%q:\n got %q\nwant %q", tt.src, strings.Join(got, "\n"), tt.want)
+		}
+	}
+}
+
+func TestLoadCSources(t *testing.T) {
+	fsys := fstest.MapFS{
+		"app/package.toml": {Data: []byte(project + "[c]\nsources = [\"native/missing.c\"]\n")},
+		"app/main.vx":      {Data: []byte("fn main() {}\n")},
+	}
+	_, err := LoadFS(fsys, "app", "app", true)
+	if err == nil || err.Error() != "app/package.toml: C source 'native/missing.c' not found" {
+		t.Errorf("got %v", err)
+	}
+}

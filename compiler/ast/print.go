@@ -205,6 +205,12 @@ func build(n Node) *tree {
 		if n.Static {
 			label = "static " + label
 		}
+		if n.Extern {
+			label = "extern " + label
+			if n.CName != "" {
+				label += " as " + n.CName
+			}
+		}
 		if n.Pub {
 			label = "pub " + label
 		}
