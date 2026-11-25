@@ -43,7 +43,7 @@ func (c *checker) instEnum(g *genericEnum, args []Type, at ast.Node) *Enum {
 	for _, a := range args {
 		abstract = abstract || hasTypeParam(a)
 	}
-	if !abstract && !c.deepEnough(at, g.decl.Name.Name) {
+	if !c.deepEnough(at, g.decl.Name.Name, args, abstract) {
 		return nil
 	}
 	defer c.enter(g.decl)()

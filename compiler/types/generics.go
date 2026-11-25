@@ -14,6 +14,9 @@ var constraintNames = []string{"Equatable", "Comparable", "Hashable"}
 // functions like `fn f<T>(x: T) { f([x]) }` from creating types forever.
 const maxInstanceDepth = 32
 
+// The most types the arguments of one instance may be made of.
+const maxInstanceSize = 1024
+
 // A generic function: its declaration, type parameters and instances.
 type genericFunc struct {
 	decl   *ast.FuncDecl
@@ -474,7 +477,7 @@ func (c *checker) instStruct(g *genericStruct, args []Type, at ast.Node) *Struct
 	for _, a := range args {
 		abstract = abstract || hasTypeParam(a)
 	}
-	if !abstract && !c.deepEnough(at, g.decl.Name.Name) {
+	if !c.deepEnough(at, g.decl.Name.Name, args, abstract) {
 		return nil
 	}
 	defer c.enter(g.decl)()
@@ -507,7 +510,7 @@ func (c *checker) instFunc(g *genericFunc, args []Type, at ast.Node) *Func {
 	for _, a := range args {
 		abstract = abstract || hasTypeParam(a)
 	}
-	if !abstract && !c.deepEnough(at, g.decl.Name.Name) {
+	if !c.deepEnough(at, g.decl.Name.Name, args, abstract) {
 		return nil
 	}
 	defer c.enter(g.decl)()
@@ -535,14 +538,24 @@ func (c *checker) instFunc(g *genericFunc, args []Type, at ast.Node) *Func {
 	return f
 }
 
-// Reports whether another level of instances may be created, reporting an
-// error at [at] when not.
-func (c *checker) deepEnough(at ast.Node, name string) bool {
-	if c.depth < maxInstanceDepth {
+// Reports whether an instance of [name] with type arguments [args] may be
+// created, reporting an error at [at] when not. Instances may not nest too
+// deeply, and their arguments may not grow without end, as in
+// `struct Node<T> { kids: [Node<[T]>] }`.
+func (c *checker) deepEnough(at ast.Node, name string, args []Type, abstract bool) bool {
+	deep, size := 0, 0
+	for _, a := range args {
+		d, n := nesting(a)
+		deep, size = max(deep, d), size+n
+	}
+	if deep <= maxInstanceDepth && size <= maxInstanceSize && (abstract || c.depth < maxInstanceDepth) {
 		return true
 	}
-	if at != nil && !c.tooDeep {
-		c.tooDeep = true
+	if at != nil && !c.tooDeep[name] {
+		if c.tooDeep == nil {
+			c.tooDeep = map[string]bool{}
+		}
+		c.tooDeep[name] = true
 		c.errorAt(at, "make sure generic code doesn't call itself with ever larger types, such as [T], then [[T]]",
 			"generic '%s' is used with types nested too deeply", name)
 	}
@@ -1036,4 +1049,45 @@ func (c *checker) typeArgsValue(e *ast.TypeArgsExpr, want Type) Type {
 	t := c.funcInstValue(id, g, args)
 	c.info.Types[id] = t
 	return t
+}
+
+// Returns how deeply types are nested inside [t], 0 for a plain type, 1
+// for `[int]`, and how many types it is made of in all.
+func nesting(t Type) (depth, size int) {
+	var parts []Type
+	switch t := t.(type) {
+	case *List:
+		parts = []Type{t.Elem}
+	case *Map:
+		parts = []Type{t.Key, t.Value}
+	case *Optional:
+		parts = []Type{t.Elem}
+	case *Future:
+		parts = []Type{t.Elem}
+	case *Channel:
+		parts = []Type{t.Elem}
+	case *Record:
+		parts = t.FieldTypes()
+	case *FuncType:
+		parts = append(append([]Type{}, t.Params...), t.Result)
+	case *Struct:
+		parts = t.Args
+	case *Enum:
+		parts = t.Args
+	case *Interface:
+		parts = t.Args
+	}
+	size = 1
+	if len(parts) == 0 {
+		return 0, size
+	}
+	for _, x := range parts {
+		d, n := nesting(x)
+		depth = max(depth, d)
+		size += n
+		if size > maxInstanceSize {
+			break
+		}
+	}
+	return depth + 1, size
 }

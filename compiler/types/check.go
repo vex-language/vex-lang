@@ -57,7 +57,7 @@ type checker struct {
 	// checking other code, and how deeply nested the current instance is.
 	jobs    []func()
 	depth   int
-	tooDeep bool
+	tooDeep map[string]bool
 
 	scope *scope
 
