@@ -111,11 +111,18 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 }
 
 func runRun(args []string, stdout, stderr io.Writer) int {
-	if len(args) > 1 {
-		fmt.Fprintln(stderr, "Usage: vex run [file or folder]")
-		return exitUsage
+	// The program is the first argument when it names a .vx file or a
+	// folder; the rest, after an optional --, go to the program.
+	var program []string
+	if len(args) > 0 && args[0] != "--" {
+		if info, err := os.Stat(args[0]); strings.HasSuffix(args[0], ".vx") || err == nil && info.IsDir() {
+			program, args = args[:1], args[1:]
+		}
 	}
-	src, prog, code := translate(target(args), stderr)
+	if len(args) > 0 && args[0] == "--" {
+		args = args[1:]
+	}
+	src, prog, code := translate(target(program), stderr)
 	if code != exitOK {
 		return code
 	}
@@ -130,7 +137,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "vex: %v\n", err)
 		return exitError
 	}
-	cmd := exec.Command(exe)
+	cmd := exec.Command(exe, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError

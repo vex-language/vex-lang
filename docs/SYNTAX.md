@@ -278,6 +278,22 @@ fn helper() { }                         // private to models
   - `vex:math`: `abs`, `min`, `max`, `clamp`, `pow` and `gcd` for integers and comparable values; `sqrt`, `cbrt`, `powf`, `exp`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `hypot`, `floor`, `ceil`, `round`, `trunc`, `absf` and `pi()` for floats
   - `vex:strings`: `repeat`, `join`, `padLeft`, `padRight`
   - `vex:time`: `nanos()` for measuring and `unix()` for the date
+  - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, and failures throw an `Error` naming the path and the reason
+  - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status)
+
+```swift
+import "vex:fs"
+import "vex:os"
+
+fn main() throws {
+    let path = os.args()[0]
+    let text = try fs.read(path)
+    try fs.write(path + ".bak", text)
+    println(try fs.list("."))
+}
+```
+
+`vex run app.vx a b` passes `a` and `b` to the program; write `vex run -- a b` to run the project in the current folder with arguments.
 - Modules may import each other. A name that is already an import, such as a variable called `math`, is an error, so `math.max` always means the module.
 - `vex run` with no file runs the project in the current folder, and `vex run store` runs the one in `store/`. A single file can import too: `vex run hello.vx`.
 - `package:` imports come with the package manager (V-121).
