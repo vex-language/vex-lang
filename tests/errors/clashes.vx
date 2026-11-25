@@ -1,0 +1,10 @@
+export fn time() -> int => 1
+export fn exit(code: int) {}
+export fn vex_poll() -> int => 0
+export fn my_time() -> int => 2
+
+fn main() {}
+
+// error: 1:11: export function 'time' would clash with the C library function of that name
+// error: 2:11: export function 'exit' would clash with the C library function of that name
+// error: 3:11: 'vex_poll' is already exported by the Vex runtime
