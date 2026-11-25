@@ -1,0 +1,83 @@
+// Generic functions and structs. Each use with new types compiles to its
+// own specialised copy, so generic code runs as fast as hand-written code.
+
+struct Stack<T> {
+    items: [T] = []
+
+    fn push(item: T) {
+        items.push(item)
+    }
+
+    fn pop() -> T? {
+        if items.len == 0 {
+            return nil
+        }
+        return items.pop()
+    }
+
+    fn peek() -> T? {
+        if items.len == 0 {
+            return nil
+        }
+        return items[items.len - 1]
+    }
+}
+
+struct Pair<A, B> {
+    first: A
+    second: B
+}
+
+fn largest<T: Comparable>(xs: [T]) -> T? {
+    if xs.len == 0 {
+        return nil
+    }
+    var best = xs[0]
+    for x in xs {
+        if x > best {
+            best = x
+        }
+    }
+    return best
+}
+
+fn frequencies<T: Hashable>(xs: [T]) -> [T: int] {
+    var counts: [T: int] = [:]
+    for x in xs {
+        counts[x] = (counts[x] ?? 0) + 1
+    }
+    return counts
+}
+
+fn zip<A, B>(xs: [A], ys: [B]) -> [Pair<A, B>] {
+    var out: [Pair<A, B>] = []
+    var i = 0
+    while i < xs.len && i < ys.len {
+        out.push(Pair(first: xs[i], second: ys[i]))
+        i += 1
+    }
+    return out
+}
+
+fn main() {
+    let history = Stack<string>()
+    history.push("home")
+    history.push("settings")
+    println(history.peek() ?? "-", history.items)
+    println(history.pop(), history.pop(), history.pop())
+
+    let numbers = Stack<int>()
+    for n in 1..=3 {
+        numbers.push(n * 10)
+    }
+    println(numbers.items)
+
+    println(largest([4, 17, 9]), largest(["kiwi", "apple"]), largest<float>([]))
+    println(frequencies(["a", "b", "a", "c", "a"]))
+
+    let pairs = zip(["ann", "bob", "cat"], [31, 25])
+    for p in pairs {
+        println("{p.first} is {p.second}")
+    }
+    println(pairs[0])
+}

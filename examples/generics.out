@@ -1,0 +1,8 @@
+settings ["home", "settings"]
+settings home nil
+[10, 20, 30]
+17 kiwi nil
+["a": 3, "b": 1, "c": 1]
+ann is 31
+bob is 25
+Pair<string, int>(first: "ann", second: 31)
