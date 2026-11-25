@@ -45,6 +45,9 @@ func (c *checker) lower(p ast.Pattern, t Type) *spat {
 			if v, ok := k.Value.(bool); ok && t == Bool {
 				return &spat{kind: sCtor, key: strconv.FormatBool(v)}
 			}
+			if k.Value != nil {
+				return &spat{kind: sOpaque, key: valueKey(k.Value)}
+			}
 			return &spat{kind: sOpaque, key: "const " + k.String()}
 		}
 	case *ast.CasePattern:
@@ -119,9 +122,13 @@ func (c *checker) lower(p ast.Pattern, t Type) *spat {
 		if t == Bool {
 			return &spat{kind: sCtor, key: key}
 		}
+		// Values written differently, such as 10 and 0b1010, are the same.
+		if v := c.fold(p.Value, t); v != nil {
+			key = valueKey(v)
+		}
 		return &spat{kind: sOpaque, key: key}
 	case *ast.RangePattern, *ast.RelationalPattern:
-		return &spat{kind: sOpaque, key: fmt.Sprintf("%p", p)}
+		return &spat{kind: sOpaque, key: fmt.Sprintf("range %p", p)}
 	case *ast.OrPattern:
 		s := &spat{kind: sOr}
 		for _, a := range p.Alts {
@@ -376,6 +383,9 @@ func (e exhauster) useful(rows []patRow, q []*spat, ts []Type) bool {
 	}
 	return false
 }
+
+// Returns a key that is the same for equal constant values [v].
+func valueKey(v any) string { return fmt.Sprintf("%T %v", v, v) }
 
 // Reports whether every row starts with a wildcard.
 func allWild(rows []patRow) bool {

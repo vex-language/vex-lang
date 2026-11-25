@@ -244,6 +244,10 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 		} else if subject != Invalid {
 			sp := c.lower(arm.Pattern, subject)
 			key := simpleKey(arm.Pattern, c.info)
+			// Literals and constants with the same value repeat each other.
+			if sp.kind == sOpaque && !strings.HasPrefix(sp.key, "const ") && !strings.HasPrefix(sp.key, "range ") {
+				key = "value " + sp.key
+			}
 			if !c.exhaust().useful(rows, []*spat{sp}, []Type{subject}) {
 				switch {
 				case wildcard > 0:
@@ -252,7 +256,7 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 				case key != "" && seen[key] > 0 && strings.HasPrefix(key, "case "):
 					c.errorAt(arm.Pattern, "remove one of the arms", "case '%s' is already handled on line %d", key[5:], seen[key])
 				case key != "" && seen[key] > 0:
-					c.errorAt(arm.Pattern, "remove one of the arms", "%s is already handled on line %d", key, seen[key])
+					c.errorAt(arm.Pattern, "remove one of the arms", "%s is already handled on line %d", c.source(arm.Pattern), seen[key])
 				default:
 					c.errorAt(arm.Pattern, "remove it, or move it above the arms that cover it",
 						"this arm is never reached: earlier arms match everything it does")
