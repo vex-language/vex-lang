@@ -99,6 +99,13 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 			return Invalid
 		}
 	}
+	if c.fn != nil && c.fn.Iface != nil && c.self != nil {
+		if m := c.fn.Iface.Method(name); m != nil {
+			c.info.Uses[id] = m
+			c.use(c.self)
+			return c.ifaceCall(e, m, nil)
+		}
+	}
 	if c.fn != nil && c.fn.Enum != nil {
 		if m := c.fn.Enum.Method(name); m != nil {
 			if !m.Static && c.self == nil {
@@ -119,6 +126,11 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 	if en := c.enums[name]; en != nil {
 		c.checkArgs(e)
 		c.errorAt(id, caseHint("create it from a case, e.g. ", en, true), "enums are created from one of their cases")
+		return Invalid
+	}
+	if i := c.interfaces[name]; i != nil {
+		c.checkArgs(e)
+		c.errorAt(id, fmt.Sprintf("create a struct that implements it: struct Name: %s", i.Name), "%s is an interface, so it can't be created", i.Name)
 		return Invalid
 	}
 	if builtinFuncs[name] {
@@ -236,6 +248,25 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 	}
 	if recv == Invalid {
 		c.checkArgs(e)
+		return Invalid
+	}
+	switch recv.(type) {
+	case *Interface, *TypeParam:
+		if _, method := ifaceMethod(recv, name); method != nil {
+			return c.ifaceCall(e, method, m.X)
+		}
+		c.checkArgs(e)
+		hint := didYouMean(name, ifaceNames(recv))
+		if tp, ok := recv.(*TypeParam); ok && hint == "" {
+			hint = fmt.Sprintf("require an interface that has it: <%s: Name>", tp.Name)
+			for _, i := range c.info.Interfaces {
+				if i.Method(name) != nil {
+					hint = fmt.Sprintf("require it: <%s: %s>", tp.Name, i.Name)
+					break
+				}
+			}
+		}
+		c.errorAt(m.Name, hint, "%s has no method '%s'", recv, name)
 		return Invalid
 	}
 	if l, ok := recv.(*List); ok && name == "map" {

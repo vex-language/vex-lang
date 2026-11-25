@@ -1,0 +1,6 @@
+circle: 3.14
+shape: 6.0
+total: 9.14
+[Circle(radius: 2.0), Rect(width: 4.0, height: 6.0)]
+Rect(width: 5.0, height: 2.0)
+largest: shape

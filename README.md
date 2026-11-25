@@ -281,6 +281,23 @@ println(largest([4, 17, 9]), largest(["kiwi", "apple"]))   // 17 kiwi
 let s = Stack<string>()
 ```
 
+**Interfaces.** A struct names the interfaces it implements, and the compiler checks it there. Methods with a body are defaults.
+
+```swift
+interface Shape {
+    fn area() -> float
+    fn name() -> string => "shape"
+}
+
+struct Circle: Shape {
+    radius: float
+    fn area() -> float => 3.14 * radius * radius
+}
+
+let shapes: [Shape] = [Circle(radius: 1), Rect(width: 2, height: 3)]
+for s in shapes { println(s.name(), s.area()) }
+```
+
 **Closures.** Functions without a name, written like `fn` declarations. They capture variables by reference, and a trailing block passes one as the last argument.
 
 ```swift

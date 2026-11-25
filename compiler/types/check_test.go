@@ -438,6 +438,22 @@ func TestErrors(t *testing.T) {
 		name, decls, body string
 		pos, msg, hint    string
 	}{
+		// Interfaces.
+		{"missing method", "interface Shape {\n    fn area() -> float\n}\nstruct C: Shape {\n    r: float\n}", "", "4:8", "C doesn't implement 'area' from Shape", "add fn area() -> float"},
+		{"mismatched method", "interface Shape {\n    fn area() -> float\n}\nstruct C: Shape {\n    fn area() -> int => 1\n}", "", "5:8", "'area' doesn't match Shape: expected fn() -> float, found fn() -> int", ""},
+		{"static implementation", "interface Shape {\n    fn area() -> float\n}\nstruct C: Shape {\n    static fn area() -> float => 1.0\n}", "", "5:15", "'area' can't be static, since it implements Shape", "remove static"},
+		{"unknown interface", "interface Shape {\n    fn area() -> float\n}\nstruct C: Shap {\n}", "", "4:11", "unknown interface 'Shap'", "did you mean 'Shape'?"},
+		{"struct as interface", "struct D {\n}\nstruct C: D {\n}", "", "3:11", "'D' is a struct, not an interface", "a struct can only implement interfaces"},
+		{"undeclared conformance", "interface Shape {\n    fn area() -> float\n}\nstruct C {\n    fn area() -> float => 1.0\n}", "let s: Shape = C()", "8:16", "expected Shape, found C", "declare it: struct C: Shape"},
+		{"unknown interface method", "interface Shape {\n    fn area() -> float\n}\n", "let s: [Shape] = []\nprintln(s[0].perimeter())", "7:14", "Shape has no method 'perimeter'", ""},
+		{"unconstrained method call", "interface Shape {\n    fn area() -> float\n}\nfn f<T>(x: T) -> float => x.area()", "", "4:29", "T has no method 'area'", "require it: <T: Shape>"},
+		{"unmet interface constraint", "interface Shape {\n    fn area() -> float\n}\nstruct C {\n}\nfn f<T: Shape>(x: T) {\n}", "f(C())", "9:1", "f needs T to implement Shape, but C doesn't", "declare it: struct C: Shape"},
+		{"interface equality", "interface Shape {\n    fn area() -> float\n}\n", "let a: [Shape] = []\nprintln(a[0] == a[0])", "7:9", "values of type Shape can't be compared with ==", ""},
+		{"interface name taken", "interface Shape {\n    fn area() -> float\n}\ninterface Shape {\n}", "", "4:11", "'Shape' is already declared as an interface on line 1", ""},
+		{"conflicting defaults", "interface A {\n    fn n() -> int => 1\n}\ninterface B {\n    fn n() -> int => 2\n}\nstruct C: A, B {\n}", "", "7:8", "C gets a default 'n' from both A and B", "write its own fn n(...) to choose"},
+		{"creating an interface", "interface Shape {\n    fn area() -> float\n}\n", "let s = Shape()", "6:9", "Shape is an interface, so it can't be created", "create a struct that implements it: struct Name: Shape"},
+		{"interface listed twice", "interface Shape {\n    fn area() -> float\n}\nstruct C: Shape, Shape {\n    fn area() -> float => 1.0\n}", "", "4:18", "Shape is listed twice", ""},
+
 		// Generics.
 		{"unordered type parameter", "fn big<T>(a: T, b: T) -> bool => a > b", "", "1:34", "values of type T can't be ordered with >", "require it: <T: Comparable>"},
 		{"type parameter equality", "fn eq<T>(a: T, b: T) -> bool => a == b", "", "1:33", "values of type T can't be compared with ==", "require it: <T: Equatable>"},
@@ -449,7 +465,7 @@ func TestErrors(t *testing.T) {
 		{"generic type without arguments", "struct Box<T> {\n    v: T\n}", "let b: Box? = nil", "5:8", "Box is generic, so it needs type arguments", "write its type arguments, e.g. Box<int>"},
 		{"type arguments on plain type", "struct P {\n    v: int\n}", "let p: P<int>? = nil", "5:8", "'P' is not generic, so it takes no type arguments", ""},
 		{"type arguments on plain function", "fn f(x: int) {\n}", "f<int>(1)", "4:3", "'f' is not generic, so it takes no type arguments", "remove the <...>"},
-		{"unknown constraint", "fn f<T: Sortable>(x: T) {\n}", "", "1:9", "unknown constraint 'Sortable'", "use Equatable (==), Comparable (< >) or Hashable (map keys)"},
+		{"unknown constraint", "fn f<T: Sortable>(x: T) {\n}", "", "1:9", "unknown constraint 'Sortable'", "use an interface, or Equatable (==), Comparable (< >) or Hashable (map keys)"},
 		{"misspelled constraint", "fn f<T: Comparble>(x: T) {\n}", "", "1:9", "unknown constraint 'Comparble'", "did you mean 'Comparable'?"},
 		{"generic function as value", "fn id<T>(x: T) -> T => x", "let g = id", "3:9", "generic function 'id' can't be used as a value", "wrap it in a closure, e.g. fn(x: int) => id(x)"},
 		{"method type parameters", "struct S {\n    fn m<T>(x: T) {\n    }\n}", "", "2:10", "methods can't have their own type parameters yet", "make it a top-level generic function"},

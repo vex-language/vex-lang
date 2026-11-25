@@ -9,7 +9,7 @@ import (
 
 func (c *checker) declareEnum(ed *ast.EnumDecl) {
 	e := &Enum{Name: ed.Name.Name, Decl: ed}
-	if c.reserved(ed.Name, "an enum") {
+	if c.reserved(ed.Name, "an enum") || c.ifaceTaken(ed.Name) {
 		return
 	}
 	if prev := c.structs[e.Name]; prev != nil {
@@ -257,7 +257,7 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 			switch {
 			case result == nil || result == Invalid:
 				result = t
-			case !Identical(result, t):
+			case !assignableType(result, t):
 				c.errorAt(arm.Expr, conversionHint(result, t), "match arms must have the same type: expected %s, found %s", result, t)
 			}
 		}
