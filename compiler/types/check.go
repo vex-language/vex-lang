@@ -260,8 +260,11 @@ func (c *checker) collect() {
 		}
 	}
 	each(func(d ast.Decl) {
-		if id, ok := d.(*ast.InterfaceDecl); ok {
-			c.declareInterface(id)
+		switch d := d.(type) {
+		case *ast.InterfaceDecl:
+			c.declareInterface(d)
+		case *ast.ExternTypeDecl:
+			c.declareHandle(d)
 		}
 	})
 	each(func(d ast.Decl) {
@@ -450,6 +453,10 @@ func (c *checker) ifaceTaken(id *ast.Ident) bool {
 		c.errorAt(id, "", "'%s' is already declared as an interface on line %d", id.Name, g.decl.Pos().Line)
 		return true
 	}
+	if h := c.handles[id.Name]; h != nil {
+		c.errorAt(id, "", "'%s' is already declared as an extern type on line %d", id.Name, h.Decl.Pos().Line)
+		return true
+	}
 	return false
 }
 
@@ -470,9 +477,14 @@ func (c *checker) signature(f *Func) {
 		defer func() { c.env = saved }()
 	}
 	seen := map[string]bool{}
+	native := f.Decl.Extern || f.Decl.Export
 	for _, p := range f.Decl.Params {
-		param := &Param{Name: p.Name.Name, Type: c.resolveType(p.Type), Default: p.Default}
+		t, ct := c.nativeType(p.Type, native)
+		param := &Param{Name: p.Name.Name, Type: t, Default: p.Default}
 		f.Params = append(f.Params, param)
+		if native {
+			f.CParams = append(f.CParams, ct)
+		}
 		if c.reserved(p.Name, "a parameter") {
 			continue
 		}
@@ -483,35 +495,13 @@ func (c *checker) signature(f *Func) {
 	}
 	f.Result = Void
 	if f.Decl.Result != nil {
-		f.Result = c.resolveType(f.Decl.Result)
+		f.Result, f.CResult = c.nativeType(f.Decl.Result, native)
 	}
 	if f.Decl.Throws != nil {
 		f.Throws = c.throwsType(f.Decl.Throws)
 	}
-	if f.Decl.Extern {
-		c.externTypes(f)
-	}
-}
-
-// Reports types in the signature of an extern function that C can't
-// take: only int, float, bool and string (or string?) cross over.
-func (c *checker) externTypes(f *Func) {
-	ok := func(t Type) bool {
-		switch t {
-		case Int, Float, Bool, String, Invalid:
-			return true
-		}
-		o, isOpt := t.(*Optional)
-		return isOpt && o.Elem == String
-	}
-	const hint = "C functions take and return int, float, bool, string and string?"
-	for i, p := range f.Params {
-		if !ok(p.Type) {
-			c.errorAt(f.Decl.Params[i].Type, hint, "%s can't be passed to C", p.Type)
-		}
-	}
-	if f.Result != Void && !ok(f.Result) {
-		c.errorAt(f.Decl.Result, hint, "%s can't be returned from C", f.Result)
+	if native {
+		c.nativeTypes(f)
 	}
 }
 
@@ -569,6 +559,13 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 		}
 		if i := c.interfaces[te.Name]; i != nil {
 			return i
+		}
+		if h := c.handles[te.Name]; h != nil {
+			return h
+		}
+		if cNumbers[te.Name] != "" {
+			c.errorAt(te, "use int or float here; sized C numbers convert at the call", "%s is only for the signatures of extern fn and export fn", te.Name)
+			return Invalid
 		}
 		if te.Name == "void" {
 			c.errorAt(te, "leave out the return type for functions that return nothing", "'void' is not a type")

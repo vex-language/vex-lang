@@ -152,6 +152,11 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		c.errorAt(id, fmt.Sprintf("create a struct that implements it: struct Name: %s", i.Name), "%s is an interface, so it can't be created", i.Name)
 		return Invalid
 	}
+	if c.handles[name] != nil {
+		c.checkArgs(e)
+		c.errorAt(id, "get one from an extern fn", "%s is a C type, so it can't be created in Vex", name)
+		return Invalid
+	}
 	if c.genIfaces[name] != nil {
 		c.checkArgs(e)
 		c.errorAt(id, fmt.Sprintf("create a struct that implements it: struct Name: %s<...>", name), "%s is an interface, so it can't be created", name)

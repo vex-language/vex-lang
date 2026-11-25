@@ -257,6 +257,20 @@ func (s *Struct) Property(name string) *Property { return propertyOf(s.Methods, 
 
 func (s *Struct) member(name string, kind ast.Accessor) *Func { return memberOf(s.Methods, name, kind) }
 
+// A C pointer type declared with `extern type`. Vex passes its values
+// around but never looks inside them.
+type Handle struct {
+	Name   string
+	Module *Module
+	Decl   *ast.ExternTypeDecl
+
+	// The C name it is shown with: [Decl]'s `as` name, or [Name].
+	CName string
+}
+
+// Returns the type's name.
+func (h *Handle) String() string { return qualified(h.Module, h.Name) }
+
 // An optional type: a value of [Elem], or nil.
 type Optional struct {
 	Elem Type
@@ -395,6 +409,12 @@ type Func struct {
 	// The interface a method belongs to. Only methods with a body, the
 	// defaults, are compiled; they receive `self` as the interface.
 	Iface *Interface
+
+	// For extern and export functions, the C types of the parameters and
+	// the result where they differ from the usual ones: a sized number
+	// such as `int32_t` for an `int32` in the signature, or "".
+	CParams []string
+	CResult string
 
 	// For a method with its own type parameters, as seen by generic code:
 	// the parameters and the instances. [TypeArgs] is then the parameters.
