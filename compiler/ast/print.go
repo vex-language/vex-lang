@@ -228,13 +228,7 @@ func build(n Node) *tree {
 		if n.Pub {
 			label = "pub " + label
 		}
-		for i, id := range n.Interfaces {
-			sep := ", "
-			if i == 0 {
-				sep = ": "
-			}
-			label += sep + TypeString(id)
-		}
+		label += interfacesString(n.Interfaces)
 		t := branch(label)
 		for _, f := range n.Fields {
 			label := "field " + f.Name.Name + ": " + TypeString(f.Type)
@@ -249,10 +243,11 @@ func build(n Node) *tree {
 		return t
 
 	case *InterfaceDecl:
-		label := "interface " + n.Name.Name
+		label := "interface " + n.Name.Name + typeParamsString(n.TypeParams)
 		if n.Pub {
 			label = "pub " + label
 		}
+		label += interfacesString(n.Supers)
 		t := branch(label)
 		for _, m := range n.Methods {
 			t.kids = append(t.kids, build(m))
@@ -263,6 +258,7 @@ func build(n Node) *tree {
 		if n.Pub {
 			label = "pub " + label
 		}
+		label += interfacesString(n.Interfaces)
 		t := branch(label)
 		for _, c := range n.Cases {
 			ct := branch("case " + c.Name.Name)
@@ -466,4 +462,17 @@ func buildExpr(e Expr) *tree {
 		return branch(".", buildExpr(e.X), leaf(e.Name.Name))
 	}
 	return leaf(fmt.Sprintf("<%T>", e))
+}
+
+// Returns the interfaces in a declaration's header, such as `: A, B<int>`.
+func interfacesString(ifaces []*NamedType) string {
+	s := ""
+	for i, id := range ifaces {
+		sep := ", "
+		if i == 0 {
+			sep = ": "
+		}
+		s += sep + TypeString(id)
+	}
+	return s
 }
