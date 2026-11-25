@@ -47,6 +47,14 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		}
 		return Int
 	case *ast.FloatLit:
+		v, err := strconv.ParseFloat(e.Value, 64)
+		mantissa, _, _ := strings.Cut(strings.ToLower(e.Value), "e")
+		switch {
+		case err != nil:
+			c.errorAt(e, "the largest float is about 1.8e308", "number %s is too big for float", e.Value)
+		case v == 0 && strings.ContainsAny(mantissa, "123456789"):
+			c.errorAt(e, "the smallest float above 0 is about 5e-324; write 0.0 for zero", "number %s is too small for float, so it would be 0", e.Value)
+		}
 		return Float
 	case *ast.BoolLit:
 		return Bool
