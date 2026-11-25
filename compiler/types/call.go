@@ -302,6 +302,11 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 		c.info.Calls[e] = &Call{Kind: MethodCall, Func: method, Recv: m.X, Args: c.bind(e, paramSlots(method), name)}
 		return method.Result
 	}
+	if r, ok := recv.(*Record); ok {
+		if _, ok := r.Field(name).(*FuncType); ok {
+			return c.callValue(e)
+		}
+	}
 	if en, ok := recv.(*Enum); ok {
 		method := en.Method(name)
 		switch {

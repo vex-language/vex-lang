@@ -153,7 +153,15 @@ func (c *checker) closureReturn(s *ast.ReturnStmt, ctx *litCtx) {
 
 // Checks a call of a function value such as `onTap()` or `handlers[0](x)`.
 func (c *checker) callValue(e *ast.CallExpr) Type {
-	t := c.expr(e.Fn, nil)
+	var t Type
+	if m, ok := e.Fn.(*ast.MemberExpr); ok && m.Optional {
+		// In `x?.f()`, the whole call is the optional chain, so the
+		// function is read as if x were the value inside.
+		t = c.member(m)
+		c.info.Types[e.Fn] = t
+	} else {
+		t = c.expr(e.Fn, nil)
+	}
 	ft, ok := t.(*FuncType)
 	if !ok {
 		c.checkArgs(e)
