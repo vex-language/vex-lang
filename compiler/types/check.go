@@ -900,31 +900,21 @@ func terminates(s ast.Stmt) bool {
 	return false
 }
 
-// Reports whether [s] contains a `break` for the enclosing loop.
+// Reports whether [s] contains a `break` for the enclosing loop, including
+// one inside a match arm or a catch block, but not one in a nested loop or
+// closure.
 func breaks(s ast.Stmt) bool {
-	switch s := s.(type) {
-	case *ast.BreakStmt:
-		return true
-	case *ast.Block:
-		for _, st := range s.Stmts {
-			if breaks(st) {
-				return true
-			}
+	found := false
+	ast.Inspect(s, func(n ast.Node) bool {
+		switch n.(type) {
+		case *ast.BreakStmt:
+			found = true
+		case *ast.WhileStmt, *ast.ForStmt, *ast.FuncLit:
+			return n == ast.Node(s)
 		}
-	case *ast.IfStmt:
-		return breaks(s.Then) || (s.Else != nil && breaks(s.Else))
-	case *ast.GuardStmt:
-		return breaks(s.Else)
-	case *ast.ExprStmt:
-		if m, ok := s.X.(*ast.MatchExpr); ok {
-			for _, a := range m.Arms {
-				if a.Block != nil && breaks(a.Block) {
-					return true
-				}
-			}
-		}
-	}
-	return false
+		return !found
+	})
+	return found
 }
 
 // --- Statements ---
@@ -1073,7 +1063,6 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		case *Func:
 			c.errorAt(x, "declare a variable holding a function instead: var f = "+u.Name, "can't assign to function '%s'", u.Name)
 		}
-
 		if v, ok := c.info.Uses[x].(*Var); ok && !v.Mutable {
 			switch v.Kind {
 			case LocalVar:
