@@ -255,9 +255,9 @@ func structName(s *types.Struct) string { return "S_" + structIdent(s) }
 // generic instance spelled out, as in `Box__int`.
 func structIdent(s *types.Struct) string {
 	if s.Args == nil {
-		return modTag(s.Module) + s.Name
+		return modTag(s.Module) + cid(s.Name)
 	}
-	return modTag(s.Module) + s.Base + "__" + mangleList(s.Args)
+	return modTag(s.Module) + cid(s.Base) + "__" + mangleList(s.Args)
 }
 
 // Returns the prefix that keeps the C names of module [m] apart from those
@@ -304,22 +304,27 @@ func funcName(f *types.Func) string {
 		// Accessors share their property's name, so each kind has its own
 		// prefix.
 		prefix := map[ast.Accessor]string{ast.Method: "m", ast.Getter: "g", ast.Setter: "s", ast.Observer: "o"}[f.Decl.Accessor]
-		return fmt.Sprintf("%s%d%s_%s", prefix, len(owner), owner, f.Name) + typeArgsTag(f)
+		return fmt.Sprintf("%s%d%s_%s", prefix, len(owner), owner, cid(f.Name)) + typeArgsTag(f)
 	}
 	if f.Enum != nil {
 		id := enumIdent(f.Enum)
-		return fmt.Sprintf("m%d%s_%s", len(id), id, f.Name) + typeArgsTag(f)
+		return fmt.Sprintf("m%d%s_%s", len(id), id, cid(f.Name)) + typeArgsTag(f)
 	}
 	if f.TypeArgs != nil {
-		return "fn_" + modTag(f.Module) + f.Name + "__" + mangleList(f.TypeArgs)
+		return "fn_" + modTag(f.Module) + cid(f.Name) + "__" + mangleList(f.TypeArgs)
 	}
 	if f.Iface != nil {
 		id := strings.TrimPrefix(ifaceName(f.Iface), "I")
 		prefix := map[ast.Accessor]string{ast.Method: "i", ast.Getter: "ig", ast.Setter: "is"}[f.Decl.Accessor]
-		return prefix + id + "_" + f.Name
+		return prefix + id + "_" + cid(f.Name)
 	}
-	return "fn_" + modTag(f.Module) + f.Name
+	return "fn_" + modTag(f.Module) + cid(f.Name)
 }
+
+// Returns [name], a name from the program, for use inside a C name. Each
+// `_` becomes `_u`, so the result never holds `__`, which separates the
+// type arguments of generic instances: `id__int` stays apart from `id<int>`.
+func cid(name string) string { return strings.ReplaceAll(name, "_", "_u") }
 
 func ctype(t types.Type) string {
 	switch t := t.(type) {
@@ -428,10 +433,17 @@ func mangle(t types.Type) string {
 		return "U1_" + mangle(t.Elem)
 	case *types.FuncType:
 		parts := []string{fmt.Sprintf("F%d", len(t.Params))}
+		if t.Throws != nil {
+			parts[0] = fmt.Sprintf("T%d", len(t.Params))
+		}
 		for _, p := range t.Params {
 			parts = append(parts, mangle(p))
 		}
-		return strings.Join(append(parts, mangle(t.Result)), "_")
+		parts = append(parts, mangle(t.Result))
+		if t.Throws != nil {
+			parts = append(parts, mangle(t.Throws))
+		}
+		return strings.Join(parts, "_")
 	}
 	if t == types.String {
 		return "str"
@@ -1669,10 +1681,13 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 				} else {
 					resultElem = l.Elem
 				}
-				return fmt.Sprintf("({ vx_list *%s = %s; vx_fn %s = %s; vx_list *%s = vx_list_new(sizeof(%s), 0, NULL); "+
-					"for (int64_t %s = 0; %s < %s->len; %s++) { %s = ((%s*)%s->data)[%s]; %s } %s; })",
-					list, cs[0], f, cs[1], out, ctype(resultElem),
-					i, i, list, i, decl(l.Elem, x), elem, list, i, body, out)
+				// Like a for loop, it visits the elements there were at the
+				// start, and stops early if some are removed.
+				n := g.temp()
+				return fmt.Sprintf("({ vx_list *%s = %s; vx_fn %s = %s; vx_list *%s = vx_list_new(sizeof(%s), 0, NULL); int64_t %s = %s->len; "+
+					"for (int64_t %s = 0; %s < %s && %s < %s->len; %s++) { %s = ((%s*)%s->data)[%s]; %s } %s; })",
+					list, cs[0], f, cs[1], out, ctype(resultElem), n, list,
+					i, i, n, i, list, i, decl(l.Elem, x), elem, list, i, body, out)
 			case "contains":
 				list, v, i, found := g.temp(), g.temp(), g.temp(), g.temp()
 				item := fmt.Sprintf("((%s*)%s->data)[%s]", elem, list, i)

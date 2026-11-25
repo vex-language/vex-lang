@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"syscall"
 	"testing"
 
 	"github.com/irshadio/vex-lang/compiler/cc"
@@ -163,6 +164,30 @@ func TestRun(t *testing.T) {
 		if code, out, errOut := runCLI(args...); code != 3 || out != "[\"a\", \"b c\"]\n" {
 			t.Errorf("%q: code %d, stdout %q, stderr %q", args, code, out, errOut)
 		}
+	}
+}
+
+func TestRunIntoClosedPipe(t *testing.T) {
+	needCC(t)
+	path := writeFile(t, "fn main() {\n    for i in 0..1000000 { println(i) }\n}\n")
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	r.Close()
+	defer w.Close()
+	var errOut bytes.Buffer
+	if code := run([]string{"run", path}, w, &errOut); code != 128+int(syscall.SIGPIPE) || errOut.Len() > 0 {
+		t.Errorf("code %d, stderr %q", code, errOut.String())
+	}
+}
+
+func TestRunMissingCFunction(t *testing.T) {
+	needCC(t)
+	path := writeFile(t, "extern fn vx_mylib_init() -> int\nfn main() {\n    println(vx_mylib_init())\n}\n")
+	code, _, errOut := runCLI("run", path)
+	if code != exitError || !strings.Contains(errOut, "linking failed") || strings.Contains(errOut, "bug in vex") {
+		t.Errorf("code %d, stderr %q", code, errOut)
 	}
 }
 

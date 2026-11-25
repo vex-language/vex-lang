@@ -682,12 +682,23 @@ static int vx_str_cmp(vx_str a, vx_str b) {
     return a.len < b.len ? -1 : a.len > b.len;
 }
 
+// Returns the byte length of the character starting at byte [i] of [s]. A
+// byte that doesn't begin a valid UTF-8 sequence is a character of its
+// own, so every way of counting characters agrees.
+static inline int64_t vx_utf8_width(vx_str s, int64_t i) {
+    unsigned char c = (unsigned char)s.ptr[i];
+    int64_t n = c < 0x80 ? 1 : c >= 0xC2 && c < 0xE0 ? 2 : c >= 0xE0 && c < 0xF0 ? 3 : c >= 0xF0 && c < 0xF5 ? 4 : 1;
+    if (n == 1 || i + n > s.len) return 1;
+    for (int64_t k = 1; k < n; k++) {
+        if (((unsigned char)s.ptr[i + k] & 0xC0) != 0x80) return 1;
+    }
+    return n;
+}
+
 // Returns the number of characters (code points) in [s].
 static int64_t vx_str_len(vx_str s) {
     int64_t n = 0;
-    for (int64_t i = 0; i < s.len; i++) {
-        if (((unsigned char)s.ptr[i] & 0xC0) != 0x80) n++;
-    }
+    for (int64_t i = 0; i < s.len; i += vx_utf8_width(s, i)) n++;
     return n;
 }
 
@@ -863,13 +874,11 @@ static int64_t vx_str_index_of(vx_str s, vx_str sub) {
 // the length.
 static int64_t vx_str_offset(vx_str s, int64_t i) {
     int64_t b = 0;
-    for (; b < s.len; b++) {
-        if (((unsigned char)s.ptr[b] & 0xC0) != 0x80) {
-            if (i == 0) return b;
-            i--;
-        }
+    for (; b < s.len; b += vx_utf8_width(s, b)) {
+        if (i == 0) return b;
+        i--;
     }
-    return b;
+    return s.len;
 }
 
 // Returns the characters of [s] from index [from] up to, not including,
@@ -888,8 +897,7 @@ static vx_list *vx_str_chars(vx_str s) {
     vx_list *l = vx_list_new(sizeof(vx_str), 0, NULL);
     int64_t i = 0;
     while (i < s.len) {
-        int64_t j = i + 1;
-        while (j < s.len && ((unsigned char)s.ptr[j] & 0xC0) == 0x80) j++;
+        int64_t j = i + vx_utf8_width(s, i);
         vx_str c = {s.ptr + i, j - i};
         vx_list_push(l, &c);
         i = j;
@@ -1389,9 +1397,11 @@ static char **vx_argv;
 
 static const char *vx_os_error(void) { return strerror(vx_errno); }
 
-static const char *vx_fs_read(const char *path) {
+// Returns the bytes of the file at [path], or a string with a null pointer
+// on failure.
+static vx_str vx_fs_read(const char *path) {
     FILE *f = fopen(path, "rb");
-    if (!f) { vx_errno = errno; return NULL; }
+    if (!f) { vx_errno = errno; return (vx_str){NULL, 0}; }
     size_t cap = 4096, len = 0;
     char *buf = vx_alloc_atomic(cap);
     size_t n;
@@ -1405,16 +1415,16 @@ static const char *vx_fs_read(const char *path) {
     bool failed = ferror(f);
     if (failed) vx_errno = errno;
     fclose(f);
-    if (failed) return NULL;
+    if (failed) return (vx_str){NULL, 0};
     buf[len] = 0;
-    return buf;
+    return (vx_str){buf, (int64_t)len};
 }
 
-static bool vx_fs_write(const char *path, const char *text, bool append) {
+static bool vx_fs_write(const char *path, vx_str text, bool append) {
     FILE *f = fopen(path, append ? "ab" : "wb");
     if (!f) { vx_errno = errno; return false; }
-    size_t n = strlen(text);
-    bool ok = fwrite(text, 1, n, f) == n;
+    size_t n = (size_t)text.len;
+    bool ok = n == 0 || fwrite(text.ptr, 1, n, f) == n;
     if (!ok) vx_errno = errno;
     if (fclose(f) != 0 && ok) { vx_errno = errno; ok = false; }
     return ok;
@@ -1893,7 +1903,12 @@ static void vx_async_mark(void) {
 // Returns a future that completes after [ms] milliseconds.
 static vx_future *vx_sleep(int64_t ms) {
     vx_future *f = vx_future_new(0);
-    vx_timer_push((vx_timer){vx_time_ns() + (ms > 0 ? ms : 0) * 1000000, vx_timer_seq++, f});
+    // A wait too long to count in nanoseconds waits as long as it can.
+    int64_t now = vx_time_ns(), at;
+    if (ms <= 0) at = now;
+    else if (ms > (INT64_MAX - now) / 1000000) at = INT64_MAX;
+    else at = now + ms * 1000000;
+    vx_timer_push((vx_timer){at, vx_timer_seq++, f});
     return f;
 }
 
@@ -1918,7 +1933,7 @@ static int64_t vx_poll(void) {
     // While only other isolates can wake it, ask to be polled again soon.
     if (vx_timers_len == 0) return vx_remote_len > 0 ? 10 : -1;
     int64_t wait = vx_timers[0].at - vx_time_ns();
-    return wait <= 0 ? 0 : (wait + 999999) / 1000000;
+    return wait <= 0 ? 0 : wait / 1000000 + (wait % 1000000 != 0);
 }
 
 int64_t vex_poll(void) { return vx_poll(); }
@@ -1989,7 +2004,9 @@ static void vx_any_task(void *p) {
     }
 }
 
-static vx_future *vx_any(vx_list *futures, int64_t esz) {
+static vx_future *vx_any(vx_list *futures, int64_t esz, int line) {
+    // With no futures, nothing could ever settle the result.
+    if (futures->len == 0) vx_fail(line, "any() needs at least one future");
     vx_future *result = vx_future_new(esz);
     for (int64_t i = 0; i < futures->len && result->state == 0; i++) {
         vx_any_arg *a = vx_alloc(sizeof(vx_any_arg));
@@ -2198,6 +2215,9 @@ static void vx_idle(void) {
     if (!vx_self->head) {
         if (vx_timers_len > 0) {
             int64_t wait = vx_timers[0].at - vx_time_ns();
+            // Very long waits wake once a day, which keeps the deadline
+            // arithmetic in range.
+            if (wait > 86400 * (int64_t)1000000000) wait = 86400 * (int64_t)1000000000;
             if (wait > 0) {
                 struct timespec ts;
                 clock_gettime(CLOCK_REALTIME, &ts);

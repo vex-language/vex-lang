@@ -2,6 +2,7 @@ package codegen
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/irshadio/vex-lang/compiler/types"
@@ -119,6 +120,7 @@ func (g *gen) externFunction(f *types.Func) {
 	}
 	var params, cparams, args []string
 	floats := f.Result == types.Float && f.CResult == ""
+	native := runtimeSigs[cname]
 	for i, p := range f.Params {
 		name := fmt.Sprintf("a%d", i)
 		params = append(params, decl(p.Type, name))
@@ -131,6 +133,9 @@ func (g *gen) externFunction(f *types.Func) {
 		cparams = append(cparams, externType(p.Type, f.CParams[i]))
 		floats = floats && p.Type == types.Float && f.CParams[i] == ""
 		arg := toC(p.Type, name)
+		if p.Type == types.String && i < len(native.strs) && native.strs[i] {
+			arg = name
+		}
 		if f.CParams[i] != "" {
 			arg = "(" + f.CParams[i] + ")" + arg
 		}
@@ -143,19 +148,29 @@ func (g *gen) externFunction(f *types.Func) {
 	switch {
 	case floats && mathBuiltins[cname] == len(f.Params):
 		callee = "__builtin_" + cname
-	case strings.HasPrefix(cname, "vx_"):
+	case native.result != "":
 	default:
 		callee = "vx_c_" + funcName(f)
 		g.line("")
 		g.line("extern %s %s(%s) __asm__(VX_SYM(%s));", externType(f.Result, f.CResult), callee, strings.Join(cparams, ", "), cQuote(cname))
 	}
 	call := callee + "(" + strings.Join(args, ", ") + ")"
+	result := fromC(f.Result, call)
+	if native.result == "vx_str" {
+		switch {
+		case f.Result == types.String:
+			result = call
+		case types.Identical(f.Result, &types.Optional{Elem: types.String}):
+			// A runtime function gives no string with a null pointer.
+			result = fmt.Sprintf("({ vx_str r = %s; r.ptr ? (%s){true, r} : (%s){false}; })", call, ctype(f.Result), ctype(f.Result))
+		}
+	}
 	g.line("")
 	g.line("static inline %s {", decl(f.Result, funcName(f)+"("+strings.Join(params, ", ")+")"))
 	if f.Result == types.Void {
 		g.line("    %s;", call)
 	} else {
-		g.line("    return %s;", fromC(f.Result, call))
+		g.line("    return %s;", result)
 	}
 	g.line("}")
 }
@@ -182,3 +197,27 @@ func (g *gen) exportFunction(f *types.Func) {
 	}
 	g.line("}")
 }
+
+// The C signature of a runtime function.
+type runtimeSig struct {
+	result string
+
+	// Whether each parameter is a `vx_str`.
+	strs []bool
+}
+
+// The signatures of the runtime functions. A runtime function that takes
+// or gives `vx_str` gets Vex strings as they are, with their length, so
+// text holding NUL bytes passes through whole.
+var runtimeSigs = func() map[string]runtimeSig {
+	m := map[string]runtimeSig{}
+	re := regexp.MustCompile(`(?m)^static (?:inline )?([A-Za-z_][A-Za-z0-9_ ]*?[ *]+)(vx_[A-Za-z0-9_]+)\(([^)]*)\)`)
+	for _, sm := range re.FindAllStringSubmatch(runtime, -1) {
+		sig := runtimeSig{result: strings.TrimSpace(sm[1])}
+		for _, p := range strings.Split(sm[3], ",") {
+			sig.strs = append(sig.strs, strings.HasPrefix(strings.TrimSpace(p), "vx_str "))
+		}
+		m[sm[2]] = sig
+	}
+	return m
+}()

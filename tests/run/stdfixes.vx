@@ -1,0 +1,24 @@
+// Standard library edge cases.
+import "vex:os"
+import "vex:strings"
+import "vex:time"
+
+async fn slow() -> int {
+    // Too long to count in nanoseconds: it must still wait.
+    await time.sleep(10000000000000)
+    return 1
+}
+
+async fn quick() -> int {
+    await time.sleep(5)
+    return 2
+}
+
+async fn main() {
+    // Padding never goes past the width, even with a long fill.
+    println(strings.padLeft("7", 5, fill: "ab"), strings.padRight("7", 4, fill: "ab"))
+    println(strings.padLeft("long", 2), strings.padLeft("x", 3, fill: ""))
+    println(await any([slow(), quick()]))
+    // The slow sleep would keep the program waiting.
+    os.exit(0)
+}

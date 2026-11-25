@@ -46,6 +46,12 @@ func (c *checker) nativeType(te ast.TypeExpr, native bool) (Type, string) {
 func (c *checker) nativeTypes(f *Func) {
 	what, hint := "passed to C", "C functions take int, float, bool, string, string?, sized numbers such as int32, extern types and fn(...) callbacks"
 	if f.Decl.Export {
+		switch name := f.Decl.Name.Name; {
+		case name == "vex_poll" || name == "vex_release":
+			c.errorAt(f.Decl.Name, "use another name", "'%s' is already exported by the Vex runtime", name)
+		case cLibraryNames[name]:
+			c.errorAt(f.Decl.Name, "use another name, such as my_"+name, "export function '%s' would clash with the C library function of that name", name)
+		}
 		what, hint = "taken from C", "export functions take int, float, bool, string, string?, sized numbers such as int32 and extern types"
 	}
 	for i, p := range f.Params {

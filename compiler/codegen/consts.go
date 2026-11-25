@@ -11,11 +11,11 @@ import (
 func constField(k *types.Const) string {
 	switch {
 	case k.Owner != nil:
-		return "k_" + structIdent(k.Owner) + "_" + k.Name
+		return "k_" + structIdent(k.Owner) + "_" + cid(k.Name)
 	case k.Enum != nil:
-		return "k_" + enumIdent(k.Enum) + "_" + k.Name
+		return "k_" + enumIdent(k.Enum) + "_" + cid(k.Name)
 	}
-	return "k_" + modTag(k.Module) + k.Name
+	return "k_" + modTag(k.Module) + cid(k.Name)
 }
 
 // Returns C code reading [k]: its value when the compiler worked it out,

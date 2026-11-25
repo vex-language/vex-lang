@@ -22,6 +22,11 @@ fn main() throws {
     try fs.write(file, long)
     println((try fs.read(file)).len == long.len)
 
+    // NUL bytes are kept, both ways.
+    try fs.write(file, "a\u{0}b")
+    try fs.append(file, "\u{0}")
+    println(try fs.size(file), (try fs.read(file)).len)
+
     for name in ["c.txt", "a.txt", "b.txt"] {
         try fs.write(dir + "/" + name, name)
     }

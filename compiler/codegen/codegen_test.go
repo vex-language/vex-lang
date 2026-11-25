@@ -72,6 +72,16 @@ func TestPrograms(t *testing.T) {
 		name, src, stdin, want string
 	}{
 		{"hello", `fn main() { println("Hello, world!") }`, "", "Hello, world!\n"},
+		{"growing a list inside map and filter", `fn main() {
+    var xs = [1, 2]
+    let ys = xs.map(fn(x: int) -> int { xs.push(x); return x * 10 })
+    let zs = xs.filter(fn(x: int) -> bool { xs.push(x); return x > 1 })
+    println(ys, zs, xs.len)
+}`, "", "[10, 20] [2, 2] 8\n"},
+		{"invalid UTF-8", `fn main() {
+    let s = input()
+    println(s.len, s.chars().len, s.indexOf("b"), s.chars()[3], s.substring(2, 4))
+}`, "\x80\x80ab\xe2\x82\n", "6 6 3 b ab\n"},
 		{"printing cycles", `struct Node {
     name: string
     next: Node? = nil
@@ -1281,6 +1291,7 @@ func TestRuntimeErrors(t *testing.T) {
 		{"substring past end", `println("x".substring(0, 2))`, "substring(0, 2) is out of range for a string of length 1\n --> main.vx:2"},
 		{"substring backwards", `println("héllo".substring(3, 1))`, "substring(3, 1) is out of range for a string of length 5\n --> main.vx:2"},
 		{"substring negative", `println("abc".substring(-1, 1))`, "substring(-1, 1) is out of range for a string of length 3\n --> main.vx:2"},
+		{"any of nothing", "let fs: [Future<int>] = []\nrun(any(fs))", "any() needs at least one future\n --> main.vx:3"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

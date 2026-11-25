@@ -23,10 +23,19 @@ pub fn join(parts: [string], separator: string) -> string {
 
 /// Returns [s] with [fill] added in front until it is [width] characters long.
 pub fn padLeft(s: string, width: int, fill: string = " ") -> string {
-    return repeat(fill, width - s.len) + s
+    return padding(width - s.len, fill) + s
 }
 
 /// Returns [s] with [fill] added after it until it is [width] characters long.
 pub fn padRight(s: string, width: int, fill: string = " ") -> string {
-    return s + repeat(fill, width - s.len)
+    return s + padding(width - s.len, fill)
+}
+
+/// Returns [n] characters made of [fill] repeated, cutting the last copy
+/// short when needed.
+fn padding(n: int, fill: string) -> string {
+    if n <= 0 || fill.len == 0 {
+        return ""
+    }
+    return repeat(fill, (n + fill.len - 1) / fill.len).substring(0, n)
 }
