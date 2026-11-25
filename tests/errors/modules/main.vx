@@ -15,6 +15,8 @@ fn main() {
     let w = lib.Wall(h: 1)
     let n: text.Thing = 1
     let k = p.secret()
+    println(p.hidden, p.shown)
+    p.hidden = 1
 }
 
 // error: 5:5: function 'hidden' is private to lib
@@ -29,3 +31,5 @@ fn main() {
 // error: 15:13: lib.Wall can't be created outside lib because field 'secret' is private
 // error: 16:12: vex:strings has no 'Thing'
 // error: 17:15: method 'secret' of lib.Point is private to lib
+// error: 18:15: getter 'hidden' of lib.Point is private to lib
+// error: 19:7: setter 'hidden' of lib.Point is private to lib

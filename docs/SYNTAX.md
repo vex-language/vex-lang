@@ -166,6 +166,52 @@ println(User.guest())         // User(name: "Guest", age: 18)
 
 Fields and methods are reachable inside methods without `self.`; `self` is available when needed.
 
+**Getters and setters.** A getter is read like a field and a setter runs when the property is assigned, as in Dart:
+
+```swift
+struct Slider {
+    _value: float = 0
+
+    get value -> float => _value
+    set value(v: float) {
+        _value = math.clamp(v, 0.0, 1.0)
+        redraw()
+    }
+    get percent -> int {
+        return int(_value * 100.0)
+    }
+}
+
+slider.value = 2.0           // runs the setter: stored as 1.0
+slider.value += 0.1          // reads with the getter, then sets
+println(slider.percent)      // no ()
+```
+
+- A getter has a result type and no parameters; a setter takes exactly one parameter, the new value, of the getter's type.
+- A property with only a getter is read-only; one with only a setter can't be read.
+- `pub` makes each one visible to other modules on its own. `get` and `set` are names only where they start a getter or setter, so fields and methods may still be called `get`.
+- Interfaces and enums can't have getters or setters yet.
+
+**didSet.** A block after a field runs after each assignment to it, with the previous value in `oldValue`, as in Swift:
+
+```swift
+struct Counter {
+    count: int = 0 {
+        didSet {
+            if count != oldValue {
+                redraw()
+            }
+        }
+    }
+}
+
+counter.count += 1           // runs didSet
+```
+
+- It runs for every assignment, `x.count = ...` and `count = ...` in methods alike, but not when the struct is created.
+- Assigning the field inside its own `didSet` doesn't run it again.
+- Changing what a field refers to, such as pushing to a list field, isn't an assignment and doesn't run it.
+
 ## Generics
 
 Functions and structs can take type parameters in `< >`. The types are usually worked out from the arguments, or from the type the result is stored in; they can also be written at the call.

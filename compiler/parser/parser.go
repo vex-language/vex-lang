@@ -447,6 +447,9 @@ func (p *parser) interfaceDecl() *ast.InterfaceDecl {
 			case lexer.Pub:
 				p.fail(t, "remove pub: interface methods are public whenever the interface is", "interface methods can't be marked pub")
 			case lexer.Ident, lexer.Let, lexer.Var:
+				if (t.Text == "get" || t.Text == "set") && p.peek(1).Kind == lexer.Ident {
+					p.fail(t, fmt.Sprintf("use a method: fn %s() -> ...", p.peek(1).Text), "interfaces can't have getters or setters yet")
+				}
 				p.fail(t, "add a method that returns it instead, e.g. fn name() -> string", "interfaces can't have fields")
 			default:
 				p.fail(t, "", "expected a method, found %s", describe(t))
@@ -535,6 +538,9 @@ func (p *parser) enumMember(e *ast.EnumDecl) {
 		e.Methods = append(e.Methods, m)
 		return
 	case lexer.Ident:
+		if (t.Text == "get" || t.Text == "set") && p.peek(1).Kind == lexer.Ident {
+			p.fail(t, fmt.Sprintf("use a method: fn %s(...)", p.peek(1).Text), "enums can't have getters or setters yet")
+		}
 		if pub {
 			p.fail(t, "remove pub: cases are public whenever their enum is", "cases can't be marked pub")
 		}
@@ -694,6 +700,12 @@ func (p *parser) member(s *ast.StructDecl) {
 	case lexer.Let, lexer.Var:
 		p.fail(t, "write fields as name: type", "fields don't use '%s'", t.Text)
 	case lexer.Ident:
+		if (t.Text == "get" || t.Text == "set") && p.peek(1).Kind == lexer.Ident {
+			m := p.accessor()
+			m.Pub = pub
+			s.Methods = append(s.Methods, m)
+			return
+		}
 	default:
 		p.fail(t, "", "expected a field or method, found %s", describe(t))
 	}
@@ -708,10 +720,86 @@ func (p *parser) member(s *ast.StructDecl) {
 		f.Default = p.expr()
 	}
 	f.Span = p.span(name.Start)
+	if p.at(lexer.LBrace) {
+		s.Methods = append(s.Methods, p.observer(f))
+	}
 	if !p.at(lexer.Semi) && !p.at(lexer.Comma) && !p.at(lexer.RBrace) {
 		p.fail(p.tok(), "put each field on its own line", "expected end of field, found %s", describe(p.tok()))
 	}
 	s.Fields = append(s.Fields, f)
+}
+
+// Parses `get name -> T` or `set name(value: T)` with its body.
+func (p *parser) accessor() *ast.FuncDecl {
+	start := p.tok().Pos
+	kind := p.next().Text
+	fn := &ast.FuncDecl{Name: p.ident("a property name"), Accessor: ast.Getter}
+	name := fn.Name.Name
+	if kind == "get" {
+		if p.at(lexer.LParen) {
+			p.fail(p.tok(), fmt.Sprintf("write get %s -> T, or make it a method: fn %s(...)", name, name), "getters take no parameters")
+		}
+		if !p.at(lexer.Arrow) {
+			p.fail(p.tok(), fmt.Sprintf("write get %s -> int => ...", name), "getter '%s' needs a result type", name)
+		}
+		p.next()
+		fn.Result = p.typeExpr()
+	} else {
+		fn.Accessor = ast.Setter
+		if !p.at(lexer.LParen) {
+			p.fail(p.tok(), fmt.Sprintf("write set %s(value: int) { ... }", name), "expected '(' after 'set %s', found %s", name, describe(p.tok()))
+		}
+		open := p.next()
+		p.list(open, lexer.RParen, func() { fn.Params = append(fn.Params, p.param()) })
+		if len(fn.Params) != 1 {
+			p.fail(open, fmt.Sprintf("write set %s(value: int) { ... }", name), "setter '%s' takes exactly one parameter, the new value", name)
+		}
+		if p.at(lexer.Arrow) {
+			p.fail(p.tok(), "remove the result type", "setters don't return a value")
+		}
+	}
+	if p.at(lexer.Throws) {
+		p.fail(p.tok(), "make it a method that throws: fn ...", "%sters can't throw", kind)
+	}
+	switch {
+	case p.at(lexer.FatArrow):
+		p.next()
+		fn.ExprBody = p.expr()
+	case p.at(lexer.LBrace):
+		fn.Body = p.block()
+	default:
+		p.fail(p.tok(), "", "expected '{' or '=>' to start the body of %s, found %s", name, describe(p.tok()))
+	}
+	fn.Span = p.span(start)
+	return fn
+}
+
+// Parses the `{ didSet { ... } }` block after field [f].
+func (p *parser) observer(f *ast.Field) *ast.FuncDecl {
+	p.next()
+	p.skipNewlines()
+	t := p.tok()
+	if t.Kind != lexer.Ident || t.Text != "didSet" {
+		hint := "write { didSet { ... } } after the field"
+		if t.Text == "willSet" {
+			hint = "use didSet, which has the old value in oldValue"
+		}
+		p.fail(t, hint, "expected 'didSet' in the block of field '%s', found %s", f.Name.Name, describe(t))
+	}
+	p.next()
+	fn := &ast.FuncDecl{
+		Name:     &ast.Ident{Span: f.Name.Span, Name: f.Name.Name},
+		Params:   []*ast.Param{{Span: ast.Span{Start: t.Pos, End: t.End}, Name: &ast.Ident{Span: ast.Span{Start: t.Pos, End: t.End}, Name: "oldValue"}, Type: f.Type}},
+		Accessor: ast.Observer,
+		Body:     p.block(),
+	}
+	fn.Span = p.span(t.Pos)
+	p.skipNewlines()
+	if !p.at(lexer.RBrace) {
+		p.fail(p.tok(), "a field has one didSet block", "expected '}' after didSet, found %s", describe(p.tok()))
+	}
+	p.next()
+	return fn
 }
 
 func (p *parser) typeExpr() ast.TypeExpr {

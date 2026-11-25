@@ -177,6 +177,11 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		names = append(names, n)
 	}
 	if owner := c.ownStruct(); owner != nil {
+		if owner.Property(name) != nil {
+			c.checkArgs(e)
+			c.errorAt(id, "read it without (): "+name, "'%s' is a property, not a method", name)
+			return Invalid
+		}
 		for _, m := range owner.Methods {
 			names = append(names, m.Name)
 		}
@@ -238,6 +243,8 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 			c.checkArgs(e)
 			if s.Field(name) != nil {
 				c.errorAt(m.Name, "", "'%s' is a field, not a method", name)
+			} else if s.Property(name) != nil {
+				c.errorAt(m.Name, "read it without ()", "'%s' is a property, not a method", name)
 			} else {
 				c.errorAt(m.Name, didYouMean(name, memberNames(s)), "%s has no method '%s'", s.Name, name)
 			}

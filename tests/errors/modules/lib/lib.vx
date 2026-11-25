@@ -6,6 +6,9 @@ pub struct Point {
 
     static fn origin() -> Point => Point(x: 0)
     fn secret() -> int => y
+    get hidden -> int => y
+    set hidden(v: int) { y = v }
+    pub get shown -> int => y
 }
 
 struct Secret {
@@ -21,4 +24,4 @@ pub fn make() -> int => 1
 
 pub fn broken() -> int => "no"
 
-// error: 22:27: result of broken: expected int, found string
+// error: 25:27: result of broken: expected int, found string

@@ -100,7 +100,28 @@ type FuncDecl struct {
 
 	// Reports whether this is a `static fn` inside a struct.
 	Static bool
+
+	// What kind of struct member this is: a method, or a property accessor.
+	Accessor Accessor
 }
+
+// The kind of a struct member declared like a function.
+type Accessor int
+
+const (
+	// An ordinary method or function.
+	Method Accessor = iota
+
+	// `get name -> T`, read like a field.
+	Getter
+
+	// `set name(value: T)`, run when the property is assigned.
+	Setter
+
+	// The `didSet` block of a field, run after each assignment to it with
+	// the previous value as `oldValue`. Its name is the field's name.
+	Observer
+)
 
 // A function parameter: `name: string = "Hi"`.
 type Param struct {

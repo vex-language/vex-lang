@@ -246,7 +246,10 @@ func mangleList(ts []types.Type) string {
 func funcName(f *types.Func) string {
 	if f.Owner != nil {
 		owner := structIdent(f.Owner)
-		return fmt.Sprintf("m%d%s_%s", len(owner), owner, f.Name)
+		// Accessors share their property's name, so each kind has its own
+		// prefix.
+		prefix := map[ast.Accessor]string{ast.Method: "m", ast.Getter: "g", ast.Setter: "s", ast.Observer: "o"}[f.Decl.Accessor]
+		return fmt.Sprintf("%s%d%s_%s", prefix, len(owner), owner, f.Name)
 	}
 	if f.TypeArgs != nil {
 		return "fn_" + modTag(f.Module) + f.Name + "__" + mangleList(f.TypeArgs)
@@ -843,7 +846,7 @@ var compoundOps = map[lexer.Kind]lexer.Kind{
 func (g *gen) assign(s *ast.AssignStmt) {
 	t := g.info.Types[s.Target]
 	var setup []string
-	var target string
+	var target, recv string
 	switch x := s.Target.(type) {
 	case *ast.IndexExpr:
 		if _, ok := g.info.Types[x.X].(*types.Map); ok {
@@ -862,10 +865,25 @@ func (g *gen) assign(s *ast.AssignStmt) {
 	case *ast.MemberExpr:
 		obj := g.temp()
 		setup = append(setup, fmt.Sprintf("%s = %s;", decl(g.info.Types[x.X], obj), g.expr(x.X)))
+		if p := g.info.Members[x].Property; p != nil {
+			g.setProperty(s, obj, p, setup)
+			return
+		}
 		target = fmt.Sprintf("%s->f_%s", obj, x.Name.Name)
+		recv = obj
 	default:
+		if id, ok := s.Target.(*ast.Ident); ok {
+			switch g.info.Uses[id].(type) {
+			case *types.Property:
+				g.setProperty(s, g.selfRef(), g.info.Uses[id].(*types.Property), nil)
+				return
+			case *types.Field:
+				recv = g.selfRef()
+			}
+		}
 		target = g.expr(s.Target)
 	}
+	observer := g.info.Observers[s]
 	op, compound := compoundOps[s.Op]
 	// A compound assignment reads the target before the value runs, as
 	// x += f() reads x first.
@@ -875,7 +893,7 @@ func (g *gen) assign(s *ast.AssignStmt) {
 		setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, old), target))
 	}
 	value := g.expr(s.Value)
-	if setup != nil {
+	if setup != nil || observer != nil {
 		v := g.temp()
 		setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, v), value))
 		value = v
@@ -892,7 +910,40 @@ func (g *gen) assign(s *ast.AssignStmt) {
 	for _, l := range setup {
 		g.line("%s", l)
 	}
-	g.line("%s = %s;", target, value)
+	if observer != nil {
+		prev := g.temp()
+		g.line("%s = %s;", decl(t, prev), target)
+		g.line("%s = %s;", target, value)
+		g.line("%s(%s, %s);", funcName(observer), recv, prev)
+	} else {
+		g.line("%s = %s;", target, value)
+	}
+	g.ind--
+	g.line("}")
+}
+
+// Generates an assignment to the property [p] of [recv], after the lines
+// in [setup]. A compound assignment reads it with the getter first.
+func (g *gen) setProperty(s *ast.AssignStmt, recv string, p *types.Property, setup []string) {
+	t := g.info.Types[s.Target]
+	op, compound := compoundOps[s.Op]
+	var old string
+	if compound {
+		old = g.temp()
+		setup = append(setup, fmt.Sprintf("%s = %s(%s);", decl(t, old), funcName(p.Get), recv))
+	}
+	v := g.temp()
+	setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, v), g.expr(s.Value)))
+	value := v
+	if compound {
+		value = binop(op, t, old, v, g.lineOf(s))
+	}
+	g.line("{")
+	g.ind++
+	for _, l := range setup {
+		g.line("%s", l)
+	}
+	g.line("%s(%s, %s);", funcName(p.Set), recv, value)
 	g.ind--
 	g.line("}")
 }
@@ -1161,6 +1212,8 @@ func (g *gen) value(e ast.Expr) string {
 			return g.varName(u)
 		case *types.Field:
 			return g.selfRef() + "->f_" + u.Name
+		case *types.Property:
+			return funcName(u.Get) + "(" + g.selfRef() + ")"
 		case *types.Func:
 			g.fnValues[u] = true
 			return "((vx_fn){(void *)fnv_" + u.Name + ", NULL})"
@@ -1232,6 +1285,9 @@ func (g *gen) value(e ast.Expr) string {
 		}
 		m := g.info.Members[e]
 		x := g.expr(e.X)
+		if m.Property != nil {
+			return funcName(m.Property.Get) + "(" + x + ")"
+		}
 		if m.Field != nil {
 			return fmt.Sprintf("%s->f_%s", x, m.Field.Name)
 		}
