@@ -603,6 +603,210 @@ static vx_list *vx_str_split(vx_str s, vx_str sep, int line) {
     return l;
 }
 
+// --- Maps ---
+
+// How map keys are hashed and compared.
+enum { VX_KEY_INT, VX_KEY_BOOL, VX_KEY_STR, VX_KEY_ENUM };
+
+// A hash map that keeps insertion order. Entries sit in one array in the
+// order they were added, and an index of slots points into it. Removing an
+// entry leaves a hole that the next growth compacts away.
+//
+// Each entry is a hash, a sequence number (0 for a hole), the key and the
+// value. Sequence numbers rise with each insertion, so a loop can find its
+// place again after compaction moves the entries.
+typedef struct {
+    int64_t len;       // live entries
+    int64_t used;      // entries in the array, holes included
+    int64_t cap;       // capacity of the entry array
+    int64_t mask;      // index slots minus one
+    uint64_t next_seq;
+    uint64_t epoch;    // changes whenever compaction moves entries
+    int32_t kind, vsz, ksz, esz, voff;
+    int32_t *index;    // -1 empty, -2 removed, otherwise an entry number
+    char *entries;
+} vx_map;
+
+#define VX_MAP_KEY 16
+#define VX_MAP_EMPTY -1
+#define VX_MAP_REMOVED -2
+
+static inline uint64_t vx_mix(uint64_t x) {
+    x ^= x >> 30;
+    x *= 0xbf58476d1ce4e5b9ULL;
+    x ^= x >> 27;
+    x *= 0x94d049bb133111ebULL;
+    return x ^ (x >> 31);
+}
+
+static uint64_t vx_hash_bytes(const char *p, int64_t n) {
+    uint64_t h = 0x9e3779b97f4a7c15ULL ^ (uint64_t)n;
+    for (; n >= 8; p += 8, n -= 8) {
+        uint64_t w;
+        memcpy(&w, p, 8);
+        h = (h ^ vx_mix(w)) * 0x100000001b3ULL;
+    }
+    uint64_t w = 0;
+    memcpy(&w, p, (size_t)n);
+    return vx_mix(h ^ w);
+}
+
+static inline uint64_t vx_key_hash(int kind, const void *k) {
+    switch (kind) {
+    case VX_KEY_INT: return vx_mix(*(const uint64_t *)k);
+    case VX_KEY_BOOL: return vx_mix(*(const bool *)k);
+    case VX_KEY_STR: {
+        vx_str s = *(const vx_str *)k;
+        return vx_hash_bytes(s.ptr, s.len);
+    }
+    }
+    // Enum keys have no values, so the tag identifies them.
+    return vx_mix((uint64_t)**(int32_t *const *)k);
+}
+
+static inline bool vx_key_eq(int kind, const void *a, const void *b) {
+    switch (kind) {
+    case VX_KEY_INT: return *(const int64_t *)a == *(const int64_t *)b;
+    case VX_KEY_BOOL: return *(const bool *)a == *(const bool *)b;
+    case VX_KEY_STR: return vx_str_eq(*(const vx_str *)a, *(const vx_str *)b);
+    }
+    return **(int32_t *const *)a == **(int32_t *const *)b;
+}
+
+static vx_map *vx_map_new(int kind, int ksz, int vsz) {
+    vx_map *m = vx_alloc(sizeof(vx_map));
+    m->kind = kind;
+    m->ksz = ksz;
+    m->vsz = vsz;
+    m->voff = VX_MAP_KEY + ((ksz + 7) & ~7);
+    m->esz = m->voff + ((vsz + 7) & ~7);
+    m->next_seq = 1;
+    return m;
+}
+
+#define VX_MAP_ENTRY(m, i) ((m)->entries + (size_t)(i) * (size_t)(m)->esz)
+#define VX_MAP_SEQ(e) (((uint64_t *)(e))[1])
+
+// Returns the slot of [key], or -1 if it is missing.
+static int64_t vx_map_slot(vx_map *m, const void *key, uint64_t h) {
+    if (!m->index) return -1;
+    for (size_t i = h & (size_t)m->mask;; i = (i + 1) & (size_t)m->mask) {
+        int32_t e = m->index[i];
+        if (e == VX_MAP_EMPTY) return -1;
+        if (e >= 0) {
+            char *ent = VX_MAP_ENTRY(m, e);
+            if (*(uint64_t *)ent == h && vx_key_eq(m->kind, ent + VX_MAP_KEY, key)) return (int64_t)i;
+        }
+    }
+}
+
+// Makes room for one more entry: compacts away holes, and doubles the
+// capacity unless compaction alone frees enough.
+static void vx_map_grow(vx_map *m) {
+    int64_t cap = m->cap == 0 ? 8 : (m->len * 2 > m->cap ? m->cap * 2 : m->cap);
+    if (cap > INT32_MAX / 2) vx_fail(0, "map is too big");
+    char *entries = cap == m->cap ? m->entries : vx_alloc((size_t)(cap * m->esz));
+    int64_t n = 0;
+    for (int64_t i = 0; i < m->used; i++) {
+        char *e = VX_MAP_ENTRY(m, i);
+        if (VX_MAP_SEQ(e) == 0) continue;
+        if (entries + (size_t)n * (size_t)m->esz != e) memmove(entries + (size_t)n * (size_t)m->esz, e, (size_t)m->esz);
+        n++;
+    }
+    if (n != m->used) m->epoch++;
+    if (entries == m->entries) memset(VX_MAP_ENTRY(m, n), 0, (size_t)((m->used - n) * m->esz));
+    m->entries = entries;
+    m->used = n;
+    m->cap = cap;
+    size_t slots = 16;
+    while (slots < (size_t)cap * 2) slots *= 2;
+    m->index = vx_alloc_atomic(slots * sizeof(int32_t));
+    memset(m->index, 0xff, slots * sizeof(int32_t));
+    m->mask = (int64_t)slots - 1;
+    for (int64_t i = 0; i < n; i++) {
+        size_t s = *(uint64_t *)VX_MAP_ENTRY(m, i) & (size_t)m->mask;
+        while (m->index[s] != VX_MAP_EMPTY) s = (s + 1) & (size_t)m->mask;
+        m->index[s] = (int32_t)i;
+    }
+}
+
+// Returns a pointer to the value of [key], or NULL if it is missing.
+static inline void *vx_map_find(vx_map *m, const void *key) {
+    int64_t s = vx_map_slot(m, key, vx_key_hash(m->kind, key));
+    return s < 0 ? NULL : VX_MAP_ENTRY(m, m->index[s]) + m->voff;
+}
+
+// Returns a pointer to the value of [key], adding the key with a zero value
+// at the end when it is missing.
+static void *vx_map_set(vx_map *m, const void *key) {
+    uint64_t h = vx_key_hash(m->kind, key);
+    int64_t s = vx_map_slot(m, key, h);
+    if (s >= 0) return VX_MAP_ENTRY(m, m->index[s]) + m->voff;
+    if (m->used == m->cap) vx_map_grow(m);
+    size_t i = h & (size_t)m->mask;
+    while (m->index[i] >= 0) i = (i + 1) & (size_t)m->mask;
+    char *e = VX_MAP_ENTRY(m, m->used);
+    ((uint64_t *)e)[0] = h;
+    VX_MAP_SEQ(e) = m->next_seq++;
+    memcpy(e + VX_MAP_KEY, key, (size_t)m->ksz);
+    m->index[i] = (int32_t)m->used++;
+    m->len++;
+    return e + m->voff;
+}
+
+// Removes [key], copying its value to [out]. Returns false if it was
+// missing.
+static bool vx_map_remove(vx_map *m, const void *key, void *out) {
+    int64_t s = vx_map_slot(m, key, vx_key_hash(m->kind, key));
+    if (s < 0) return false;
+    char *e = VX_MAP_ENTRY(m, m->index[s]);
+    memcpy(out, e + m->voff, (size_t)m->vsz);
+    memset(e, 0, (size_t)m->esz);
+    m->index[s] = VX_MAP_REMOVED;
+    m->len--;
+    return true;
+}
+
+// The position of a loop over a map. It visits the entries that existed
+// when the loop started, in order, skipping ones removed since.
+typedef struct {
+    int64_t i;
+    uint64_t last, limit, epoch;
+} vx_map_iter;
+
+static inline vx_map_iter vx_map_iter_new(vx_map *m) {
+    return (vx_map_iter){0, 0, m->next_seq, m->epoch};
+}
+
+// Returns the next entry of the loop, or NULL when it is done.
+static inline char *vx_map_next(vx_map *m, vx_map_iter *it) {
+    if (__builtin_expect(it->epoch != m->epoch, 0)) {
+        // Entries moved: continue after the last one visited.
+        it->i = 0;
+        while (it->i < m->used && VX_MAP_SEQ(VX_MAP_ENTRY(m, it->i)) <= it->last) it->i++;
+        it->epoch = m->epoch;
+    }
+    while (it->i < m->used) {
+        char *e = VX_MAP_ENTRY(m, it->i++);
+        uint64_t seq = VX_MAP_SEQ(e);
+        if (seq == 0) continue;
+        if (seq >= it->limit) return NULL;
+        it->last = seq;
+        return e;
+    }
+    return NULL;
+}
+
+// Returns the keys of [m], or its values when [values] is set, in order.
+static vx_list *vx_map_list(vx_map *m, bool values) {
+    vx_list *l = vx_list_new(values ? m->vsz : m->ksz, 0, NULL);
+    for (int64_t i = 0; i < m->used; i++) {
+        char *e = VX_MAP_ENTRY(m, i);
+        if (VX_MAP_SEQ(e) != 0) vx_list_push(l, e + (values ? m->voff : VX_MAP_KEY));
+    }
+    return l;
+}
+
 // --- Conversions ---
 
 static vx_str vx_int_str(int64_t v) {
