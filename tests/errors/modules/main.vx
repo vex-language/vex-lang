@@ -19,6 +19,13 @@ fn main() {
     p.hidden = 1
 }
 
+fn aliases() {
+    let h: lib.Hidden = 1
+    let g = lib.Grid(v: 1)
+    let v = lib.Pt
+    lib.Pt.origin()
+}
+
 // error: 5:5: function 'hidden' is private to lib
 // error: 7:15: field 'y' of lib.Point is private to lib
 // error: 8:5: lib has no 'nothere'
@@ -33,3 +40,7 @@ fn main() {
 // error: 17:15: method 'secret' of lib.Point is private to lib
 // error: 18:15: getter 'hidden' of lib.Point is private to lib
 // error: 19:7: setter 'hidden' of lib.Point is private to lib
+// error: 23:12: typedef 'Hidden' is private to lib
+// error: 24:13: lib.Grid names [[T]], so it can't be called
+// error: 25:13: 'lib.Pt' is a type, not a value
+// error: 26:12: method 'origin' of lib.Point is private to lib

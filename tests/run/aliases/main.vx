@@ -1,0 +1,98 @@
+import "shapes"
+
+typedef Pt = shapes.P
+typedef Lv = shapes.L
+typedef Boxes = [shapes.IntBox]
+
+// Aliases may name types declared later in the file.
+typedef Shapes = [Shape]
+typedef Area = fn(Shape) -> float
+typedef Handler = fn(string) throws -> bool
+typedef Pair<T> = (T, T)
+typedef Table<V> = [string: V]
+typedef Cache<K: Hashable> = [K: [string]]
+typedef Ints = Pair<int>
+typedef MaybeName = string?
+typedef Named = ({string name, int age})
+typedef S = Shape
+
+interface Shape { fn area() -> float }
+
+struct Square: S {
+    side: float
+    fn area() -> float => side * side
+}
+
+struct Scene {
+    items: Shapes
+    tags: Table<int> = [:]
+
+    fn total(f: Area) -> float {
+        var t = 0.0
+        for s in items { t += f(s) }
+        return t
+    }
+}
+
+struct Holder<T> {
+    items: Table<T>
+    fn get(key: string) -> T? => items[key]
+}
+
+enum Tree<T> { leaf(v: T), pair(p: Pair<T>) }
+
+const limits: Table<int> = ["max": 3]
+
+fn swap<T>(p: Pair<T>) -> Pair<T> => (p.$2, p.$1)
+
+fn large<T: S>(x: T) -> bool => x.area() > 1.0
+
+fn sum(xs: [Pair<int>]) -> int {
+    var t = 0
+    for p in xs { t += p.$1 + p.$2 }
+    return t
+}
+
+fn check(h: Handler, s: string) -> bool => (try? h(s)) ?? false
+
+fn main() {
+    // Aliases are the types they name.
+    let q: Ints = (1, 2)
+    let plain: (int, int) = q
+    println(swap(q), plain, sum([q, (3, 4)]))
+    var cache: Cache<string> = [:]
+    cache["a"] = ["x", "y"]
+    println(cache, limits["max"] ?? 0)
+    let m: MaybeName = nil
+    println(m ?? "anon")
+    let ann: Named = (name: "Ann", age: 30)
+    println(ann.name, ann.age)
+
+    // Function types.
+    println(check(fn(s) => s == "go", "go"))
+    let h: Handler = fn(s) { throw Error("no {s}") }
+    println(check(h, "x"))
+
+    // Fields, generics and interfaces through aliases.
+    let scene = Scene(items: [Square(side: 2.0), Square(side: 3.0)])
+    println(scene.total(fn(s) => s.area()), large(Square(side: 2.0)))
+    let holder = Holder(items: ["a": 1.5])
+    println(holder.get("a") ?? 0.0)
+    let t: Tree<int> = .pair(p: (1, 2))
+    println(t)
+
+    // Structs and enums from another module.
+    let a = Pt(x: 1, y: 2)
+    let b = shapes.P(x: 3, y: 4)
+    println(a.x + b.y + Pt.origin().x)
+    let level: Lv = .high
+    println(level, Lv.low, shapes.L.mid, level > Lv.mid)
+    match level {
+        low => println("low")
+        mid || high => println("not low")
+    }
+    let boxes: Boxes = [shapes.IntBox(v: 5)]
+    println(boxes[0].v)
+    let grid: shapes.Grid<int> = [[1, 2], [3]]
+    println(grid)
+}

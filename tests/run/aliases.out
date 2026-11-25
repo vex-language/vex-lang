@@ -1,0 +1,14 @@
+(2, 1) (1, 2) 10
+["a": ["x", "y"]] 3
+anon
+Ann 30
+true
+false
+13.0 true
+1.5
+Tree<int>.pair(p: (1, 2))
+5
+Level.high Level.low Level.mid true
+not low
+5
+[[1, 2], [3]]

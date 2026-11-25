@@ -1,0 +1,58 @@
+// Mistakes with type aliases.
+struct Box { v: int }
+interface Shape { fn area() -> float }
+enum Level { low, high }
+
+typedef Loop = [Loop]
+typedef A = B
+typedef B = A
+typedef Box = int
+typedef int = string
+typedef Pair<T> = (T, T)
+typedef Keys<K: Hashable> = [K: int]
+typedef Bad = Missing
+typedef Twice<T, T> = T
+typedef Num = int
+typedef Lv = Level
+typedef Shapes = Shape
+fn Pair() {}
+const Num = 1
+
+struct Ring: Num {}
+
+fn f<T: Num>(x: T) {}
+
+fn main() {
+    let a: Pair = (1, 2)
+    let b: Pair<int, int> = (1, 2)
+    let c: Keys<fn()> = ["": 1]
+    let d: Num<int> = 1
+    let e = Lv(1)
+    let s = Shapes()
+}
+
+typedef Boxed<T> = Gen<T>
+struct Gen<T> { v: T }
+
+fn more() {
+    let g = Boxed(v: 1)
+    let i: Boxed<int> = Gen(v: 1)
+}
+
+// error: 2:8: 'Box' is already declared as a typedef on line 9
+// error: 6:17: typedef Loop refers to itself
+// error: 8:13: typedef A refers to itself
+// error: 10:9: 'int' is a built-in type and can't be used as a type name
+// error: 13:15: unknown type 'Missing'
+// error: 14:18: type parameter 'T' is declared twice
+// error: 18:4: 'Pair' is already declared as a typedef on line 11
+// error: 19:7: 'Num' is already declared as a typedef on line 15
+// error: 21:14: 'Num' names int, not an interface
+// error: 23:9: 'Num' names int, not an interface
+// error: 26:12: Pair is generic, so it needs type arguments
+// error: 27:12: Pair takes 1 type argument, found 2
+// error: 28:17: Keys needs K to be Hashable, but fn() isn't
+// error: 29:12: 'Num' is not generic, so it takes no type arguments
+// error: 30:13: enums are created from one of their cases
+// error: 31:13: Shapes names Shape, so it can't be called
+// error: 38:13: Boxed is a generic typedef, so it can't be called
