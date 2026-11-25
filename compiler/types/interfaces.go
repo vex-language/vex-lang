@@ -10,13 +10,14 @@ func (c *checker) declareInterface(d *ast.InterfaceDecl) {
 	if c.reserved(d.Name, "an interface") || c.taken(d.Name) {
 		return
 	}
-	i := &Interface{Name: d.Name.Name, Decl: d, Index: len(c.info.Interfaces)}
+	i := &Interface{Name: d.Name.Name, Module: c.mod, Decl: d, Index: len(c.info.Interfaces)}
 	c.interfaces[i.Name] = i
 	c.info.Interfaces = append(c.info.Interfaces, i)
 }
 
 // Resolves the method signatures of [i] the first time it is needed.
 func (c *checker) ifaceMembers(i *Interface) {
+	defer c.enter(i.Decl)()
 	if i.resolved {
 		return
 	}
@@ -56,6 +57,12 @@ func (c *checker) conformances(s *Struct) {
 	}
 	for _, id := range s.Decl.Interfaces {
 		i := c.interfaces[id.Name]
+		if id.Module != "" {
+			i = c.qualifiedIface(id, quiet)
+			if i == nil {
+				continue
+			}
+		}
 		if i == nil {
 			switch {
 			case c.structs[id.Name] != nil || c.genStructs[id.Name] != nil:

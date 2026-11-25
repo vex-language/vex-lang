@@ -43,6 +43,9 @@ const (
 	Struct
 	Enum
 	Interface
+	Import
+	Pub
+	As
 	Match
 	Static
 	Guard
@@ -103,6 +106,12 @@ const (
 	GtEq
 )
 
+// Reports whether [s] is a keyword, which can't be used as a name.
+func IsKeyword(s string) bool {
+	_, ok := keywords[s]
+	return ok
+}
+
 // Keywords mapped to their kinds.
 var keywords = map[string]Kind{
 	"fn":        Fn,
@@ -120,6 +129,9 @@ var keywords = map[string]Kind{
 	"static":    Static,
 	"enum":      Enum,
 	"interface": Interface,
+	"import":    Import,
+	"pub":       Pub,
+	"as":        As,
 	"match":     Match,
 	"guard":     Guard,
 	"nil":       Nil,

@@ -1,0 +1,27 @@
+// A program in several modules. Imports name the standard library
+// (vex:), and folders of this project by their path. A module's names are
+// used through its name, as in models.Item, and only those marked pub
+// can be used from other modules.
+import "vex:math"
+import "models"
+import "format" as fmt
+
+fn main() {
+    let cart = models.Cart(owner: "Ana")
+    cart.add(models.Item(name: "pen", price: 3, kind: .tool))
+    cart.add(models.Item(name: "notebook", price: 12, kind: .paper))
+    cart.add(models.Item(name: "ruler", price: 5, kind: models.Kind.tool))
+    println(fmt.receipt(cart))
+
+    // Interfaces and generics work across modules too.
+    let shapes: [models.Shape] = [models.Square(side: 3), models.Rect(w: 2, h: 5)]
+    var area = 0
+    for s in shapes {
+        area += s.area()
+    }
+    println("area: {area}")
+    let best = models.Pair<string, int>(first: "most", second: math.max(area, 20))
+    println(best.describe())
+
+    printTotals(cart)
+}

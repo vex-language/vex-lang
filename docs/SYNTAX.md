@@ -219,6 +219,66 @@ fn largest<T: Shape>(items: [T]) -> T? { ... }
 - Interface values print as the struct inside them, and can't be compared with `==`.
 - Not yet: generic interfaces, interfaces that extend others, and enums that implement interfaces.
 
+## Modules
+
+A folder is a module: its `.vx` files share their names and use each other without imports. A project is a folder with a `package.toml`, and its top folder is the root module, which holds `main`.
+
+```
+store/
+  package.toml
+  main.vx            // fn main() and the rest of the root module
+  totals.vx
+  models/
+    item.vx          // module "models"
+    cart.vx
+  format/
+    receipt.vx       // module "format"
+```
+
+```toml
+[package]
+name = "store"
+version = "0.1.0"
+```
+
+Imports go at the top of a file and belong to that file:
+
+```swift
+import "vex:math"             // the standard library
+import "models"               // a folder of this project, relative to this file
+import "util" as u            // renamed with as
+
+fn main() {
+    let cart = models.Cart(owner: "Ana")
+    println(math.max(3, 9), u.twice(4))
+}
+```
+
+Names from another module are written through the module's name, which is the last part of the path: `models.Cart`, `math.max`, `models.Kind.tool`, `models.Box<int>`. A name is only visible outside its module when it is marked `pub`:
+
+```swift
+// models/cart.vx
+pub struct Cart {
+    pub owner: string
+    items: [Item] = []                   // only models can read it
+
+    pub fn add(item: Item) { items.push(item) }
+    pub static fn empty() -> Cart => Cart(owner: "nobody")
+    fn audit() { }                      // private
+}
+
+pub enum Kind { tool, paper }          // cases are public with the enum
+pub interface Shape { fn area() -> int }
+fn helper() { }                         // private to models
+```
+
+- `pub` goes on functions, structs, enums, interfaces, fields and methods. Enum cases and interface methods are public whenever their enum or interface is, and so is a method a struct writes for one of its interfaces.
+- Another module can only create a struct whose private fields all have defaults. Otherwise give it a `pub static fn` that creates it.
+- `vex:` modules come with the compiler. So far there are `vex:math` (`abs`, `min`, `max`, `clamp`, `pow`, `gcd`) and `vex:strings` (`repeat`, `join`, `padLeft`, `padRight`).
+- Modules may import each other. A name that is already an import, such as a variable called `math`, is an error, so `math.max` always means the module.
+- `vex run` with no file runs the project in the current folder, and `vex run store` runs the one in `store/`. A single file can import too: `vex run hello.vx`.
+- `package:` imports come with the package manager (V-121).
+
 ## Closures
 
 A closure is a function without a name, written like a function declaration. Function types are written `fn(int) -> bool`, or `fn()` for a function that takes and returns nothing.

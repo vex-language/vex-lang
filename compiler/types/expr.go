@@ -8,6 +8,7 @@ import (
 
 	"github.com/irshadio/vex-lang/compiler/ast"
 	"github.com/irshadio/vex-lang/compiler/lexer"
+	"github.com/irshadio/vex-lang/compiler/modules"
 )
 
 // Checks [e] and returns its type. [want] is the type the context expects,
@@ -99,6 +100,9 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 
 // Resolves a name used as a value.
 func (c *checker) ident(id *ast.Ident) Type {
+	if id.Module != "" {
+		return c.moduleIdent(id)
+	}
 	if v := c.lookupVar(id.Name); v != nil {
 		c.info.Uses[id] = v
 		c.use(v)
@@ -131,11 +135,7 @@ func (c *checker) ident(id *ast.Ident) Type {
 	}
 	if f := c.funcs[id.Name]; f != nil {
 		c.info.Uses[id] = f
-		ft := &FuncType{Result: f.Result, Throws: f.Throws}
-		for _, p := range f.Params {
-			ft.Params = append(ft.Params, p.Type)
-		}
-		return ft
+		return funcValue(f)
 	}
 	if s := c.structs[id.Name]; s != nil {
 		c.errorAt(id, fmt.Sprintf("create one with %s(...)", s.Name), "'%s' is a type, not a value", s.Name)
@@ -165,8 +165,25 @@ func (c *checker) ident(id *ast.Ident) Type {
 		c.errorAt(id, fmt.Sprintf("call it: %s(...)", id.Name), "built-in function '%s' must be called", id.Name)
 		return Invalid
 	}
-	c.errorAt(id, didYouMean(id.Name, c.visibleNames()), "unknown name '%s'", id.Name)
+	if c.imported(id.Name) != nil {
+		c.errorAt(id, fmt.Sprintf("use a name from it, e.g. %s.name", id.Name), "'%s' is a module, not a value", id.Name)
+		return Invalid
+	}
+	hint := didYouMean(id.Name, c.visibleNames())
+	if modules.IsStd(id.Name) {
+		hint = fmt.Sprintf("import it at the top of the file: import \"vex:%s\"", id.Name)
+	}
+	c.errorAt(id, hint, "unknown name '%s'", id.Name)
 	return Invalid
+}
+
+// Returns the type of function [f] used as a value.
+func funcValue(f *Func) *FuncType {
+	ft := &FuncType{Result: f.Result, Throws: f.Throws}
+	for _, p := range f.Params {
+		ft.Params = append(ft.Params, p.Type)
+	}
+	return ft
 }
 
 // Returns the struct whose method is being checked, or nil.
@@ -496,6 +513,10 @@ func (c *checker) indexOf(e *ast.IndexExpr, x Type) Type {
 // `User.guest()`, or nil.
 func (c *checker) structRef(e ast.Expr) *Struct {
 	id, ok := e.(*ast.Ident)
+	if ok && id.Module != "" {
+		s, _ := c.moduleRef(id)
+		return s
+	}
 	if !ok || c.lookupVar(id.Name) != nil {
 		return nil
 	}
@@ -529,6 +550,7 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		return Invalid
 	case *Struct:
 		if f := x.Field(name); f != nil {
+			c.fieldPrivate(e.Name, f)
 			c.info.Members[e] = &Member{Field: f}
 			return f.Type
 		}

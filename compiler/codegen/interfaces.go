@@ -13,7 +13,10 @@ import (
 // function and, for each interface, a table of its methods in the
 // interface's order. Calling an interface method is two loads and a call.
 
-func ifaceName(i *types.Interface) string { return fmt.Sprintf("I%d%s", len(i.Name), i.Name) }
+func ifaceName(i *types.Interface) string {
+	id := modTag(i.Module) + i.Name
+	return fmt.Sprintf("I%d%s", len(id), id)
+}
 
 // Returns the type of method [m] without its receiver.
 func methodFnType(m *types.Func) *types.FuncType {

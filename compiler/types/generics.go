@@ -49,6 +49,12 @@ func (c *checker) typeParams(tps []*ast.TypeParam) []*TypeParam {
 		}
 		seen[p.Name] = true
 		for _, id := range tp.Constraints {
+			if id.Module != "" {
+				if i := c.qualifiedIface(id, false); i != nil {
+					p.Ifaces = append(p.Ifaces, i)
+				}
+				continue
+			}
 			if i := c.interfaces[id.Name]; i != nil {
 				p.Ifaces = append(p.Ifaces, i)
 				continue
@@ -261,11 +267,19 @@ func (c *checker) taken(id *ast.Ident) bool {
 // open, so mistakes are reported once, in terms of T.
 func (c *checker) queueGenericBodies() {
 	for _, d := range c.decls {
+		back := c.enter(d)
+		c.queueGenericBody(d)
+		back()
+	}
+}
+
+func (c *checker) queueGenericBody(d ast.Decl) {
+	{
 		switch d := d.(type) {
 		case *ast.FuncDecl:
 			g := c.genFuncs[d.Name.Name]
 			if g == nil || g.decl != d {
-				continue
+				return
 			}
 			f := c.funcTemplate(g)
 			c.jobs = append(c.jobs, func() {
@@ -281,7 +295,7 @@ func (c *checker) queueGenericBodies() {
 		case *ast.StructDecl:
 			g := c.genStructs[d.Name.Name]
 			if g == nil || g.decl != d {
-				continue
+				return
 			}
 			c.jobs = append(c.jobs, func() {
 				n := len(c.errs)
@@ -300,7 +314,8 @@ func (c *checker) queueGenericBodies() {
 // Returns [g] as seen by generic code, with its own type parameters.
 func (c *checker) funcTemplate(g *genericFunc) *Func {
 	if g.tmpl == nil {
-		g.tmpl = &Func{Name: g.decl.Name.Name, Decl: g.decl, TypeArgs: paramTypes(g.params)}
+		defer c.enter(g.decl)()
+		g.tmpl = &Func{Name: g.decl.Name.Name, Module: c.mod, Decl: g.decl, TypeArgs: paramTypes(g.params)}
 		c.withEnv(envOf(g.params, paramTypes(g.params)), func() { c.signature(g.tmpl) })
 	}
 	return g.tmpl
@@ -315,6 +330,7 @@ func (c *checker) structTemplate(g *genericStruct) *Struct {
 
 // Checks the field defaults and method bodies of [s].
 func (c *checker) structBodies(s *Struct) {
+	defer c.enter(s.Decl)()
 	c.scope = &scope{vars: map[string]*Var{}}
 	for _, f := range s.Fields {
 		if f.Default != nil {
@@ -330,6 +346,7 @@ func (c *checker) structBodies(s *Struct) {
 
 // Checks the parameter defaults of [f].
 func (c *checker) paramDefaults(f *Func) {
+	defer c.enter(f.Decl)()
 	c.scope = &scope{vars: map[string]*Var{}}
 	for _, p := range f.Params {
 		if p.Default != nil {
@@ -361,9 +378,11 @@ func (c *checker) instStruct(g *genericStruct, args []Type, at ast.Node) *Struct
 	if !abstract && !c.deepEnough(at, g.decl.Name.Name) {
 		return nil
 	}
-	s := &Struct{Name: g.decl.Name.Name + "<" + typeList(args) + ">", Base: g.decl.Name.Name, Args: args, Decl: g.decl, generic: g, abstract: abstract}
+	defer c.enter(g.decl)()
+	s := &Struct{Name: g.decl.Name.Name + "<" + typeList(args) + ">", Module: c.mod, Base: g.decl.Name.Name, Args: args, Decl: g.decl, generic: g, abstract: abstract}
 	if !abstract {
 		s.Decl = ast.Clone(g.decl)
+		c.register(s.Decl, c.units[g.decl])
 		c.info.Structs = append(c.info.Structs, s)
 	}
 	g.insts[key] = s
@@ -392,9 +411,11 @@ func (c *checker) instFunc(g *genericFunc, args []Type, at ast.Node) *Func {
 	if !abstract && !c.deepEnough(at, g.decl.Name.Name) {
 		return nil
 	}
-	f := &Func{Name: g.decl.Name.Name, Decl: g.decl, TypeArgs: args}
+	defer c.enter(g.decl)()
+	f := &Func{Name: g.decl.Name.Name, Module: c.mod, Decl: g.decl, TypeArgs: args}
 	if !abstract {
 		f.Decl = ast.Clone(g.decl)
+		c.register(f.Decl, c.units[g.decl])
 		c.info.FuncOf[f.Decl] = f
 		c.info.Funcs = append(c.info.Funcs, f)
 	}

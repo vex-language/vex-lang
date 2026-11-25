@@ -172,8 +172,11 @@ func TestBuild(t *testing.T) {
 	if err != nil || string(got) != "built\n" {
 		t.Errorf("running the binary: %q, %v", got, err)
 	}
-	if code, _, _ := runCLI("build"); code != exitUsage {
-		t.Errorf("no file: code %d", code)
+	if code, _, _ := runCLI("build", path, path); code != exitUsage {
+		t.Errorf("two files: code %d", code)
+	}
+	if code, _, errOut := runCLI("build", t.TempDir()); code != exitError || !strings.Contains(errOut, "no package.toml") {
+		t.Errorf("folder without a project file: code %d, stderr %q", code, errOut)
 	}
 }
 

@@ -1,0 +1,38 @@
+// Every module declares the same names; each must stay its own in C.
+import "a"
+import "b"
+
+struct User {
+    name: string
+    fn hello() -> string => "main {name}"
+}
+
+enum Color {
+    red
+}
+
+struct Box<T> {
+    value: T
+}
+
+fn make() -> string => "main make"
+
+fn loud<T: a.Named>(x: T) -> string => x.shout()
+
+fn main() {
+    println(User(name: "u").hello())
+    println(a.User(name: "u").hello())
+    println(b.User(name: "u").hello())
+    println(make(), a.make(), b.make())
+    println(Box<int>(value: 1).value, a.Box<int>(value: 2).value, b.Box<int>(value: 3).value)
+    println(a.color(a.Color.red), b.color(b.Color.red))
+    let c = Color.red
+    println(c)
+    println(a.ping(3))
+    println(User(name: "x"), a.User(name: "y"))
+    let users: [a.User?] = [nil, a.User(name: "z")]
+    println(users.len)
+    let n: a.Named = b.User(name: "q")
+    println(a.wrap(7).value, a.wrap("seven").value)
+    println(n.label(), loud(b.User(name: "r")), b.User(name: "s").label())
+}

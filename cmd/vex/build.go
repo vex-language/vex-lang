@@ -13,36 +13,56 @@ import (
 
 	"github.com/irshadio/vex-lang/compiler/cc"
 	"github.com/irshadio/vex-lang/compiler/codegen"
-	"github.com/irshadio/vex-lang/compiler/parser"
+	"github.com/irshadio/vex-lang/compiler/modules"
 	"github.com/irshadio/vex-lang/compiler/types"
 )
 
-// Translates the source file at [path] to C, reporting any errors to
-// [stderr]. Returns the exit code to use when it fails.
-func translate(path string, stderr io.Writer) (string, int) {
-	f, err := readSource(path)
-	if err != nil {
-		fmt.Fprintf(stderr, "vex: %v\n", err)
-		return "", exitError
+// Loads and checks the program at [target], a source file or a project
+// folder, reporting any problems to [stderr]. Returns the exit code to
+// use when it fails.
+func load(target string, stderr io.Writer) (*modules.Program, *types.Info, int) {
+	prog, err := modules.Load(target)
+	if prog != nil {
+		warn(prog.Warnings(), stderr)
 	}
-	tree, err := parser.Parse(f)
 	if err != nil {
-		return "", report(f, err, stderr)
+		return nil, nil, report(nil, err, stderr)
 	}
-	warn(f, tree, stderr)
-	info, err := types.Check(f, tree)
+	info, err := types.CheckProgram(prog)
 	if err != nil {
-		return "", report(f, err, stderr)
+		return nil, nil, report(nil, err, stderr)
 	}
-	return codegen.Generate(info, filepath.Base(path)), exitOK
+	return prog, info, exitOK
+}
+
+// Translates the program at [target] to C. Returns the exit code to use
+// when it fails.
+func translate(target string, stderr io.Writer) (string, *modules.Program, int) {
+	prog, info, code := load(target, stderr)
+	if code != exitOK {
+		return "", nil, code
+	}
+	name := prog.Root.Files[0].Name
+	if prog.Name == "" {
+		name = filepath.Base(name)
+	}
+	return codegen.Generate(info, name), prog, exitOK
+}
+
+// Returns the program named on the command line, or the current folder.
+func target(args []string) string {
+	if len(args) == 0 {
+		return "."
+	}
+	return args[0]
 }
 
 func runEmitC(args []string, stdout, stderr io.Writer) int {
-	if len(args) != 1 {
-		fmt.Fprintln(stderr, "Usage: vex emit-c <file>")
+	if len(args) > 1 {
+		fmt.Fprintln(stderr, "Usage: vex emit-c [file or folder]")
 		return exitUsage
 	}
-	src, code := translate(args[0], stderr)
+	src, _, code := translate(target(args), stderr)
 	if code != exitOK {
 		return code
 	}
@@ -54,7 +74,7 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	out := fs.String("o", "", "output file")
-	fs.Usage = func() { fmt.Fprintln(stderr, "Usage: vex build <file> [-o output]") }
+	fs.Usage = func() { fmt.Fprintln(stderr, "Usage: vex build [file or folder] [-o output]") }
 	// Accept the flag after the file name too: vex build app.vx -o app.
 	var files []string
 	for len(args) > 0 {
@@ -67,17 +87,20 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 		files = append(files, fs.Arg(0))
 		args = fs.Args()[1:]
 	}
-	if len(files) != 1 {
+	if len(files) > 1 {
 		fs.Usage()
 		return exitUsage
 	}
-	path := files[0]
-	if *out == "" {
-		*out = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
-	}
-	src, code := translate(path, stderr)
+	path := target(files)
+	src, prog, code := translate(path, stderr)
 	if code != exitOK {
 		return code
+	}
+	if *out == "" {
+		*out = prog.Name
+		if *out == "" {
+			*out = strings.TrimSuffix(filepath.Base(path), filepath.Ext(path))
+		}
 	}
 	if err := cc.Compile(src, *out); err != nil {
 		fmt.Fprintf(stderr, "vex: %v\n", err)
@@ -88,11 +111,11 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 }
 
 func runRun(args []string, stdout, stderr io.Writer) int {
-	if len(args) != 1 {
-		fmt.Fprintln(stderr, "Usage: vex run <file>")
+	if len(args) > 1 {
+		fmt.Fprintln(stderr, "Usage: vex run [file or folder]")
 		return exitUsage
 	}
-	src, code := translate(args[0], stderr)
+	src, _, code := translate(target(args), stderr)
 	if code != exitOK {
 		return code
 	}

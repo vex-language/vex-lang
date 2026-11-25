@@ -63,14 +63,10 @@ func Fprint(w io.Writer, n Node) {
 func TypeString(t TypeExpr) string {
 	switch t := t.(type) {
 	case *NamedType:
-		if len(t.Args) > 0 {
-			args := make([]string, len(t.Args))
-			for i, a := range t.Args {
-				args[i] = TypeString(a)
-			}
-			return t.Name + "<" + strings.Join(args, ", ") + ">"
+		if t.Module != "" {
+			return t.Module + "." + (&NamedType{Name: t.Name, Args: t.Args}).typeString()
 		}
-		return t.Name
+		return t.typeString()
 	case *ListType:
 		return "[" + TypeString(t.Elem) + "]"
 	case *MapType:
@@ -131,6 +127,18 @@ func PatternString(p Pattern) string {
 func op(k lexer.Kind) string { return strings.Trim(k.String(), "'") }
 
 // Builds the tree of a function declaration or closure.
+// Returns the type without its module.
+func (t *NamedType) typeString() string {
+	if len(t.Args) == 0 {
+		return t.Name
+	}
+	args := make([]string, len(t.Args))
+	for i, a := range t.Args {
+		args[i] = TypeString(a)
+	}
+	return t.Name + "<" + strings.Join(args, ", ") + ">"
+}
+
 // Returns type parameters as written: `<T, U: Comparable & Hashable>`.
 func typeParamsString(tps []*TypeParam) string {
 	if len(tps) == 0 {
@@ -144,7 +152,7 @@ func typeParamsString(tps []*TypeParam) string {
 			if j == 0 {
 				sep = ": "
 			}
-			parts[i] += sep + c.Name
+			parts[i] += sep + TypeString(c)
 		}
 	}
 	return "<" + strings.Join(parts, ", ") + ">"
@@ -180,6 +188,13 @@ func build(n Node) *tree {
 		return nil
 	case *File:
 		t := branch("file")
+		for _, im := range n.Imports {
+			label := "import " + strconv.Quote(im.Path)
+			if im.As != nil {
+				label += " as " + im.As.Name
+			}
+			t.kids = append(t.kids, leaf(label))
+		}
 		for _, d := range n.Decls {
 			t.kids = append(t.kids, build(d))
 		}
@@ -190,19 +205,29 @@ func build(n Node) *tree {
 		if n.Static {
 			label = "static " + label
 		}
+		if n.Pub {
+			label = "pub " + label
+		}
 		return funcTree(label, n.Params, n.Throws, n.Result, n.Body, n.ExprBody)
 	case *StructDecl:
 		label := "struct " + n.Name.Name + typeParamsString(n.TypeParams)
+		if n.Pub {
+			label = "pub " + label
+		}
 		for i, id := range n.Interfaces {
 			sep := ", "
 			if i == 0 {
 				sep = ": "
 			}
-			label += sep + id.Name
+			label += sep + TypeString(id)
 		}
 		t := branch(label)
 		for _, f := range n.Fields {
-			t.kids = append(t.kids, branch("field "+f.Name.Name+": "+TypeString(f.Type), buildExpr(f.Default)))
+			label := "field " + f.Name.Name + ": " + TypeString(f.Type)
+			if f.Pub {
+				label = "pub " + label
+			}
+			t.kids = append(t.kids, branch(label, buildExpr(f.Default)))
 		}
 		for _, m := range n.Methods {
 			t.kids = append(t.kids, build(m))
@@ -210,13 +235,21 @@ func build(n Node) *tree {
 		return t
 
 	case *InterfaceDecl:
-		t := branch("interface " + n.Name.Name)
+		label := "interface " + n.Name.Name
+		if n.Pub {
+			label = "pub " + label
+		}
+		t := branch(label)
 		for _, m := range n.Methods {
 			t.kids = append(t.kids, build(m))
 		}
 		return t
 	case *EnumDecl:
-		t := branch("enum " + n.Name.Name)
+		label := "enum " + n.Name.Name
+		if n.Pub {
+			label = "pub " + label
+		}
+		t := branch(label)
 		for _, c := range n.Cases {
 			ct := branch("case " + c.Name.Name)
 			for _, f := range c.Fields {
@@ -291,6 +324,9 @@ func buildExpr(e Expr) *tree {
 	case nil:
 		return nil
 	case *Ident:
+		if e.Module != "" {
+			return leaf(e.Module + "." + e.Name)
+		}
 		return leaf(e.Name)
 	case *IntLit:
 		return leaf(e.Value)

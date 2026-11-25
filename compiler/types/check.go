@@ -32,17 +32,22 @@ type scope struct {
 }
 
 type checker struct {
-	file    *diag.File
-	info    *Info
-	errs    diag.List
-	structs map[string]*Struct
-	enums   map[string]*Enum
-	funcs   map[string]*Func
+	info *Info
+	errs diag.List
 
-	interfaces map[string]*Interface
-	genFuncs   map[string]*genericFunc
-	genStructs map[string]*genericStruct
-	decls      []ast.Decl
+	// The declarations of every module, and where each one lives.
+	decls    []ast.Decl
+	units    map[ast.Node]*unit
+	root     *Module
+	rootUnit *unit
+
+	// The module and file being checked, the modules the file imports,
+	// and the module's top-level names.
+	unit    *unit
+	mod     *Module
+	file    *diag.File
+	imports map[string]*Module
+	tables
 
 	// The type parameters in scope and the types they stand for: the
 	// parameters themselves in generic code, concrete types in instances.
@@ -74,8 +79,12 @@ type checker struct {
 // On errors the returned error is a [diag.List]; the [Info] is still
 // returned but may be incomplete.
 func Check(f *diag.File, file *ast.File) (info *Info, err error) {
-	c := &checker{
-		file: f,
+	return CheckProgram(singleFile(f, file))
+}
+
+func newChecker() *checker {
+	return &checker{
+		units: map[ast.Node]*unit{},
 		info: &Info{
 			Types:      map[ast.Expr]Type{},
 			Uses:       map[*ast.Ident]any{},
@@ -92,14 +101,10 @@ func Check(f *diag.File, file *ast.File) (info *Info, err error) {
 			Throwing:   map[*ast.CallExpr]Type{},
 			Tries:      map[*ast.TryExpr]*Try{},
 		},
-		structs:    map[string]*Struct{},
-		enums:      map[string]*Enum{},
-		funcs:      map[string]*Func{},
-		interfaces: map[string]*Interface{},
-		genFuncs:   map[string]*genericFunc{},
-		genStructs: map[string]*genericStruct{},
-		decls:      file.Decls,
 	}
+}
+
+func (c *checker) run() (*Info, error) {
 	func() {
 		defer func() {
 			if r := recover(); r != nil {
@@ -109,9 +114,10 @@ func Check(f *diag.File, file *ast.File) (info *Info, err error) {
 			}
 		}()
 		c.declareError()
-		c.collect(file)
+		c.collect()
 		c.bodies()
 	}()
+	c.fileTable()
 	if len(c.errs) > 0 {
 		c.errs = dedupe(c.errs)
 		c.errs.Sort()
@@ -133,7 +139,7 @@ func (c *checker) errorAt(n ast.Node, hint, format string, args ...any) {
 }
 
 func (c *checker) errorAtPos(pos diag.Pos, length int, hint, format string, args ...any) {
-	c.errs = append(c.errs, diag.Diagnostic{Pos: pos, Len: length, Message: fmt.Sprintf(format, args...), Hint: hint})
+	c.errs = append(c.errs, diag.Diagnostic{File: c.file, Pos: pos, Len: length, Message: fmt.Sprintf(format, args...), Hint: hint})
 	if len(c.errs) >= maxErrors {
 		panic(tooMany{})
 	}
@@ -218,6 +224,8 @@ func (c *checker) reserved(id *ast.Ident, what string) bool {
 		c.errorAt(id, "choose another name", "'Error' is the built-in error type and can't be used as %s name", what)
 	case id.Name == "self":
 		c.errorAt(id, "choose another name", "'self' can't be used as %s name", what)
+	case c.imported(id.Name) != nil:
+		c.errorAt(id, "choose another name, or rename the import with as", "'%s' is an imported module and can't be used as %s name", id.Name, what)
 	default:
 		return false
 	}
@@ -237,28 +245,35 @@ func (c *checker) lookupVar(name string) *Var {
 // --- Declarations ---
 
 // Registers all structs and functions so bodies can refer to them in any order.
-func (c *checker) collect(file *ast.File) {
-	for _, d := range file.Decls {
+func (c *checker) collect() {
+	each := func(f func(d ast.Decl)) {
+		for _, d := range c.decls {
+			back := c.enter(d)
+			f(d)
+			back()
+		}
+	}
+	each(func(d ast.Decl) {
 		if id, ok := d.(*ast.InterfaceDecl); ok {
 			c.declareInterface(id)
 		}
-	}
-	for _, d := range file.Decls {
+	})
+	each(func(d ast.Decl) {
 		if sd, ok := d.(*ast.StructDecl); ok && len(sd.TypeParams) == 0 {
 			c.declareStruct(sd)
 		}
-	}
-	for _, d := range file.Decls {
+	})
+	each(func(d ast.Decl) {
 		if sd, ok := d.(*ast.StructDecl); ok && len(sd.TypeParams) > 0 {
 			c.declareGenericStruct(sd)
 		}
-	}
-	for _, d := range file.Decls {
+	})
+	each(func(d ast.Decl) {
 		if ed, ok := d.(*ast.EnumDecl); ok {
 			c.declareEnum(ed)
 		}
-	}
-	for _, d := range file.Decls {
+	})
+	each(func(d ast.Decl) {
 		if fd, ok := d.(*ast.FuncDecl); ok {
 			if len(fd.TypeParams) > 0 {
 				c.declareGenericFunc(fd)
@@ -266,7 +281,7 @@ func (c *checker) collect(file *ast.File) {
 				c.declareFunc(fd)
 			}
 		}
-	}
+	})
 	c.queueGenericBodies()
 	for _, i := range c.info.Interfaces {
 		c.ifaceMembers(i)
@@ -290,7 +305,7 @@ func (c *checker) collect(file *ast.File) {
 }
 
 func (c *checker) declareStruct(sd *ast.StructDecl) {
-	s := &Struct{Name: sd.Name.Name, Decl: sd}
+	s := &Struct{Name: sd.Name.Name, Module: c.mod, Decl: sd}
 	if c.reserved(sd.Name, "a struct") || c.ifaceTaken(sd.Name) {
 		return
 	}
@@ -307,7 +322,7 @@ func (c *checker) declareStruct(sd *ast.StructDecl) {
 }
 
 func (c *checker) declareFunc(fd *ast.FuncDecl) {
-	f := &Func{Name: fd.Name.Name, Decl: fd}
+	f := &Func{Name: fd.Name.Name, Module: c.mod, Decl: fd}
 	c.info.FuncOf[fd] = f
 	if c.reserved(fd.Name, "a function") || c.ifaceTaken(fd.Name) {
 		return
@@ -335,6 +350,7 @@ func (c *checker) declareFunc(fd *ast.FuncDecl) {
 
 // Resolves the fields and method signatures of [s].
 func (c *checker) structMembers(s *Struct) {
+	defer c.enter(s.Decl)()
 	for _, fd := range s.Decl.Fields {
 		if c.reserved(fd.Name, "a field") {
 			continue
@@ -381,6 +397,7 @@ func (c *checker) ifaceTaken(id *ast.Ident) bool {
 
 // Resolves the parameter and result types of [f].
 func (c *checker) signature(f *Func) {
+	defer c.enter(f.Decl)()
 	if len(f.Decl.TypeParams) > 0 && (f.Owner != nil || f.Enum != nil || f.Iface != nil) {
 		c.errorAt(f.Decl.TypeParams[0], "make it a top-level generic function", "methods can't have their own type parameters yet")
 		env := map[string]Type{}
@@ -437,6 +454,9 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 		}
 		return ft
 	case *ast.NamedType:
+		if te.Module != "" {
+			return c.qualifiedType(te)
+		}
 		if len(te.Args) > 0 {
 			return c.genericType(te)
 		}
@@ -494,6 +514,7 @@ func (c *checker) checkStructCycles() {
 		for _, f := range s.Fields {
 			if inner, ok := f.Type.(*Struct); ok && visit(inner, depth+1) {
 				if inner == s || depth == 0 {
+					defer c.enter(s.Decl)()
 					c.errorAt(f.Decl.Type, "use a list instead, e.g. children: ["+inner.Name+"]",
 						"struct '%s' contains itself through field '%s', so it could never be created", s.Name, f.Name)
 				}
@@ -507,9 +528,11 @@ func (c *checker) checkStructCycles() {
 	all := append([]*Struct(nil), c.info.Structs...)
 	for _, d := range c.decls {
 		if sd, ok := d.(*ast.StructDecl); ok {
+			back := c.enter(d)
 			if g := c.genStructs[sd.Name.Name]; g != nil && g.decl == sd {
 				all = append(all, c.structTemplate(g))
 			}
+			back()
 		}
 	}
 	for _, s := range all {
@@ -527,28 +550,34 @@ func (c *checker) checkDefaults() {
 		if s.generic != nil {
 			continue
 		}
+		back := c.enter(s.Decl)
 		for _, f := range s.Fields {
 			if f.Default != nil {
 				c.assignable(f.Type, c.expr(f.Default, f.Type), f.Default, "default of '"+f.Name+"'")
 			}
 		}
+		back()
 	}
 	for _, f := range c.info.Funcs {
 		if instanced(f) {
 			continue
 		}
+		back := c.enter(f.Decl)
 		for _, p := range f.Params {
 			if p.Default != nil {
 				c.assignable(p.Type, c.expr(p.Default, p.Type), p.Default, "default of '"+p.Name+"'")
 			}
 		}
+		back()
 	}
 	c.scope = nil
 }
 
 func (c *checker) checkMain() {
+	c.setUnit(c.rootUnit)
 	main := c.funcs["main"]
 	if g := c.genFuncs["main"]; g != nil {
+		defer c.enter(g.decl)()
 		c.errorAt(g.decl.TypeParams[0], "", "main can't be generic")
 		return
 	}
@@ -556,6 +585,7 @@ func (c *checker) checkMain() {
 		c.errorAtPos(diag.Pos{Line: 1, Col: 1}, 1, "add fn main() { ... } where the program starts", "no main function")
 		return
 	}
+	defer c.enter(main.Decl)()
 	if len(main.Params) > 0 {
 		c.errorAt(main.Decl.Name, "", "main can't take parameters")
 	}
@@ -581,10 +611,7 @@ func (c *checker) bodies() {
 
 // Returns the type written as `Name<Args>`.
 func (c *checker) genericType(te *ast.NamedType) Type {
-	var args []Type
-	for _, a := range te.Args {
-		args = append(args, c.resolveType(a))
-	}
+	args := c.typeArgs(te)
 	g := c.genStructs[te.Name]
 	if g == nil {
 		if c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && builtinTypes[te.Name] == nil {
@@ -594,6 +621,20 @@ func (c *checker) genericType(te *ast.NamedType) Type {
 		}
 		return Invalid
 	}
+	return c.genericInst(te, g, args)
+}
+
+// Resolves the type arguments written in [te].
+func (c *checker) typeArgs(te *ast.NamedType) []Type {
+	var args []Type
+	for _, a := range te.Args {
+		args = append(args, c.resolveType(a))
+	}
+	return args
+}
+
+// Returns the instance of [g] for [args], written as [te].
+func (c *checker) genericInst(te *ast.NamedType, g *genericStruct, args []Type) Type {
 	if len(args) != len(g.params) {
 		c.errorAt(te, "", "%s takes %s, found %d", te.Name, plural(len(g.params), "type argument"), len(args))
 		return Invalid
@@ -628,6 +669,7 @@ func dedupe(errs diag.List) diag.List {
 }
 
 func (c *checker) funcBody(f *Func) {
+	defer c.enter(f.Decl)()
 	c.fn, c.self, c.loops, c.lits = f, nil, 0, nil
 	c.scope = nil
 	c.push()

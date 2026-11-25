@@ -1,0 +1,10 @@
+// Files in the same folder are one module and share their names, so main
+// calls printTotals without importing anything. Imports belong to each
+// file, though.
+import "vex:math"
+import "models"
+
+fn printTotals(cart: models.Cart) {
+    let total = cart.total()
+    println("total: {total}, clamped: {math.clamp(total, 0, 15)}")
+}

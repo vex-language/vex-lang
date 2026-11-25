@@ -1,0 +1,5 @@
+# A project: this folder is the root module, which holds main, and each
+# folder inside it is a module of its own.
+[package]
+name = "store"
+version = "0.1.0"

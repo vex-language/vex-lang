@@ -1,0 +1,32 @@
+/// Building and padding strings.
+
+/// Returns [s] repeated [count] times.
+pub fn repeat(s: string, count: int) -> string {
+    var out = ""
+    for i in 0..count {
+        out += s
+    }
+    return out
+}
+
+/// Returns [parts] joined with [separator] between them.
+pub fn join(parts: [string], separator: string) -> string {
+    var out = ""
+    for i, p in parts {
+        if i > 0 {
+            out += separator
+        }
+        out += p
+    }
+    return out
+}
+
+/// Returns [s] with [fill] added in front until it is [width] characters long.
+pub fn padLeft(s: string, width: int, fill: string = " ") -> string {
+    return repeat(fill, width - s.len) + s
+}
+
+/// Returns [s] with [fill] added after it until it is [width] characters long.
+pub fn padRight(s: string, width: int, fill: string = " ") -> string {
+    return s + repeat(fill, width - s.len)
+}

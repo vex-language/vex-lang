@@ -1,0 +1,16 @@
+// The standard library modules, imported into a single file.
+import "vex:math"
+import "vex:strings" as str
+
+fn main() {
+    println(math.abs(-4), math.abs(4), math.abs(0))
+    println(math.max(2, 7), math.min(2, 7), math.max("pear", "apple"), math.min(1.5, -2.5))
+    println(math.clamp(15, 0, 10), math.clamp(-3, 0, 10), math.clamp(4, 0, 10))
+    println(math.pow(2, 0), math.pow(3, 4), math.pow(-2, 3), math.pow(10, 18))
+    println(math.gcd(12, 18), math.gcd(-12, 18), math.gcd(7, 0), math.gcd(0, 0))
+    println(str.repeat("ab", 3), "[{str.repeat("x", 0)}]", "[{str.repeat("x", -1)}]")
+    println(str.join(["a", "b", "c"], ", "), "[{str.join([], "-")}]")
+    println("[{str.padLeft("7", 3, "0")}] [{str.padRight("ab", 4)}] [{str.padLeft("long", 2)}]")
+    let sizes = [-3, 0, 5].map(math.abs)
+    println(sizes)
+}

@@ -1,0 +1,39 @@
+// a and b import each other.
+import "../b"
+
+pub struct User {
+    pub name: string
+    pub fn hello() -> string => "a {name}"
+}
+
+pub enum Color {
+    red
+    blue
+}
+
+pub struct Box<T> {
+    pub value: T
+}
+
+pub fn make() -> string => "a make"
+
+fn same<T>(x: T) -> T => x
+
+pub fn wrap<T>(x: T) -> Box<T> => Box<T>(value: same(x))
+
+pub interface Named {
+    fn label() -> string
+    fn shout() -> string => label() + "!"
+}
+
+pub fn color(c: Color) -> string => match c {
+    red => "a red"
+    blue => "a blue"
+}
+
+pub fn ping(n: int) -> string {
+    if n == 0 {
+        return "a done"
+    }
+    return b.pong(n - 1)
+}

@@ -15,7 +15,9 @@ type tryCtx struct {
 func (c *checker) declareError() {
 	e := &Struct{Name: "Error"}
 	e.Fields = []*Field{{Name: "message", Type: String, Owner: e}}
-	c.structs[e.Name] = e
+	for _, m := range c.info.Modules {
+		m.structs[e.Name] = e
+	}
 	c.info.Structs = append(c.info.Structs, e)
 	c.info.Error = e
 }

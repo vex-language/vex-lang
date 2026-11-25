@@ -1,0 +1,31 @@
+import "lib"
+import "vex:strings" as text
+
+fn main() {
+    lib.hidden()
+    let p = lib.Point(x: 1)
+    println(p.y)
+    lib.nothere()
+    let lib = 3
+    println(text)
+    let s = math.abs(2)
+    let q: lib.Secret = lib.make()
+    lib.Point.origin()
+    let r = lib.Point(x: 1, y: 2)
+    let w = lib.Wall(h: 1)
+    let n: text.Thing = 1
+    let k = p.secret()
+}
+
+// error: 5:5: function 'hidden' is private to lib
+// error: 7:15: field 'y' of lib.Point is private to lib
+// error: 8:5: lib has no 'nothere'
+// error: 9:9: 'lib' is an imported module and can't be used as a variable name
+// error: 10:13: 'text' is a module, not a value
+// error: 11:13: unknown name 'math'
+// error: 12:12: 'Secret' is private to lib
+// error: 13:15: method 'origin' of lib.Point is private to lib
+// error: 14:29: field 'y' of lib.Point is private to lib
+// error: 15:13: lib.Wall can't be created outside lib because field 'secret' is private
+// error: 16:12: vex:strings has no 'Thing'
+// error: 17:15: method 'secret' of lib.Point is private to lib

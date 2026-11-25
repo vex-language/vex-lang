@@ -140,6 +140,7 @@ vex check hello.vx          # check for errors without building
 vex run hello.vx            # compile and run
 vex build hello.vx -o hello # build a standalone native binary
 vex emit-c hello.vx         # print the generated C
+vex run                     # run the project in this folder (with a package.toml)
 vex version
 ```
 
@@ -296,6 +297,18 @@ struct Circle: Shape {
 
 let shapes: [Shape] = [Circle(radius: 1), Rect(width: 2, height: 3)]
 for s in shapes { println(s.name(), s.area()) }
+```
+
+**Modules.** A folder is a module, and a project is a folder with a `package.toml`. Names are used through their module, and only those marked `pub` are visible outside it.
+
+```swift
+import "vex:math"
+import "models"
+
+fn main() {
+    let cart = models.Cart(owner: "Ana")     // pub struct Cart in models/
+    println(math.max(cart.total(), 10))
+}
 ```
 
 **Closures.** Functions without a name, written like `fn` declarations. They capture variables by reference, and a trailing block passes one as the last argument.

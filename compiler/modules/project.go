@@ -1,0 +1,121 @@
+package modules
+
+import (
+	"fmt"
+	"strings"
+
+	"github.com/irshadio/vex-lang/compiler/diag"
+	"github.com/irshadio/vex-lang/compiler/lexer"
+)
+
+// The contents of a project file.
+type Project struct {
+	Name    string
+	Version string
+
+	// The Vex version the package needs, such as "0.2".
+	Vex string
+}
+
+// Parses a project file: `[section]` headers and `key = "value"` lines,
+// with `#` comments.
+func ParseProject(f *diag.File) (*Project, diag.List) {
+	proj := &Project{}
+	var errs diag.List
+	start := 0
+	fail := func(col int, length int, hint, format string, args ...any) {
+		errs = append(errs, diag.Diagnostic{
+			File:    f,
+			Pos:     f.PosOf(start + col - 1),
+			Len:     length,
+			Message: fmt.Sprintf(format, args...),
+			Hint:    hint,
+		})
+	}
+	section := ""
+	seen := map[string]int{}
+	lines := strings.Split(f.Src, "\n")
+	for i, raw := range lines {
+		if i > 0 {
+			start += len(lines[i-1]) + 1
+		}
+		n := i + 1
+		raw = strings.TrimSuffix(raw, "\r")
+		line := strings.TrimSpace(stripComment(raw))
+		col := strings.Index(raw, line) + 1
+		switch {
+		case line == "":
+			continue
+		case strings.HasPrefix(line, "["):
+			if !strings.HasSuffix(line, "]") {
+				fail(col, len(line), "close it with ]", "unterminated section header")
+				continue
+			}
+			section = strings.TrimSpace(line[1 : len(line)-1])
+			switch section {
+			case "package", "dependencies", "dev-dependencies":
+			default:
+				fail(col, len(line), "use [package], [dependencies] or [dev-dependencies]", "unknown section [%s]", section)
+			}
+			continue
+		}
+		eq := strings.Index(line, "=")
+		if eq < 0 {
+			fail(col, len(line), `write key = "value"`, "expected a key and a value")
+			continue
+		}
+		key := strings.TrimSpace(line[:eq])
+		val := strings.TrimSpace(line[eq+1:])
+		if section != "package" {
+			// Dependencies are read by vex get.
+			continue
+		}
+		if prev, ok := seen[key]; ok {
+			fail(col, len(key), "", "'%s' is already set on line %d", key, prev)
+			continue
+		}
+		seen[key] = n
+		vcol := col + strings.Index(line, val)
+		if len(val) < 2 || val[0] != '"' || val[len(val)-1] != '"' {
+			fail(vcol, len(val), fmt.Sprintf("%s = \"...\"", key), "the value of '%s' must be a string in quotes", key)
+			continue
+		}
+		s := val[1 : len(val)-1]
+		switch key {
+		case "name":
+			if !validName.MatchString(s) || lexer.IsKeyword(s) {
+				fail(vcol, len(val), "use letters, digits and _, not starting with a digit or being a keyword", "'%s' isn't a valid package name", s)
+				continue
+			}
+			proj.Name = s
+		case "version":
+			proj.Version = s
+		case "vex":
+			proj.Vex = s
+		case "description", "repository", "license", "homepage":
+		default:
+			fail(col, len(key), "known keys are name, version, vex, description, repository, license, homepage", "unknown key '%s' in [package]", key)
+		}
+	}
+	if proj.Name == "" && len(errs) == 0 {
+		errs = append(errs, diag.Diagnostic{File: f, Pos: diag.Pos{Line: 1, Col: 1}, Len: 1,
+			Message: "the project file needs a package name", Hint: "[package]\nname = \"myapp\""})
+	}
+	return proj, errs
+}
+
+// Returns [line] without a trailing `#` comment outside quotes.
+func stripComment(line string) string {
+	in := false
+	for i := 0; i < len(line); i++ {
+		switch line[i] {
+		case '"':
+			in = !in
+		case '#':
+			if !in {
+				return line[:i]
+			}
+		}
+	}
+	return line
+}
