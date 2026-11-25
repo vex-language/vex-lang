@@ -276,7 +276,11 @@ func (c *checker) collect() {
 	})
 	each(func(d ast.Decl) {
 		if ed, ok := d.(*ast.EnumDecl); ok {
-			c.declareEnum(ed)
+			if len(ed.TypeParams) > 0 {
+				c.declareGenericEnum(ed)
+			} else {
+				c.declareEnum(ed)
+			}
 		}
 	})
 	each(func(d ast.Decl) {
@@ -297,8 +301,10 @@ func (c *checker) collect() {
 			c.structMembers(s)
 		}
 	}
-	for _, e := range c.info.Enums {
-		c.enumMembers(e)
+	for _, e := range append([]*Enum(nil), c.info.Enums...) {
+		if e.generic == nil {
+			c.enumMembers(e)
+		}
 	}
 	for _, f := range append([]*Func(nil), c.info.Funcs...) {
 		if f.Owner == nil && f.Enum == nil && f.Iface == nil && f.TypeArgs == nil {
@@ -342,6 +348,9 @@ func (c *checker) declareFunc(fd *ast.FuncDecl) {
 		return
 	case c.genStructs[f.Name] != nil:
 		c.errorAt(fd.Name, "", "'%s' is already declared as a struct on line %d", f.Name, c.genStructs[f.Name].decl.Pos().Line)
+		return
+	case c.genEnums[f.Name] != nil:
+		c.errorAt(fd.Name, "", "'%s' is already declared as an enum on line %d", f.Name, c.genEnums[f.Name].decl.Pos().Line)
 		return
 	case c.structs[f.Name] != nil:
 		c.errorAt(fd.Name, "", "'%s' is already declared as a struct on line %d", f.Name, c.structs[f.Name].Decl.Pos().Line)
@@ -397,6 +406,9 @@ func (c *checker) structMembers(s *Struct) {
 
 func (c *checker) addMethod(s *Struct, m *Func) {
 	s.Methods = append(s.Methods, m)
+	if c.genericMethod(m, s.abstract, s.generic == nil || isTemplate(s.Args, s.generic.params)) {
+		return
+	}
 	if !s.abstract {
 		c.info.Funcs = append(c.info.Funcs, m)
 	}
@@ -440,8 +452,8 @@ func (c *checker) ifaceTaken(id *ast.Ident) bool {
 // Resolves the parameter and result types of [f].
 func (c *checker) signature(f *Func) {
 	defer c.enter(f.Decl)()
-	if len(f.Decl.TypeParams) > 0 && (f.Owner != nil || f.Enum != nil || f.Iface != nil) {
-		c.errorAt(f.Decl.TypeParams[0], "make it a top-level generic function", "methods can't have their own type parameters yet")
+	if len(f.Decl.TypeParams) > 0 && (f.Iface != nil || f.Decl.Accessor != ast.Method) {
+		c.errorAt(f.Decl.TypeParams[0], "make it a method of a struct or enum", "interface methods and accessors can't have their own type parameters yet")
 		env := map[string]Type{}
 		for n, t := range c.env {
 			env[n] = t
@@ -534,6 +546,10 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 			return t
 		}
 		if g := c.genStructs[te.Name]; g != nil {
+			c.errorAt(te, fmt.Sprintf("write its type arguments, e.g. %s<%s>", te.Name, typeParamExample(g.params)), "%s is generic, so it needs type arguments", te.Name)
+			return Invalid
+		}
+		if g := c.genEnums[te.Name]; g != nil {
 			c.errorAt(te, fmt.Sprintf("write its type arguments, e.g. %s<%s>", te.Name, typeParamExample(g.params)), "%s is generic, so it needs type arguments", te.Name)
 			return Invalid
 		}
@@ -683,6 +699,9 @@ func (c *checker) bodies() {
 // Returns the type written as `Name<Args>`.
 func (c *checker) genericType(te *ast.NamedType) Type {
 	args := c.typeArgs(te)
+	if g := c.genEnums[te.Name]; g != nil {
+		return c.genericEnumInst(te, g, args)
+	}
 	g := c.genStructs[te.Name]
 	if g == nil {
 		if c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && builtinTypes[te.Name] == nil {

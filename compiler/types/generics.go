@@ -169,6 +169,8 @@ func hasTypeParam(t Type) bool {
 		return hasTypeParam(t.Result) || hasTypeParam(t.Throws)
 	case *Struct:
 		return t.abstract
+	case *Enum:
+		return t.abstract
 	}
 	return false
 }
@@ -204,6 +206,10 @@ func keyOf(t Type) string {
 		}
 		return s
 	case *Struct:
+		if t.generic != nil {
+			return t.Base + "<" + typeKey(t.Args) + ">"
+		}
+	case *Enum:
 		if t.generic != nil {
 			return t.Base + "<" + typeKey(t.Args) + ">"
 		}
@@ -254,6 +260,8 @@ func (c *checker) taken(id *ast.Ident) bool {
 		line, what = c.structs[name].Decl.Pos().Line, "a struct"
 	case c.genStructs[name] != nil:
 		line, what = c.genStructs[name].decl.Pos().Line, "a struct"
+	case c.genEnums[name] != nil:
+		line, what = c.genEnums[name].decl.Pos().Line, "an enum"
 	case c.enums[name] != nil:
 		line, what = c.enums[name].Decl.Pos().Line, "an enum"
 	case c.interfaces[name] != nil:
@@ -290,6 +298,21 @@ func (c *checker) queueGenericBody(d ast.Decl) {
 					c.withEnv(envOf(g.params, paramTypes(g.params)), func() {
 						c.paramDefaults(f)
 						c.funcBody(f)
+					})
+				})
+				g.failed = len(c.errs) > n
+			})
+		case *ast.EnumDecl:
+			g := c.genEnums[d.Name.Name]
+			if g == nil || g.decl != d {
+				return
+			}
+			c.jobs = append(c.jobs, func() {
+				n := len(c.errs)
+				e := c.enumTemplate(g)
+				c.scratch(true, func() {
+					c.withEnv(envOf(g.params, paramTypes(g.params)), func() {
+						c.enumBodies(e)
 					})
 				})
 				g.failed = len(c.errs) > n
@@ -340,7 +363,7 @@ func (c *checker) structBodies(s *Struct) {
 		}
 	}
 	c.scope = nil
-	for _, m := range s.Methods {
+	for _, m := range plainMethods(s.Methods) {
 		c.paramDefaults(m)
 		c.funcBody(m)
 	}
@@ -361,7 +384,7 @@ func (c *checker) paramDefaults(f *Func) {
 // Reports whether [f] belongs to an instance of a generic, whose body is
 // checked by its own job.
 func instanced(f *Func) bool {
-	return f.TypeArgs != nil || f.Owner != nil && f.Owner.generic != nil
+	return f.TypeArgs != nil || f.Owner != nil && f.Owner.generic != nil || f.Enum != nil && f.Enum.generic != nil
 }
 
 // --- Instances ---
@@ -668,6 +691,12 @@ func (b *binding) unify(p, a Type) {
 				b.unify(p.Args[i], a.Args[i])
 			}
 		}
+	case *Enum:
+		if a, ok := a.(*Enum); ok && p.generic != nil && p.generic == a.generic {
+			for i := range p.Args {
+				b.unify(p.Args[i], a.Args[i])
+			}
+		}
 	}
 }
 
@@ -743,6 +772,116 @@ func (b *binding) subst(t Type) Type {
 			return s
 		}
 		return nil
+	case *Enum:
+		if t.generic == nil || !t.abstract {
+			return t
+		}
+		args := make([]Type, len(t.Args))
+		for i, a := range t.Args {
+			if args[i] = b.subst(a); args[i] == nil {
+				return nil
+			}
+		}
+		if e := t.generic.insts[typeKey(args)]; e != nil {
+			return e
+		}
+		return nil
 	}
+	return t
+}
+
+// --- Generic functions as values ---
+
+// Returns the generic function [id] names when it is used as a value, or
+// nil when the name means something else here.
+func (c *checker) genFuncOf(id *ast.Ident) *genericFunc {
+	if id.Module != "" {
+		m := c.imported(id.Module)
+		if m == nil {
+			return nil
+		}
+		g := m.genFuncs[id.Name]
+		if g != nil {
+			c.private(id, m, g.decl.Pub, "function '"+id.Name+"'")
+		}
+		return g
+	}
+	if c.lookupVar(id.Name) != nil || id.Name == "self" {
+		return nil
+	}
+	if owner := c.ownStruct(); owner != nil {
+		if owner.Field(id.Name) != nil || owner.Property(id.Name) != nil || owner.Method(id.Name) != nil {
+			return nil
+		}
+	}
+	return c.genFuncs[id.Name]
+}
+
+// Checks the generic function [g] used as a value, taking its type
+// arguments from the function type [want].
+func (c *checker) genericFuncValue(id *ast.Ident, g *genericFunc, want Type) Type {
+	tmpl := c.funcTemplate(g)
+	b := &binding{params: g.params, types: map[*TypeParam]Type{}}
+	if o, ok := want.(*Optional); ok {
+		want = o.Elem
+	}
+	if ft, ok := want.(*FuncType); ok {
+		b.unify(funcValue(tmpl), ft)
+	}
+	args := make([]Type, len(g.params))
+	for i, p := range g.params {
+		if args[i] = b.types[p]; args[i] == nil || args[i] == Invalid {
+			c.errorAt(id, fmt.Sprintf("write its types: %s<%s>, or give the variable a function type", id.Name, typeParamExample(g.params)),
+				"can't tell the type of %s for generic function '%s'", p.Name, id.Name)
+			return Invalid
+		}
+		if !c.meetsConstraints(p, args[i], id, id.Name) {
+			return Invalid
+		}
+	}
+	return c.funcInstValue(id, g, args)
+}
+
+// Returns the instance of [g] for [args] used as a value named by [id].
+func (c *checker) funcInstValue(id *ast.Ident, g *genericFunc, args []Type) Type {
+	f := c.instFunc(g, args, id)
+	if f == nil {
+		return Invalid
+	}
+	c.info.Uses[id] = f
+	return funcValue(f)
+}
+
+// Checks `first<int>` used as a value.
+func (c *checker) typeArgsValue(e *ast.TypeArgsExpr, want Type) Type {
+	id, ok := e.X.(*ast.Ident)
+	var g *genericFunc
+	if ok {
+		g = c.genFuncOf(id)
+	}
+	if g == nil {
+		if eg := c.genEnumRef(e.X); eg != nil {
+			c.errorAt(e, fmt.Sprintf("use one of its cases, e.g. %s<...>.%s", eg.decl.Name.Name, eg.decl.Cases[0].Name.Name), "'%s' is a type, not a value", eg.decl.Name.Name)
+		} else {
+			c.expr(e.X, nil)
+			c.errorAt(e, "", "only generic functions can be given type arguments here")
+		}
+		return Invalid
+	}
+	var args []Type
+	for _, te := range e.Args {
+		args = append(args, c.resolveType(te))
+	}
+	if len(args) != len(g.params) {
+		c.errorAt(e.Args[0], "", "%s takes %s, found %d", id.Name, plural(len(g.params), "type argument"), len(args))
+		return Invalid
+	}
+	for i, p := range g.params {
+		if args[i] == Invalid || !c.meetsConstraints(p, args[i], e.Args[i], id.Name) {
+			return Invalid
+		}
+	}
+	t := c.funcInstValue(id, g, args)
+	c.info.Types[id] = t
 	return t
 }

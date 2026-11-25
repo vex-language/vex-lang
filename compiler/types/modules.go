@@ -38,6 +38,7 @@ type tables struct {
 	interfaces map[string]*Interface
 	genFuncs   map[string]*genericFunc
 	genStructs map[string]*genericStruct
+	genEnums   map[string]*genericEnum
 }
 
 func newTables() tables {
@@ -48,6 +49,7 @@ func newTables() tables {
 		interfaces: map[string]*Interface{},
 		genFuncs:   map[string]*genericFunc{},
 		genStructs: map[string]*genericStruct{},
+		genEnums:   map[string]*genericEnum{},
 	}
 }
 
@@ -136,6 +138,11 @@ func (m *Module) publicNames() []string {
 	}
 	for n, e := range m.enums {
 		if e.Decl.Pub {
+			names = append(names, n)
+		}
+	}
+	for n, g := range m.genEnums {
+		if g.decl.Pub {
 			names = append(names, n)
 		}
 	}
@@ -312,6 +319,16 @@ func (c *checker) qualifiedType(te *ast.NamedType) Type {
 		}
 		return c.genericInst(te, g, c.typeArgs(te))
 	}
+	if g := m.genEnums[te.Name]; g != nil {
+		if c.private(te, m, g.decl.Pub, "enum '"+te.Name+"'") {
+			return Invalid
+		}
+		if len(te.Args) == 0 {
+			c.errorAt(te, fmt.Sprintf("write its type arguments, e.g. %s.%s<%s>", te.Module, te.Name, typeParamExample(g.params)), "%s.%s is generic, so it needs type arguments", te.Module, te.Name)
+			return Invalid
+		}
+		return c.genericEnumInst(te, g, c.typeArgs(te))
+	}
 	var t Type
 	pub := false
 	switch {
@@ -398,9 +415,7 @@ func (c *checker) moduleIdent(id *ast.Ident) Type {
 		return funcValue(f)
 	}
 	switch {
-	case m.genFuncs[name] != nil:
-		c.errorAt(id, "wrap it in a closure", "generic function '%s.%s' can't be used as a value", id.Module, name)
-	case m.structs[name] != nil && m.structs[name].Decl != nil, m.genStructs[name] != nil, m.interfaces[name] != nil:
+	case m.structs[name] != nil && m.structs[name].Decl != nil, m.genStructs[name] != nil, m.genEnums[name] != nil, m.interfaces[name] != nil:
 		c.errorAt(id, "", "'%s.%s' is a type, not a value", id.Module, name)
 	case m.enums[name] != nil:
 		c.errorAt(id, caseHint("use one of its cases, e.g. "+id.Module+".", m.enums[name], true), "'%s.%s' is a type, not a value", id.Module, name)

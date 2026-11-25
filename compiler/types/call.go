@@ -37,10 +37,10 @@ func (c *checker) callTarget(e *ast.CallExpr, want Type) Type {
 	case *ast.Ident:
 		return c.callName(e, fn, want)
 	case *ast.MemberExpr:
-		if len(e.TypeArgs) > 0 {
-			c.errorAt(e.TypeArgs[0], "remove the <...>; methods can't be generic yet", "'%s' is not generic, so it takes no type arguments", fn.Name.Name)
+		if g := c.genEnumRef(fn.X); g != nil {
+			return c.genericCaseCall(e, g, fn.Name, want)
 		}
-		return c.callMember(e, fn)
+		return c.callMember(e, fn, want)
 	case *ast.ImplicitMember:
 		en := c.implicitEnum(fn, want)
 		if en == nil {
@@ -94,6 +94,9 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 			if !m.Static && c.self == nil {
 				c.checkArgs(e)
 				c.errorAt(id, "static methods have no instance to call it on", "static method %s can't call method '%s'", c.fn.Name, name)
+				return Invalid
+			}
+			if m = c.methodInst(e, m, want); m == nil {
 				return Invalid
 			}
 			c.info.Uses[id] = m
@@ -191,7 +194,7 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 }
 
 // Checks a call of the form `x.name(...)`.
-func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
+func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type {
 	name := m.Name.Name
 	if en := c.enumRef(m.X); en != nil {
 		if method := en.Method(name); method != nil {
@@ -202,6 +205,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 			if !method.Static {
 				c.checkArgs(e)
 				c.errorAt(m.Name, fmt.Sprintf("call it on a value, e.g. shape.%s(), or declare it static fn", name), "'%s' needs a %s value", name, en.Name)
+				return Invalid
+			}
+			if method = c.methodInst(e, method, want); method == nil {
 				return Invalid
 			}
 			c.info.Calls[e] = &Call{Kind: StaticCall, Func: method, Args: c.bind(e, paramSlots(method), en.Name+"."+name)}
@@ -224,6 +230,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 			c.checkArgs(e)
 			c.errorAt(m.Name, fmt.Sprintf("call it on a value, e.g. user.%s(), or declare it static fn", name),
 				"'%s' needs a %s value", name, s.Name)
+			return Invalid
+		}
+		if method = c.methodInst(e, method, want); method == nil {
 			return Invalid
 		}
 		c.info.Calls[e] = &Call{Kind: StaticCall, Func: method, Args: c.bind(e, paramSlots(method), s.Name+"."+name)}
@@ -258,6 +267,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 			c.checkArgs(e)
 			return Invalid
 		}
+		if method = c.methodInst(e, method, want); method == nil {
+			return Invalid
+		}
 		c.info.Calls[e] = &Call{Kind: MethodCall, Func: method, Recv: m.X, Args: c.bind(e, paramSlots(method), name)}
 		return method.Result
 	}
@@ -275,6 +287,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 		}
 		if c.methodPrivate(m.Name, method) {
 			c.checkArgs(e)
+			return Invalid
+		}
+		if method = c.methodInst(e, method, want); method == nil {
 			return Invalid
 		}
 		c.info.Calls[e] = &Call{Kind: MethodCall, Func: method, Recv: m.X, Args: c.bind(e, paramSlots(method), name)}
