@@ -14,6 +14,17 @@ struct Node {
 
 enum Mode { a, b }
 
+enum Level { low, mid, high }
+
+fn largest<T: Comparable>(xs: [T]) -> T? {
+    if xs.len == 0 { return nil }
+    var best = xs[0]
+    for x in xs {
+        if x > best { best = x }
+    }
+    return best
+}
+
 fn first<T>(xs: [T]) -> T? {
     if xs.len == 0 { return nil }
     return xs[0]
@@ -66,4 +77,8 @@ fn main() throws {
     // panic can be the whole body of a function with a result.
     let never = fn(x: int) -> int => panic("never {x}")
     println("done")
+
+    // Enum cases without values are ordered as they are declared.
+    let level = Level.mid
+    println(level < Level.high, level <= .mid, level > .high, largest([Level.mid, .high, .low]))
 }

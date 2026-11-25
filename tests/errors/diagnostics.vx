@@ -1,0 +1,15 @@
+// Values that look valid but aren't.
+enum Shape { circle(r: float), dot }
+
+fn main() {
+    let r = (1, 2)
+    println(r.$01, r.$002)
+    println(1e400, 1e-400)
+    println(Shape.dot < Shape.dot)
+}
+
+// error: 6:15: (int, int) has no field '$01'
+// error: 6:22: (int, int) has no field '$002'
+// error: 7:13: number 1e400 is too big for float
+// error: 7:20: number 1e-400 is too small for float, so it would be 0
+// error: 8:13: values of type Shape can't be ordered with <

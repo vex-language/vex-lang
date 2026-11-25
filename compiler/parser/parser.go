@@ -194,8 +194,12 @@ func (p *parser) syncDecl() {
 			depth++
 		case lexer.RBrace:
 			depth--
-		case lexer.Fn, lexer.Struct, lexer.Enum:
+		case lexer.Fn, lexer.Async, lexer.Struct, lexer.Enum, lexer.Interface, lexer.Extern, lexer.Const, lexer.Pub:
 			if depth <= 0 {
+				return
+			}
+		case lexer.Ident:
+			if p.tok().Text == "export" && p.peek(1).Kind == lexer.Fn && depth <= 0 {
 				return
 			}
 		}
