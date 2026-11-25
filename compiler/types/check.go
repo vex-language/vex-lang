@@ -534,7 +534,7 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 	case *ast.MapType:
 		return c.mapType(te)
 	case *ast.OptionalType:
-		return &Optional{Elem: c.resolveType(te.Elem)}
+		return optionalOf(c.resolveType(te.Elem))
 	case *ast.FuncType:
 		ft := &FuncType{Result: Void}
 		for _, p := range te.Params {

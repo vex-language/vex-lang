@@ -871,7 +871,7 @@ func (b *binding) subst(t Type) Type {
 		return &Map{Key: k, Value: v}
 	case *Optional:
 		if e := b.subst(t.Elem); e != nil {
-			return &Optional{Elem: e}
+			return optionalOf(e)
 		}
 		return nil
 	case *Future:

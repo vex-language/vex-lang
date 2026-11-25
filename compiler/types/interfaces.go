@@ -576,7 +576,7 @@ func (c *checker) substType(t Type, bound map[*TypeParam]Type) Type {
 	case *Map:
 		return &Map{Key: c.substType(t.Key, bound), Value: c.substType(t.Value, bound)}
 	case *Optional:
-		return &Optional{Elem: c.substType(t.Elem, bound)}
+		return optionalOf(c.substType(t.Elem, bound))
 	case *Future:
 		return &Future{Elem: c.substType(t.Elem, bound), Throws: t.Throws}
 	case *Channel:
