@@ -340,6 +340,8 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 	switch te := te.(type) {
 	case *ast.ListType:
 		return &List{Elem: c.resolveType(te.Elem)}
+	case *ast.MapType:
+		return c.mapType(te)
 	case *ast.OptionalType:
 		return &Optional{Elem: c.resolveType(te.Elem)}
 	case *ast.FuncType:
@@ -678,6 +680,17 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		if m := c.info.Members[x]; m != nil && m.Builtin != "" {
 			c.errorAt(x.Name, "", "%s can't be changed", m.Builtin)
 		}
+	case *ast.IndexExpr:
+		xt := c.expr(x.X, nil)
+		if m, ok := xt.(*Map); ok {
+			target = c.mapTarget(x, m, s)
+			if target == nil {
+				return
+			}
+			break
+		}
+		target = c.indexOf(x, xt)
+		c.info.Types[x] = target
 	default:
 		target = c.expr(s.Target, nil)
 	}
@@ -724,9 +737,20 @@ func (c *checker) forStmt(s *ast.ForStmt) {
 		switch t := t.(type) {
 		case *List:
 			elem = t.Elem
+		case *Map:
+			if s.Index != nil {
+				c.declare(s.Index, t.Key, false, LoopVar)
+				c.declare(s.Elem, t.Value, false, LoopVar)
+			} else {
+				c.declare(s.Elem, t.Key, false, LoopVar)
+			}
+			c.loops++
+			c.stmt(s.Body)
+			c.loops--
+			return
 		default:
 			if t != Invalid {
-				c.errorAt(s.Iter, "loop over a list or a range like 0..10", "can't loop over a value of type %s", t)
+				c.errorAt(s.Iter, "loop over a list, a map or a range like 0..10", "can't loop over a value of type %s", t)
 			}
 		}
 	}

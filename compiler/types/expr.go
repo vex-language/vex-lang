@@ -59,6 +59,8 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		return String
 	case *ast.Ident:
 		return c.ident(e)
+	case *ast.MapLit:
+		return c.mapLit(e, want)
 	case *ast.ListLit:
 		return c.listLit(e, want)
 	case *ast.UnaryExpr:
@@ -437,7 +439,15 @@ func comparable(t Type) bool {
 }
 
 func (c *checker) index(e *ast.IndexExpr) Type {
-	x := c.expr(e.X, nil)
+	return c.indexOf(e, c.expr(e.X, nil))
+}
+
+// Checks the index of [e], whose indexed value has type [x].
+func (c *checker) indexOf(e *ast.IndexExpr, x Type) Type {
+	if m, ok := x.(*Map); ok {
+		c.mapKey(e.Index, m)
+		return &Optional{Elem: m.Value}
+	}
 	if t := c.expr(e.Index, Int); !Identical(t, Int) {
 		c.errorAt(e.Index, conversionHint(Int, t), "index must be int, found %s", t)
 	}
@@ -502,6 +512,18 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		if name == "len" {
 			c.info.Members[e] = &Member{Builtin: "len"}
 			return Int
+		}
+	case *Map:
+		switch name {
+		case "len":
+			c.info.Members[e] = &Member{Builtin: "len"}
+			return Int
+		case "keys":
+			c.info.Members[e] = &Member{Builtin: "keys"}
+			return &List{Elem: x.Key}
+		case "values":
+			c.info.Members[e] = &Member{Builtin: "values"}
+			return &List{Elem: x.Value}
 		}
 	}
 	if x == String && name == "len" {

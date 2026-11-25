@@ -199,6 +199,22 @@ func TestWarnings(t *testing.T) {
 	}
 }
 
+func TestMaps(t *testing.T) {
+	cases := []struct{ src, want string }{
+		{"let m: [string: int] = [:]", "(let m: [string: int] map)"},
+		{"let m = [\"a\": 1, \"b\": 2]", "(let m (map (: \"a\" 1) (: \"b\" 2)))"},
+		{"let m = [\n    1: [2],\n    3: [],\n]", "(let m (map (: 1 (list 2)) (: 3 list)))"},
+		{"let n: [[int: bool]] = [[:]]", "(let n: [[int: bool]] (list map))"},
+		{"m[k] = v", "(= (index m k) v)"},
+		{"for k, v in m {\n}", "(for k, v m block)"},
+	}
+	for _, c := range cases {
+		if got, want := body(t, c.src), "(block "+c.want+")"; got != want {
+			t.Errorf("%s\n got: %s\nwant: %s", c.src, got, want)
+		}
+	}
+}
+
 func TestErrorHandling(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{"let t = try load(p)", "(let t (try (call load p)))"},
@@ -428,6 +444,8 @@ func TestErrors(t *testing.T) {
 		{"throw without value", "fn f() throws {\n throw\n}", "3:1", "throw needs an error to throw", `e.g. throw Error("file not found")`},
 		{"catch with try?", "fn main() {\n let n = try? f() catch { 0 }\n}", "2:19", "try? gives nil on an error, so it can't have a catch", "use try ... catch, or try? on its own"},
 		{"catch without block", "fn main() {\n let n = try f() catch e\n}", "2:25", "expected '{' after catch, found end of line", "e.g. catch e { println(e.message) }"},
+		{"map entry without value", "fn main() {\n let m = [\"a\": 1, 2]\n}", "2:20", "expected ':' after a map key, found ']'", "write key: value"},
+		{"colon in a list", "fn main() {\n let m = [1, \"a\": 2]\n}", "2:17", "unexpected ':' in a list", "a list holds values, a map holds key: value pairs"},
 		{"ternary", "fn main() {\n let n = ok ? 1 : 2\n}", "2:13", "Vex has no ? : operator", "write match cond { true => a, false => b }"},
 		{"lone question", "fn main() {\n let n = x?\n}", "2:11", "unexpected '?'", "use ?. to read a member, or ?? to give a default"},
 		{"if var", "fn main() {\n if var x = y {}\n}", "2:5", "'if var' isn't supported", "write if let; copy it into a var inside the block"},

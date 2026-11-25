@@ -66,6 +66,8 @@ func TypeString(t TypeExpr) string {
 		return t.Name
 	case *ListType:
 		return "[" + TypeString(t.Elem) + "]"
+	case *MapType:
+		return "[" + TypeString(t.Key) + ": " + TypeString(t.Value) + "]"
 	case *OptionalType:
 		if f, ok := t.Elem.(*FuncType); ok && f.Result != nil {
 			return "(" + TypeString(t.Elem) + ")?"
@@ -268,6 +270,12 @@ func buildExpr(e Expr) *tree {
 			if i < len(e.Exprs) {
 				t.kids = append(t.kids, buildExpr(e.Exprs[i]))
 			}
+		}
+		return t
+	case *MapLit:
+		t := branch("map")
+		for i, k := range e.Keys {
+			t.kids = append(t.kids, branch(":", buildExpr(k), buildExpr(e.Values[i])))
 		}
 		return t
 	case *ListLit:

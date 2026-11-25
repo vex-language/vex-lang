@@ -237,6 +237,15 @@ nums[0] = 10
 println(nums, nums.len, nums.contains(2))   // [10, 1, 2] 3 true
 ```
 
+**Maps.** Keys stay in the order they were added. Reading a key gives an optional, since it may be missing.
+
+```swift
+var ages = ["ann": 31, "bob": 25]
+ages["cat"] = 40
+println(ages["zoe"] ?? 0, ages.len)          // 0 3
+for name, age in ages { println(name, age) }
+```
+
 **Strings.** `s.len` counts Unicode code points. Also `.upper()` and `.lower()` (A–Z only for now), `.contains(x)` and `.split(sep)`.
 
 **Structs.** Fields can have defaults, methods use fields directly, and `static fn` belongs to the type. Struct values are shared references.

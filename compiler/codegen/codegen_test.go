@@ -200,6 +200,49 @@ fn main() {
     }
     println(a, try? twice(0) ?? 0)
 }`, "", "nil nil 3\n8 10\n"},
+		{"maps", `enum Color { red, green }
+fn main() {
+    var ages = ["ann": 31, "bob": 25]
+    ages["cat"] = 40
+    ages["ann"] = 32
+    println(ages, ages.len, ages["zoe"] ?? 0, ages["bob"])
+    println(ages.remove("bob"), ages.remove("bob"), ages.contains("cat"), ages.keys, ages.values)
+    for name, age in ages {
+        print(name, age, "")
+    }
+    for name in ages {
+        print(name, "")
+    }
+    println()
+    let colors: [Color: [int]] = [.green: [1], .red: []]
+    println(colors, colors[.red]?.len)
+    var grow = [1: 1]
+    for k in grow {
+        grow[k + 1] = 1
+    }
+    var big: [int: int] = [:]
+    for i in 0..1000 {
+        big[i] = i
+    }
+    for i in 0..1000 {
+        if i % 10 != 0 {
+            big.remove(i)
+        }
+    }
+    var seen = 0
+    for k, v in big {
+        if seen == 0 {
+            for j in 1000..1200 {
+                big[j] = j
+            }
+        }
+        seen += 1
+    }
+    println(grow, seen, big.len, big[990], big[1199], big[5])
+    let empty: [string: bool] = [:]
+    println(empty, empty.keys)
+}`, "", "[\"ann\": 32, \"bob\": 25, \"cat\": 40] 3 0 25\n25 nil true [\"ann\", \"cat\"] [32, 40]\nann 32 cat 40 ann cat \n" +
+			"[Color.green: [1], Color.red: []] 0\n[1: 1, 2: 1] 100 300 990 1199 nil\n[:] []\n"},
 		{"conditions with temporaries", `fn two() -> int => 2
 fn main() {
     let xs = [1, 2, 3]

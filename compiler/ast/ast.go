@@ -149,6 +149,12 @@ type ListType struct {
 	Elem TypeExpr
 }
 
+// A map type: `[string: int]`.
+type MapType struct {
+	Span
+	Key, Value TypeExpr
+}
+
 // A function type: `fn(int, string) -> bool`.
 type FuncType struct {
 	Span
@@ -177,6 +183,7 @@ type OptionalType struct {
 }
 
 func (*ListType) typeNode()     {}
+func (*MapType) typeNode()      {}
 func (*OptionalType) typeNode() {}
 func (*FuncType) typeNode()     {}
 
@@ -334,6 +341,12 @@ type ListLit struct {
 	Elems []Expr
 }
 
+// A map literal: `["a": 1, "b": 2]`, or `[:]` when empty.
+type MapLit struct {
+	Span
+	Keys, Values []Expr
+}
+
 // A prefix operation: `-x` or `!done`.
 type UnaryExpr struct {
 	Span
@@ -488,6 +501,7 @@ func (*BoolLit) exprNode()            {}
 func (*StringLit) exprNode()          {}
 func (*InterpolatedString) exprNode() {}
 func (*ListLit) exprNode()            {}
+func (*MapLit) exprNode()             {}
 func (*UnaryExpr) exprNode()          {}
 func (*BinaryExpr) exprNode()         {}
 func (*RangeExpr) exprNode()          {}

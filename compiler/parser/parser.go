@@ -542,6 +542,12 @@ func (p *parser) baseType() ast.TypeExpr {
 	case lexer.LBracket:
 		p.next()
 		elem := p.typeExpr()
+		if p.at(lexer.Colon) {
+			p.next()
+			value := p.typeExpr()
+			p.expect(lexer.RBracket)
+			return &ast.MapType{Span: p.span(t.Pos), Key: elem, Value: value}
+		}
 		p.expect(lexer.RBracket)
 		return &ast.ListType{Span: p.span(t.Pos), Elem: elem}
 	case lexer.Ident:
@@ -1115,14 +1121,47 @@ func (p *parser) primary() ast.Expr {
 		name := p.ident("a case name after '.'")
 		return &ast.ImplicitMember{Span: p.span(t.Pos), Name: name}
 	case lexer.LBracket:
-		open := p.next()
-		list := &ast.ListLit{}
-		p.list(open, lexer.RBracket, func() { list.Elems = append(list.Elems, p.expr()) })
-		list.Span = p.span(t.Pos)
-		return list
+		return p.bracketLit()
 	}
 	p.fail(t, "", "expected an expression, found %s", describe(t))
 	return nil
+}
+
+// Parses a list literal `[1, 2]`, or a map literal `["a": 1]` or `[:]`.
+func (p *parser) bracketLit() ast.Expr {
+	open := p.next()
+	if p.at(lexer.Colon) && p.peek(1).Kind == lexer.RBracket {
+		p.next()
+		p.next()
+		return &ast.MapLit{Span: p.span(open.Pos)}
+	}
+	list, m := &ast.ListLit{}, &ast.MapLit{}
+	first, isMap := true, false
+	p.list(open, lexer.RBracket, func() {
+		x := p.expr()
+		if first {
+			first, isMap = false, p.at(lexer.Colon)
+		}
+		switch {
+		case isMap:
+			if !p.at(lexer.Colon) {
+				p.fail(p.tok(), "write key: value", "expected ':' after a map key, found %s", describe(p.tok()))
+			}
+			p.next()
+			m.Keys = append(m.Keys, x)
+			m.Values = append(m.Values, p.expr())
+		case p.at(lexer.Colon):
+			p.fail(p.tok(), "a list holds values, a map holds key: value pairs", "unexpected ':' in a list")
+		default:
+			list.Elems = append(list.Elems, x)
+		}
+	})
+	if isMap {
+		m.Span = p.span(open.Pos)
+		return m
+	}
+	list.Span = p.span(open.Pos)
+	return list
 }
 
 // Parses a closure: `fn(x: int) -> int => x * 2` or `fn() { ... }`.
