@@ -63,6 +63,13 @@ func Fprint(w io.Writer, n Node) {
 func TypeString(t TypeExpr) string {
 	switch t := t.(type) {
 	case *NamedType:
+		if len(t.Args) > 0 {
+			args := make([]string, len(t.Args))
+			for i, a := range t.Args {
+				args[i] = TypeString(a)
+			}
+			return t.Name + "<" + strings.Join(args, ", ") + ">"
+		}
 		return t.Name
 	case *ListType:
 		return "[" + TypeString(t.Elem) + "]"
@@ -124,6 +131,25 @@ func PatternString(p Pattern) string {
 func op(k lexer.Kind) string { return strings.Trim(k.String(), "'") }
 
 // Builds the tree of a function declaration or closure.
+// Returns type parameters as written: `<T, U: Comparable & Hashable>`.
+func typeParamsString(tps []*TypeParam) string {
+	if len(tps) == 0 {
+		return ""
+	}
+	parts := make([]string, len(tps))
+	for i, tp := range tps {
+		parts[i] = tp.Name.Name
+		for j, c := range tp.Constraints {
+			sep := " & "
+			if j == 0 {
+				sep = ": "
+			}
+			parts[i] += sep + c.Name
+		}
+	}
+	return "<" + strings.Join(parts, ", ") + ">"
+}
+
 func funcTree(label string, params []*Param, th *Throws, result TypeExpr, body *Block, exprBody Expr) *tree {
 	t := branch(label)
 	for _, p := range params {
@@ -159,13 +185,13 @@ func build(n Node) *tree {
 		return t
 
 	case *FuncDecl:
-		label := "fn " + n.Name.Name
+		label := "fn " + n.Name.Name + typeParamsString(n.TypeParams)
 		if n.Static {
 			label = "static " + label
 		}
 		return funcTree(label, n.Params, n.Throws, n.Result, n.Body, n.ExprBody)
 	case *StructDecl:
-		t := branch("struct " + n.Name.Name)
+		t := branch("struct " + n.Name.Name + typeParamsString(n.TypeParams))
 		for _, f := range n.Fields {
 			t.kids = append(t.kids, branch("field "+f.Name.Name+": "+TypeString(f.Type), buildExpr(f.Default)))
 		}
@@ -324,6 +350,13 @@ func buildExpr(e Expr) *tree {
 		return t
 	case *CallExpr:
 		t := branch("call", buildExpr(e.Fn))
+		if len(e.TypeArgs) > 0 {
+			args := make([]string, len(e.TypeArgs))
+			for i, a := range e.TypeArgs {
+				args[i] = TypeString(a)
+			}
+			t.label += "<" + strings.Join(args, ", ") + ">"
+		}
 		for _, a := range e.Args {
 			if a.Name != nil {
 				t.kids = append(t.kids, branch(a.Name.Name+":", buildExpr(a.Value)))

@@ -251,6 +251,7 @@ func (p *parser) funcDecl(static bool) *ast.FuncDecl {
 	start := p.tok().Pos
 	p.expect(lexer.Fn)
 	fn := &ast.FuncDecl{Name: p.ident("a function name"), Static: static}
+	fn.TypeParams = p.typeParams()
 	open := p.expect(lexer.LParen)
 	p.list(open, lexer.RParen, func() { fn.Params = append(fn.Params, p.param()) })
 	fn.Throws = p.throws()
@@ -295,6 +296,7 @@ func (p *parser) structDecl() *ast.StructDecl {
 	start := p.tok().Pos
 	p.expect(lexer.Struct)
 	s := &ast.StructDecl{Name: p.ident("a struct name")}
+	s.TypeParams = p.typeParams()
 	open := p.expect(lexer.LBrace)
 	for {
 		for p.at(lexer.Semi) || p.at(lexer.Comma) {
@@ -552,7 +554,12 @@ func (p *parser) baseType() ast.TypeExpr {
 		return &ast.ListType{Span: p.span(t.Pos), Elem: elem}
 	case lexer.Ident:
 		p.next()
-		return &ast.NamedType{Span: p.span(t.Pos), Name: t.Text}
+		nt := &ast.NamedType{Name: t.Text}
+		if p.at(lexer.Lt) {
+			nt.Args = p.typeArgs()
+		}
+		nt.Span = p.span(t.Pos)
+		return nt
 	case lexer.Fn:
 		p.next()
 		ft := &ast.FuncType{}
@@ -600,7 +607,72 @@ func (p *parser) list(open lexer.Token, end lexer.Kind, item func()) {
 }
 
 // The closing bracket for each opening bracket.
-var closing = map[lexer.Kind]string{lexer.LParen: ")", lexer.LBracket: "]", lexer.LBrace: "}"}
+var closing = map[lexer.Kind]string{lexer.LParen: ")", lexer.LBracket: "]", lexer.LBrace: "}", lexer.Lt: ">"}
+
+// Parses the type parameters of a declaration, if any: `<T, U: Comparable>`.
+func (p *parser) typeParams() []*ast.TypeParam {
+	if !p.at(lexer.Lt) {
+		return nil
+	}
+	open := p.next()
+	params := []*ast.TypeParam{}
+	p.list(open, lexer.Gt, func() {
+		tp := &ast.TypeParam{Name: p.ident("a type parameter name")}
+		if p.at(lexer.Colon) {
+			p.next()
+			tp.Constraints = append(tp.Constraints, p.ident("a constraint such as Comparable"))
+			for p.at(lexer.Amp) {
+				p.next()
+				tp.Constraints = append(tp.Constraints, p.ident("a constraint after '&'"))
+			}
+		}
+		tp.Span = p.span(tp.Name.Start)
+		params = append(params, tp)
+	})
+	if len(params) == 0 {
+		p.fail(open, "remove the <>, or name a type parameter: <T>", "empty type parameter list")
+	}
+	return params
+}
+
+// Parses type arguments: `<int, string>`.
+func (p *parser) typeArgs() []ast.TypeExpr {
+	open := p.next()
+	var args []ast.TypeExpr
+	p.list(open, lexer.Gt, func() { args = append(args, p.typeExpr()) })
+	if len(args) == 0 {
+		p.fail(open, "name the types, e.g. <int>", "empty type argument list")
+	}
+	return args
+}
+
+// Reports whether the `<` at the current token starts type arguments
+// followed by a call, as in `first<int>(xs)`, rather than a comparison.
+// Type arguments touch the name before them and the `(` after them, so
+// spaced comparisons like `a < b, c > (d)` are never mistaken for them.
+func (p *parser) typeArgsAhead() bool {
+	if p.tok().Pos.Offset != p.lastEnd {
+		return false
+	}
+	depth := 0
+	for i := 0; ; i++ {
+		t := p.peek(i)
+		switch t.Kind {
+		case lexer.Lt:
+			depth++
+		case lexer.Gt:
+			depth--
+			if depth == 0 {
+				next := p.peek(i + 1)
+				return next.Kind == lexer.LParen && next.Pos.Offset == t.End
+			}
+		case lexer.Ident, lexer.LBracket, lexer.RBracket, lexer.Colon, lexer.Comma, lexer.Question,
+			lexer.Fn, lexer.LParen, lexer.RParen, lexer.Arrow, lexer.Throws:
+		default:
+			return false
+		}
+	}
+}
 
 // --- Statements ---
 
@@ -994,6 +1066,9 @@ func (p *parser) binary(min int) ast.Expr {
 	x := p.unary()
 	for {
 		k := p.tok().Kind
+		if k == lexer.Amp {
+			p.fail(p.tok(), "use && for logical and", "unexpected '&'")
+		}
 		prec := precedence(k)
 		if prec == 0 || prec < min {
 			return x
@@ -1028,10 +1103,14 @@ func (p *parser) unary() ast.Expr {
 
 func (p *parser) postfix(x ast.Expr) ast.Expr {
 	for {
+		var typeArgs []ast.TypeExpr
+		if _, ok := x.(*ast.Ident); ok && p.at(lexer.Lt) && p.typeArgsAhead() {
+			typeArgs = p.typeArgs()
+		}
 		switch p.tok().Kind {
 		case lexer.LParen:
 			open := p.next()
-			call := &ast.CallExpr{Fn: x}
+			call := &ast.CallExpr{Fn: x, TypeArgs: typeArgs}
 			p.list(open, lexer.RParen, func() { call.Args = append(call.Args, p.arg()) })
 			if !p.noTrailing && p.at(lexer.LBrace) {
 				call.Trailing = p.block()
