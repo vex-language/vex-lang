@@ -98,7 +98,8 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-124** Benchmark suite in the repo (`bench/`): Vex programs with Go equivalents and a script that compares them (M)
 - [ ] **V-125** Generics, next steps: methods with their own type parameters, generic enums such as `Result<T>`, generic functions as values (M)
 - [x] **V-127** Standard library: float math in `vex:math` through C (`sqrt`, `sin`, …) and `vex:time` (M)
-- [ ] **V-129** Standard library: files, processes and environment (`vex:fs`, `vex:os`) (M)
+- [x] **V-129** Standard library: files, processes and environment (`vex:fs`, `vex:os`); `vex run` passes arguments (M)
+- [ ] **V-131** Strings, next steps: `replace`, `trim`, `startsWith`, `endsWith`, `indexOf`, slicing, and bytes for binary files (M)
 - [ ] **V-130** C interop, next steps: C `int`, `float` and pointer types for extern signatures, callbacks into Vex, Objective-C sources for iOS (M)
 - [ ] **V-128** Modules, next steps: warn about unused imports, `pub` names whose types are private, and errors sorted with the root module first (S)
 - [ ] **V-126** Interfaces, next steps: generic interfaces such as `Comparable<T>`, interfaces that extend others, enums that implement interfaces (M)
@@ -219,3 +220,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | Modules: a folder is a module; names are private unless marked `pub` and are used as `module.name`, with `as` to rename; imports belong to each file; modules may import each other; C names of other modules get a tag starting with a digit, so they can't collide |
 | 2026-11-25 | `vex:math` leaves out float functions such as `sqrt` until standard library modules can call native code: Newton's method in Vex can't round the last digit correctly |
 | 2026-11-25 | C interop: `extern fn` without a body, `as "c_name"` for another C name; strings cross as NUL-terminated `const char *` copies; a project's C code goes in a `[c]` section of `package.toml`. Externs are called through an assembly-label alias, so their declarations can't clash with system headers, and well-known math functions use the C compiler's built-ins |
+| 2026-11-25 | `vex:fs` and `vex:os` are Vex wrappers over small C helpers in the runtime; failures throw `Error`s naming the path and the reason. Files are text for now; binary data waits for a bytes type |

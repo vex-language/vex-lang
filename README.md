@@ -141,6 +141,7 @@ vex run hello.vx            # compile and run
 vex build hello.vx -o hello # build a standalone native binary
 vex emit-c hello.vx         # print the generated C
 vex run                     # run the project in this folder (with a package.toml)
+vex run app.vx one two      # arguments after the program go to it (os.args())
 vex version
 ```
 
