@@ -2114,6 +2114,7 @@ func (p *parser) recordType() ast.TypeExpr {
 	open := p.next()
 	rt := &ast.RecordType{}
 	comma := false
+	p.skipNewlines()
 	for !p.at(lexer.RParen) {
 		if p.at(lexer.LBrace) {
 			brace := p.next()
@@ -2124,13 +2125,16 @@ func (p *parser) recordType() ast.TypeExpr {
 			if len(rt.Named) == 0 {
 				p.fail(brace, "write the named fields, e.g. ({int x, int y})", "the braces of a record type need at least one field")
 			}
+			p.skipNewlines()
 			break
 		}
 		rt.Positional = append(rt.Positional, p.typeExpr())
+		p.skipNewlines()
 		if !p.at(lexer.Comma) {
 			break
 		}
 		p.next()
+		p.skipNewlines()
 		comma = true
 	}
 	if len(rt.Positional) == 0 && len(rt.Named) == 0 {
