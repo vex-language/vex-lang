@@ -27,7 +27,7 @@ fn main() {
         _ => 2
     }
     match 1.5 {
-        _ => println(0)
+        0.0..1.0 => println(0)
     }
     let same = s == Shape.empty
 }
@@ -42,5 +42,5 @@ fn main() {
 // error: 21:9: case 'rect' carries 2 values, found 1
 // error: 23:9: this arm is never reached: _ on line 22 matches everything
 // error: 27:14: match arms must have the same type: expected string, found int
-// error: 29:11: can't match on float values
+// error: 29:5: a match on float needs a _ arm for the other values
 // error: 32:16: values of type Shape can't be compared with ==

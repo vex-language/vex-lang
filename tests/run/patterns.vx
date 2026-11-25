@@ -1,0 +1,165 @@
+struct Point {
+    x: int
+    y: int
+}
+
+enum Shape {
+    circle(center: Point, radius: int)
+    rect(width: int, height: int)
+    empty
+}
+
+enum Tree {
+    leaf(value: int)
+    node(left: Tree, right: Tree)
+}
+
+fn grade(score: int) -> string => match score {
+    90..=100 => "A"
+    80..90 => "B"
+    > 100 => "bonus"
+    < 0 => "invalid"
+    _ => "C"
+}
+
+fn status(code: int) -> string => match code {
+    200 || 201 || 204 => "ok"
+    301 || 302 => "moved"
+    400..500 => "client error"
+    _ => "other"
+}
+
+fn describe(p: Point) -> string => match p {
+    Point(x: 0, y: 0) => "origin"
+    Point(x: 0, :y) => "on y at {y}"
+    Point(:x, y: 0) => "on x at {x}"
+    Point(:x, :y) when x == y => "diagonal {x}"
+    _ => "elsewhere"
+}
+
+fn shape(s: Shape) -> string => match s {
+    circle(Point(x: 0, y: 0), r) => "centred circle {r}"
+    circle(c, r) when r > 10 => "big circle at {c.x},{c.y}"
+    circle(radius: r) => "circle {r}"
+    rect(w, h) when w == h => "square {w}"
+    rect(w, _) => "rect {w} wide"
+    empty => "nothing"
+}
+
+fn sum(xs: [int]) -> int => match xs {
+    [] => 0
+    [first, ...rest] => first + sum(rest)
+}
+
+fn ends(xs: [string]) -> string => match xs {
+    [] => "none"
+    [one] => "just {one}"
+    [first, ..., last] => "{first} to {last}"
+}
+
+fn depth(t: Tree) -> int => match t {
+    leaf(_) => 1
+    node(leaf(_), leaf(_)) => 2
+    node(l, r) => 1 + max(depth(l), depth(r))
+}
+
+fn max(a: int, b: int) -> int => match a > b {
+    true => a
+    false => b
+}
+
+fn quadrant(p: (int, int)) -> string => match p {
+    (0, 0) => "origin"
+    (x, 0) || (0, x) => "axis {x}"
+    (x, y) when x > 0 && y > 0 => "first"
+    _ => "other"
+}
+
+fn temperature(t: float) -> string => match t {
+    < 0.0 => "freezing"
+    0.0..20.0 => "cool"
+    _ => "warm"
+}
+
+fn word(s: string) -> string => match s {
+    "" => "empty"
+    < "m" => "early"
+    _ => "late"
+}
+
+fn both(a: bool, b: bool) -> string => match (a, b) {
+    (true, true) => "both"
+    (true, false) || (false, true) => "one"
+    (false, false) => "neither"
+}
+
+fn main() {
+    println(grade(95), grade(85), grade(101), grade(-1), grade(50))
+    println(status(201), status(302), status(404), status(500))
+    println(describe(Point(x: 0, y: 0)), describe(Point(x: 0, y: 4)), describe(Point(x: 3, y: 0)))
+    println(describe(Point(x: 2, y: 2)), describe(Point(x: 1, y: 2)))
+    println(shape(.circle(center: Point(x: 0, y: 0), radius: 3)))
+    println(shape(.circle(center: Point(x: 1, y: 2), radius: 30)))
+    println(shape(.circle(center: Point(x: 1, y: 2), radius: 3)))
+    println(shape(.rect(width: 4, height: 4)), shape(.rect(width: 4, height: 2)), shape(.empty))
+    println(sum([1, 2, 3, 4]), sum([]))
+    println(ends([]), ends(["a"]), ends(["a", "b", "c"]))
+    let t = Tree.node(left: .node(left: .leaf(value: 1), right: .leaf(value: 2)), right: .leaf(value: 3))
+    println(depth(t), depth(.leaf(value: 0)), depth(.node(left: .leaf(value: 1), right: .leaf(value: 2))))
+    println(quadrant((0, 0)), quadrant((5, 0)), quadrant((0, 7)), quadrant((1, 1)), quadrant((-1, 2)))
+    println(temperature(-5.0), temperature(10.5), temperature(30.0))
+    println(word(""), word("apple"), word("zebra"))
+    println(both(true, true), both(false, true), both(false, false))
+
+    // Destructuring in let and for.
+    let ((a, b), Point(:x, :y)) = ((1, 2), Point(x: 3, y: 4))
+    println(a, b, x, y)
+    var Point(x: px, y: py) = Point(x: 5, y: 6)
+    px += 10
+    println(px, py)
+    for Point(:x, :y) in [Point(x: 1, y: 2), Point(x: 3, y: 4)] {
+        println(x * y)
+    }
+    let [...all] = [7, 8]
+    println(all)
+
+    // if case.
+    let s = Shape.circle(center: Point(x: 1, y: 1), radius: 2)
+    if s case circle(radius: r) when r > 1 {
+        println("radius {r}")
+    }
+    if s case rect(w, h) {
+        println("rect {w} {h}")
+    } else if s case circle(Point(:x, :y), _) {
+        println("circle at {x},{y}")
+    } else {
+        println("other")
+    }
+    let point = (0, 9)
+    if point case (0, y) {
+        println("on the y axis at {y}")
+    }
+    let xs = [1, 2, 3]
+    if xs case [_, ...rest] {
+        println(rest)
+    }
+
+    // Guards see the bindings and closures capture them.
+    let fs = match s {
+        circle(_, r) when r < 5 => fn() => r * 2
+        _ => fn() => 0
+    }
+    println(fs())
+
+    // Statement match with blocks.
+    for n in [0, 3, 12] {
+        match n {
+            0 => println("zero")
+            1..=9 => {
+                let doubled = n * 2
+                println("small {doubled}")
+            }
+            _ => println("big")
+        }
+    }
+}

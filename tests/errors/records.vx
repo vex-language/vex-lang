@@ -8,7 +8,7 @@ fn main() {
     let p = pair()
     println(p.$3, p.$0, p.name)
     p.$1 = 5
-    let (a) = p
+    let (a,) = p
     let (a1, b1, c1) = p
     let (x: q, y: w) = (x: 1, z: 2)
     let n = 5
