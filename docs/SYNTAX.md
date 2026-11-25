@@ -488,21 +488,67 @@ println(["a", "bb"].map(strlen))          // a C function is a value like any ot
 | `bool` | `bool` |
 | `string` | `const char *`: a NUL-terminated copy, valid during the call |
 | `string?` | `const char *` that may be `NULL` (`nil`) |
+| `int8` ... `int64`, `uint8` ... `uint64` | `int8_t` ... `uint64_t`; `int` in Vex code |
+| `float32`, `float64` | `float`, `double`; `float` in Vex code |
+| an `extern type`, such as `Db` | a pointer; `Db?` may be `NULL` |
+| `fn(...)` | a function pointer and its `void *` context: two C parameters |
 | no result | `void` |
 
 - A string result is copied into a Vex string, and `NULL` gives `nil` for `string?` (or `""` for `string`).
 - No header is needed: the compiler writes the declaration from the Vex signature. It must match the C function, as in C itself. A C function that returns `int` must be declared without a result, or wrapped in C, since only the low 32 bits of the result are set.
 - Well-known math functions such as `sqrt` and `sin` compile to the C compiler's built-ins, so they run as fast as in C.
 - Extern functions can't be generic, throw, or be methods.
+- Sized numbers convert at the call: an `int` passed as `int32` keeps its low 32 bits, as a C cast does. They can only be used in `extern fn` and `export fn` signatures. Everywhere else, Vex has one `int` and one `float`.
+
+**C pointer types.** `extern type` declares a type for pointers that C code owns, such as a `sqlite3 *` or a `UIView *`. Vex passes them around but never looks inside, so a `Db` can't be passed where a `View` is expected. `as "name"` gives the C name used when one is printed.
+
+```swift
+extern type Db as "sqlite3"
+extern fn db_open(path: string) -> Db?       // NULL gives nil
+extern fn db_close(db: Db)
+
+if let db = db_open("app.db") {
+    println(db)                              // <sqlite3 0x6000...>
+    db_close(db)
+}
+```
+
+Handles can be compared with `==` and kept in fields, lists and optionals. They can't be created in Vex.
+
+**Callbacks.** A `fn(...)` parameter passes a Vex closure to C as two C parameters: a function pointer that takes a `void *` context first, then the context. Callback parameters may be `int`, `float`, `bool`, `string`, `string?` and extern types, using the C types in the table above. The result may be `int`, `float`, `bool` or an extern type.
+
+```swift
+// C: void on_tap(void *view, void (*cb)(void *ctx, int64_t count), void *ctx);
+extern fn on_tap(view: View, handler: fn(int))
+
+var taps = 0
+on_tap(button, fn(n: int) { taps = taps + n })
+```
+
+C may keep the context and call it later. The closure stays alive until C passes the context to `vex_release`, which it declares as `void vex_release(void *ctx);`. Callbacks must be called on the thread that runs the Vex program.
+
+**Exported functions.** `export fn` makes a top-level function callable from C under its own name, with the C types from the table above. C code declares it itself, e.g. `int64_t vex_frame(double t);`.
+
+```swift
+export fn vex_frame(t: float) -> int {
+    render(t)
+    return 0
+}
+```
+
+Exported functions can't be generic or throw, and can't return strings yet. C can call them while the Vex program runs: from code that Vex called, or from a callback.
 
 A project adds its own C code in `package.toml`:
 
 ```toml
 [c]
-sources = ["native/sqlite3.c", "native/glue.c"]   # .c files, or built .o and .a
+sources = ["native/sqlite3.c", "native/glue.m"]   # .c and .m files, or built .o and .a
 libs = ["z"]                                       # linked as -lz
+frameworks = ["Foundation"]                        # linked as -framework Foundation
 flags = ["-DSQLITE_OMIT_LOAD_EXTENSION", "-Inative"]
 ```
+
+`.m` files are Objective-C, compiled with automatic reference counting (`-fobjc-arc`). Together with `frameworks`, this is how Vex code reaches Apple's APIs. Frameworks can only be linked on macOS.
 
 Paths are relative to the project. Flags may start with `-D`, `-U`, `-I`, `-L`, `-O`, `-f`, `-W`, `-m` or `-std=`.
 

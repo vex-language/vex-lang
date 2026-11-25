@@ -72,7 +72,7 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 
 Goal: the language features real apps need before any UI work.
 
-**Progress:** 23 of 48 tasks done. The language has enums and `match`, optionals, errors, closures, generics (functions, structs, enums and methods), interfaces (generic, extending others, with properties, for structs and enums), maps, modules, C interop, collection `if`/`for`/spread, builder blocks, getters, setters and `didSet`, and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
+**Progress:** 24 of 48 tasks done. The language has enums and `match`, optionals, errors, closures, generics (functions, structs, enums and methods), interfaces (generic, extending others, with properties, for structs and enums), maps, modules, C interop (handles, sized numbers, callbacks, exports, Objective-C), collection `if`/`for`/spread, builder blocks, getters, setters and `didSet`, and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
 
 ### Done
 - [x] **V-100** Enums with data plus `match` (exhaustive) (L)
@@ -98,9 +98,9 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-134** Getters `get name -> T`, read like fields (S)
 - [x] **V-125** Generics: generic enums such as `Result<T>`, methods with their own type parameters, generic functions as values (`first<int>` or from the expected type) (M)
 - [x] **V-126** Interfaces: generic interfaces such as `Ordered<T>`, interfaces that extend others, enums that implement interfaces, getters and setters in interfaces, met by accessors or fields (M)
+- [x] **V-130** C interop: sized numbers (`int32`, `uint8`, `float32`...) in extern signatures, `extern type` pointer handles, `fn` callbacks with a kept context, `export fn`, Objective-C `.m` sources and Apple frameworks (M)
 
 ### Needed by the UI framework (Phase 3 starts after these)
-- [ ] **V-130** C interop, next steps: C `int`, `float` and pointer types for extern signatures, callbacks into Vex, Objective-C sources for iOS (M)
 - [ ] **V-135** `async`/`await` with an event loop, for UI events, timers and HTTP (V-601) (XL)
 - [ ] **V-147** Isolates and threads: isolates run in parallel on their own threads with their own heaps and talk by sending messages, as in Dart; a `compute`-style helper runs a function on another core (XL)
 
@@ -255,3 +255,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | Concurrency will use Dart-style isolates (separate heaps, message passing), which keeps the garbage collector free of locks; planned as V-147 next to async/await (V-135) |
 | 2026-11-25 | Generic enums take their type arguments from case values or the expected type, else `Result<int>.err(...)`; generic methods declare `<U>` like functions and are instantiated per receiver type; generic functions become values from the expected function type or as `first<int>`. A `>` closing type arguments that touch a name ends a line like a name does (V-125) |
 | 2026-11-25 | Interfaces use the same forms as structs: `interface Store<T>`, `interface Shape: Drawable`, `enum Suit: Drawable`. `get`/`set` in an interface is met by an accessor or a stored field. An interface value is still a plain pointer: implementers carry tables for every interface they implement, including extended ones, so using a `Shape` as a `Drawable` costs nothing (V-126) |
+| 2026-11-25 | C interop: sized numbers exist only in extern and export signatures and convert to `int`/`float` at the call, so Vex code keeps one int and one float. `extern type` gives typed opaque pointers. A `fn` parameter becomes a C function pointer plus a `void *` context, kept as a GC root until C calls `vex_release`. `export fn` gives C a function under its own name. `.m` sources compile with ARC (V-130) |
