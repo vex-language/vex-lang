@@ -99,6 +99,28 @@ println(nums)            // [1, 2, 3, 4]
 let empty: [string] = []
 ```
 
+## Maps
+
+```swift
+var ages = ["ann": 31, "bob": 25]
+ages["cat"] = 40               // add or replace
+let a = ages["ann"]            // int?, nil when the key is missing
+let z = ages["zoe"] ?? 0
+if let b = ages["bob"] { println(b) }
+ages.remove("bob")             // returns the removed value, an int?
+println(ages.len, ages.contains("cat"), ages.keys, ages.values)
+
+for name, age in ages { println(name, age) }
+for name in ages { println(name) }
+
+let empty: [string: int] = [:]
+```
+
+- Loops visit entries in the order their keys were first added. A loop sees the entries that existed when it started; entries removed during the loop are skipped.
+- Keys can be `int`, `string`, `bool` or an enum whose cases carry no values. Values can be any type except an optional, since a missing key already reads as `nil`.
+- Maps are shared references, like lists and structs.
+- `m[k] += 1` is an error, since the key may be missing. Write `m[k] = (m[k] ?? 0) + 1`.
+
 ## Structs
 
 ```swift
@@ -348,13 +370,14 @@ let file = try open(path) catch e {
 | `int(x)`, `float(x)`, `str(x)` | Convert between types; `int` and `float` ignore spaces around the number |
 | `panic(msg)`, `assert(cond, msg)` | Stop the program with a message; `assert`'s message is optional |
 | `list.len`, `.push(x)`, `.pop()`, `.contains(x)`, `.filter(f)`, `.map(f)` | List members |
+| `map.len`, `.keys`, `.values`, `.contains(k)`, `.remove(k)` | Map members |
 | `s.len`, `.upper()`, `.lower()`, `.contains(x)`, `.split(sep)` | String members. `len` counts Unicode code points, so an emoji with a modifier counts as more than one; `upper` and `lower` change only the letters A–Z for now |
 
 ## Types
 
-The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, structs, enums, function types `fn(T) -> R` and optionals `T?`.
+The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, structs, enums, function types `fn(T) -> R` and optionals `T?`.
 
-- `let x = ...` takes its type from the value. An empty list needs the type written: `let xs: [int] = []`.
+- `let x = ...` takes its type from the value. An empty list or map needs the type written: `let xs: [int] = []`, `let m: [string: int] = [:]`.
 - Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.
 - Int arithmetic that overflows stops the program instead of giving a wrong number: `9223372036854775807 + 1` is an error. When wrap-around is wanted, as in hashes and random number generators, use `&+`, `&-` and `&*` (and `&+=`, `&-=`, `&*=`), which work only on `int`:
 

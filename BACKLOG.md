@@ -80,7 +80,7 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-105** Modules and imports (`import "ui"`), multi-file projects, project file (L)
 - [ ] **V-121** Package manager: `vex get` from public git repos, `vex.lock` with hashes ([design](docs/design/packages.md)) (L)
 - [ ] **V-122** `vex doc`: API docs from `///` comments (M)
-- [ ] **V-106** Maps `[string: int]` (M)
+- [x] **V-106** Maps `[string: int]` (M)
 - [x] **V-107** Memory management: tracing GC, stage 1 mark and sweep ([design](docs/design/memory.md)) (XL)
 - [x] **V-113** Hardening: fuzzing, sanitizers, Linux and macOS CI, feature-combination tests (M)
 - [x] **V-114** Hardening 2: random program generator with known output, stack overflow errors, independent review (M)
@@ -205,3 +205,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | Two projects, like Dart and Flutter: the language in `vex-lang`, the UI framework in a separate `vex-ui` repo created once the language part is complete |
 | 2026-11-25 | No UI keywords in the compiler: `component` / `state` / `view` are dropped; the framework is built on interfaces, generics, builder blocks and property setters ([architecture](docs/design/architecture.md)) |
 | 2026-11-25 | Packages are public git repos with version tags, fetched directly by `vex get`; a website indexes them like pub.dev but stores no code ([packages](docs/design/packages.md)) |
+| 2026-11-25 | Maps: `[K: V]` types and `["a": 1]` / `[:]` literals; `m[k]` gives an optional; loops follow insertion order; keys are int, string, bool or simple enums; values can't be optional (V-106) |
