@@ -496,6 +496,7 @@ func (p *parser) enumDecl() *ast.EnumDecl {
 	start := p.tok().Pos
 	p.expect(lexer.Enum)
 	e := &ast.EnumDecl{Name: p.ident("an enum name")}
+	e.TypeParams = p.typeParams()
 	open := p.expect(lexer.LBrace)
 	for {
 		for p.at(lexer.Semi) || p.at(lexer.Comma) {
@@ -965,8 +966,14 @@ func (p *parser) typeArgsAhead() bool {
 		case lexer.Gt:
 			depth--
 			if depth == 0 {
-				next := p.peek(i + 1)
-				return next.Kind == lexer.LParen && next.Pos.Offset == t.End
+				// A call, `Result<int>.ok`, or a value such as `first<int>`.
+				switch next := p.peek(i + 1); next.Kind {
+				case lexer.LParen, lexer.Dot:
+					return next.Pos.Offset == t.End
+				case lexer.Semi, lexer.Comma, lexer.RParen, lexer.RBracket, lexer.RBrace, lexer.EOF:
+					return true
+				}
+				return false
 			}
 		case lexer.Ident, lexer.LBracket, lexer.RBracket, lexer.Colon, lexer.Comma, lexer.Question,
 			lexer.Fn, lexer.LParen, lexer.RParen, lexer.Arrow, lexer.Throws:
@@ -1411,8 +1418,12 @@ func (p *parser) unary() ast.Expr {
 func (p *parser) postfix(x ast.Expr) ast.Expr {
 	for {
 		var typeArgs []ast.TypeExpr
-		if qualifiable(x) && p.at(lexer.Lt) && p.typeArgsAhead() {
+		if _, member := x.(*ast.MemberExpr); (qualifiable(x) || member) && p.at(lexer.Lt) && p.typeArgsAhead() {
 			typeArgs = p.typeArgs()
+		}
+		if typeArgs != nil && !p.at(lexer.LParen) {
+			x = &ast.TypeArgsExpr{Span: p.span(x.Pos()), X: x, Args: typeArgs}
+			typeArgs = nil
 		}
 		switch p.tok().Kind {
 		case lexer.LParen:

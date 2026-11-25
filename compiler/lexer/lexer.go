@@ -126,6 +126,10 @@ func (l *lexer) lineBreak(at int) {
 	}
 	switch l.toks[len(l.toks)-1].Kind {
 	case Ident, Int, Float, String, StringTail, True, False, Nil, Question, Return, Break, Continue, RParen, RBracket, RBrace:
+	case Gt:
+		if !l.closesTypeArgs() {
+			return
+		}
 	default:
 		return
 	}
@@ -133,6 +137,28 @@ func (l *lexer) lineBreak(at int) {
 		return
 	}
 	l.toks = append(l.toks, Token{Kind: Semi, Text: "\n", Pos: l.file.PosOf(at), End: at})
+}
+
+// Reports whether the last token, a `>`, closes type arguments that touch
+// the name before them, as in `first<int>`.
+func (l *lexer) closesTypeArgs() bool {
+	depth := 0
+	for i := len(l.toks) - 1; i > 0; i-- {
+		switch t := l.toks[i]; t.Kind {
+		case Gt:
+			depth++
+		case Lt:
+			depth--
+			if depth == 0 {
+				prev := l.toks[i-1]
+				return prev.Kind == Ident && prev.End == t.Pos.Offset
+			}
+		case Ident, LBracket, RBracket, Colon, Comma, Question, Fn, LParen, RParen, Arrow:
+		default:
+			return false
+		}
+	}
+	return false
 }
 
 // Reports whether the first code after offset [from] is `.` followed by

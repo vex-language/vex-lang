@@ -259,7 +259,7 @@ func build(n Node) *tree {
 		}
 		return t
 	case *EnumDecl:
-		label := "enum " + n.Name.Name
+		label := "enum " + n.Name.Name + typeParamsString(n.TypeParams)
 		if n.Pub {
 			label = "pub " + label
 		}
@@ -376,6 +376,12 @@ func buildExpr(e Expr) *tree {
 		return t
 	case *MapEntry:
 		return branch(":", buildExpr(e.Key), buildExpr(e.Value))
+	case *TypeArgsExpr:
+		parts := make([]string, len(e.Args))
+		for i, a := range e.Args {
+			parts[i] = TypeString(a)
+		}
+		return branch("<"+strings.Join(parts, ", ")+">", buildExpr(e.X))
 	case *SpreadExpr:
 		label := "..."
 		if e.Optional {
