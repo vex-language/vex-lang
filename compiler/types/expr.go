@@ -672,6 +672,9 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 			hint := didYouMean(name, x.FieldNames())
 			if strings.HasPrefix(name, "$") && hint == "" {
 				hint = "positional fields count from $1"
+				if i, err := strconv.Atoi(name[1:]); err == nil && x.Field(fmt.Sprintf("$%d", i)) != nil {
+					hint = fmt.Sprintf("write $%d", i)
+				}
 			}
 			c.errorAt(e.Name, hint, "%s has no field '%s'", x, name)
 			return Invalid

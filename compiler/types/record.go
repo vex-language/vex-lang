@@ -46,7 +46,8 @@ func (r *Record) String() string {
 // one, or nil when there is none.
 func (r *Record) Field(name string) Type {
 	if strings.HasPrefix(name, "$") {
-		if i, err := strconv.Atoi(name[1:]); err == nil && i >= 1 && i <= len(r.Positional) {
+		// Only the plain spelling names a field: `$1`, not `$01`.
+		if i, err := strconv.Atoi(name[1:]); err == nil && i >= 1 && i <= len(r.Positional) && name[1:] == strconv.Itoa(i) {
 			return r.Positional[i-1]
 		}
 		return nil
