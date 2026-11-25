@@ -2,6 +2,7 @@ package types
 
 import (
 	"github.com/irshadio/vex-lang/compiler/ast"
+	"strings"
 )
 
 // The sized C numbers that extern and export signatures may use, and
@@ -57,8 +58,11 @@ func (c *checker) nativeTypes(f *Func) {
 			c.errorAt(at, hint, "%s can't be %s", p.Type, what)
 		}
 	}
+	_, future := f.Result.(*Future)
 	switch r := f.Result; {
 	case r == Void || r == Invalid:
+	case future && f.Decl.Extern && strings.HasPrefix(f.Decl.CName, "vx_"):
+		// Runtime functions, used by the standard library, may give futures.
 	case f.Decl.Export && (r == String || Identical(r, &Optional{Elem: String})):
 		c.errorAt(f.Decl.Result, "return a handle, or let C pass in a buffer", "export functions can't return strings yet, since C would hold memory Vex manages")
 	case !cValue(r):

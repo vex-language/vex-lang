@@ -146,7 +146,8 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 	i.Elements = map[*ast.ExprStmt]ast.Expr{}
 	i.Chains = map[ast.Expr]bool{}
 	i.Matches = map[*ast.MatchExpr]*Match{}
-	i.Throwing = map[*ast.CallExpr]Type{}
+	i.Throwing = map[ast.Expr]Type{}
+	i.Spawns = map[*ast.CallExpr]bool{}
 	i.Tries = map[*ast.TryExpr]*Try{}
 	errs := c.errs
 	if !keepErrors {
@@ -155,7 +156,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 	defer func() {
 		i.Types, i.Uses, i.Defs, i.Calls, i.Members = saved.Types, saved.Uses, saved.Defs, saved.Calls, saved.Members
 		i.Selves, i.Captures, i.CaseValues, i.Wraps = saved.Selves, saved.Captures, saved.CaseValues, saved.Wraps
-		i.Elements = saved.Elements
+		i.Elements, i.Spawns = saved.Elements, saved.Spawns
 		i.Chains, i.Matches, i.Throwing, i.Tries = saved.Chains, saved.Matches, saved.Throwing, saved.Tries
 		if !keepErrors {
 			c.errs = errs
@@ -180,6 +181,8 @@ func hasTypeParam(t Type) bool {
 		return hasTypeParam(t.Key) || hasTypeParam(t.Value)
 	case *Optional:
 		return hasTypeParam(t.Elem)
+	case *Future:
+		return hasTypeParam(t.Elem) || hasTypeParam(t.Throws)
 	case *FuncType:
 		for _, p := range t.Params {
 			if hasTypeParam(p) {
@@ -217,6 +220,11 @@ func keyOf(t Type) string {
 		return "[" + keyOf(t.Key) + ": " + keyOf(t.Value) + "]"
 	case *Optional:
 		return keyOf(t.Elem) + "?"
+	case *Future:
+		if t.Throws != nil {
+			return "Future<" + keyOf(t.Elem) + ", " + keyOf(t.Throws) + ">"
+		}
+		return "Future<" + keyOf(t.Elem) + ">"
 	case *FuncType:
 		parts := make([]string, len(t.Params))
 		for i, p := range t.Params {
@@ -721,6 +729,10 @@ func (b *binding) unify(p, a Type) {
 		} else {
 			b.unify(p.Elem, a)
 		}
+	case *Future:
+		if a, ok := a.(*Future); ok {
+			b.unify(p.Elem, a.Elem)
+		}
 	case *FuncType:
 		if a, ok := a.(*FuncType); ok && len(a.Params) == len(p.Params) {
 			for i := range p.Params {
@@ -813,6 +825,11 @@ func (b *binding) subst(t Type) Type {
 	case *Optional:
 		if e := b.subst(t.Elem); e != nil {
 			return &Optional{Elem: e}
+		}
+		return nil
+	case *Future:
+		if e := b.subst(t.Elem); e != nil {
+			return &Future{Elem: e, Throws: t.Throws}
 		}
 		return nil
 	case *FuncType:
