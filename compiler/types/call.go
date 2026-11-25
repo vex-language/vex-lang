@@ -235,8 +235,10 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr) Type {
 	sig := builtinMember(recv, name)
 	if sig == nil {
 		c.checkArgs(e)
-		if name == "len" {
-			c.errorAt(m.Name, "write it without (): .len", "len is a property, not a method")
+		if hint := mapMethodHint(recv, name); hint != "" {
+			c.errorAt(m.Name, hint, "%s has no method '%s'", recv, name)
+		} else if name == "len" || name == "keys" || name == "values" {
+			c.errorAt(m.Name, "write it without (): ."+name, "%s is a property, not a method", name)
 		} else {
 			c.errorAt(m.Name, didYouMean(name, builtinMemberNames(recv)), "%s has no method '%s'", recv, name)
 		}

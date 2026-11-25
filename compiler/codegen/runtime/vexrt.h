@@ -647,7 +647,7 @@ static uint64_t vx_hash_bytes(const char *p, int64_t n) {
         h = (h ^ vx_mix(w)) * 0x100000001b3ULL;
     }
     uint64_t w = 0;
-    memcpy(&w, p, (size_t)n);
+    if (n > 0) memcpy(&w, p, (size_t)n);
     return vx_mix(h ^ w);
 }
 
