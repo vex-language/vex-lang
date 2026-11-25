@@ -18,6 +18,19 @@ func (g *gen) patCond(p ast.Pattern, x string) string {
 		if cs := g.info.PatternCases[p]; cs != nil {
 			return fmt.Sprintf("%s->tag == %d", x, cs.Index)
 		}
+		if k, ok := g.info.Uses[p.Name].(*types.Const); ok {
+			v := g.constRef(k)
+			switch kt := k.Type.(type) {
+			case *types.Enum:
+				return fmt.Sprintf("%s->tag == (%s)->tag", x, v)
+			case *types.Record:
+				return equal(kt, x, v)
+			}
+			if k.Type == types.String {
+				return fmt.Sprintf("vx_str_eq(%s, %s)", x, v)
+			}
+			return fmt.Sprintf("%s == %s", x, v)
+		}
 		return g.patBind(g.info.Defs[p.Name], x)
 	case *ast.CasePattern:
 		if cs := g.info.PatternCases[p]; cs != nil {

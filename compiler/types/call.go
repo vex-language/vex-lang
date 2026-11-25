@@ -369,6 +369,16 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 			return Invalid
 		}
 	}
+	switch recv.(type) {
+	case *List:
+		if name == "push" || name == "pop" {
+			c.constChange(m.X, "list")
+		}
+	case *Map:
+		if name == "remove" {
+			c.constChange(m.X, "map")
+		}
+	}
 	c.info.Calls[e] = &Call{Kind: MemberBuiltinCall, Builtin: name, Recv: m.X, Args: c.bind(e, sig.params, name)}
 	return sig.result
 }
@@ -630,6 +640,8 @@ func builtinMember(recv Type, name string) *memberSig {
 			return &memberSig{[]slot{{name: "item", typ: l.Elem}}, Bool}
 		case "filter":
 			return &memberSig{[]slot{{name: "keep", typ: &FuncType{Params: []Type{l.Elem}, Result: Bool}}}, &List{Elem: l.Elem}}
+		case "copy":
+			return &memberSig{nil, l}
 		}
 		return nil
 	}
@@ -652,6 +664,8 @@ func builtinMember(recv Type, name string) *memberSig {
 			return &memberSig{[]slot{{name: "key", typ: m.Key}}, Bool}
 		case "remove":
 			return &memberSig{[]slot{{name: "key", typ: m.Key}}, &Optional{Elem: m.Value}}
+		case "copy":
+			return &memberSig{nil, m}
 		}
 		return nil
 	}
@@ -682,10 +696,10 @@ func builtinMember(recv Type, name string) *memberSig {
 
 func builtinMemberNames(recv Type) []string {
 	if _, ok := recv.(*List); ok {
-		return []string{"len", "push", "pop", "contains", "filter", "map"}
+		return []string{"len", "push", "pop", "contains", "filter", "map", "copy"}
 	}
 	if _, ok := recv.(*Map); ok {
-		return []string{"len", "keys", "values", "contains", "remove"}
+		return []string{"len", "keys", "values", "contains", "remove", "copy"}
 	}
 	if _, ok := recv.(*Channel); ok {
 		return []string{"send", "receive", "receiveSync", "close"}

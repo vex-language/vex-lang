@@ -80,6 +80,9 @@ type checker struct {
 
 	// The try expressions whose calls are being checked, innermost last.
 	tries []*tryCtx
+
+	// The constant whose value is being checked, or nil.
+	constOwner *Const
 }
 
 // Checks [file] and returns what was learned about it.
@@ -298,6 +301,11 @@ func (c *checker) collect() {
 		}
 	})
 	each(func(d ast.Decl) {
+		if kd, ok := d.(*ast.ConstDecl); ok {
+			c.declareConst(kd)
+		}
+	})
+	each(func(d ast.Decl) {
 		if fd, ok := d.(*ast.FuncDecl); ok {
 			if len(fd.TypeParams) > 0 {
 				c.declareGenericFunc(fd)
@@ -325,6 +333,7 @@ func (c *checker) collect() {
 			c.signature(f)
 		}
 	}
+	c.declareStaticConsts()
 	c.checkStructCycles()
 	c.checkDefaults()
 	c.checkMain()
@@ -711,6 +720,28 @@ func (c *checker) checkMain() {
 // --- Function bodies ---
 
 func (c *checker) bodies() {
+	for _, d := range c.decls {
+		back := c.enter(d)
+		switch d := d.(type) {
+		case *ast.ConstDecl:
+			if k := c.consts[d.Name.Name]; k != nil && k.Decl == d {
+				c.checkConst(k)
+			}
+		case *ast.StructDecl:
+			if s := c.structs[d.Name.Name]; s != nil && s.Decl == d {
+				for _, k := range s.Consts {
+					c.checkConst(k)
+				}
+			}
+		case *ast.EnumDecl:
+			if e := c.enums[d.Name.Name]; e != nil && e.Decl == d {
+				for _, k := range e.Consts {
+					c.checkConst(k)
+				}
+			}
+		}
+		back()
+	}
 	for _, f := range append([]*Func(nil), c.info.Funcs...) {
 		if !instanced(f) {
 			c.funcBody(f)
@@ -1035,6 +1066,9 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		target = c.expr(x, nil)
 		c.writing = false
 		c.assignMember(s, x, c.info.Uses[x])
+		if k, ok := c.info.Uses[x].(*Const); ok {
+			c.errorAt(x, "", "can't change constant '%s'", k)
+		}
 		if v, ok := c.info.Uses[x].(*Var); ok && !v.Mutable {
 			switch v.Kind {
 			case LocalVar:
@@ -1058,6 +1092,8 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		c.writing = false
 		if m := c.info.Members[x]; m != nil && m.Builtin != "" {
 			c.errorAt(x.Name, "", "%s can't be changed", m.Builtin)
+		} else if m != nil && m.Const != nil {
+			c.errorAt(x, "", "can't change constant '%s'", m.Const)
 		} else if m != nil && m.Property != nil {
 			c.assignMember(s, x.Name, m.Property)
 		} else if m != nil {
@@ -1065,6 +1101,12 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		}
 	case *ast.IndexExpr:
 		xt := c.expr(x.X, nil)
+		switch xt.(type) {
+		case *Map:
+			c.constChange(x.X, "map")
+		case *List:
+			c.constChange(x.X, "list")
+		}
 		if m, ok := xt.(*Map); ok {
 			target = c.mapTarget(x, m, s)
 			if target == nil {

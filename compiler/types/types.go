@@ -228,6 +228,9 @@ type Struct struct {
 	// The interfaces the struct implements.
 	Interfaces []*Interface
 
+	// The struct's static constants.
+	Consts []*Const
+
 	generic *genericStruct
 
 	// Set for instances whose arguments are type parameters. They are only
@@ -322,6 +325,9 @@ type Enum struct {
 
 	// The interfaces it implements, including those they extend.
 	Interfaces []*Interface
+
+	// The enum's static constants.
+	Consts []*Const
 
 	generic *genericEnum
 
@@ -674,6 +680,9 @@ type Member struct {
 
 	// The record field read: `$1` or a name.
 	RecordField string
+
+	// The constant read: `Circle.pi` or `math.pi`.
+	Const *Const
 }
 
 // Everything the checker learned about a file, for later compiler stages.
@@ -707,6 +716,9 @@ type Info struct {
 	Structs    []*Struct
 	Funcs      []*Func
 	Interfaces []*Interface
+
+	// The constants, each after the ones its value uses.
+	Consts []*Const
 
 	// The [Func] for each declaration, including methods.
 	FuncOf map[*ast.FuncDecl]*Func
