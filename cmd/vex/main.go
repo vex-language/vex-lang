@@ -12,7 +12,6 @@ import (
 	"github.com/irshadio/vex-lang/compiler/diag"
 	"github.com/irshadio/vex-lang/compiler/lexer"
 	"github.com/irshadio/vex-lang/compiler/parser"
-	"github.com/irshadio/vex-lang/compiler/types"
 )
 
 // The toolchain version, set at build time with
@@ -38,10 +37,10 @@ var commands []command
 
 func init() {
 	commands = []command{
-		{"run", "<file>", "Compile and run a program", runRun},
-		{"build", "<file> [-o out]", "Build a native executable", runBuild},
-		{"emit-c", "<file>", "Print the generated C code", runEmitC},
-		{"check", "<file>", "Check a source file for errors", runCheck},
+		{"run", "[file or folder]", "Compile and run a program", runRun},
+		{"build", "[file or folder] [-o out]", "Build a native executable", runBuild},
+		{"emit-c", "[file or folder]", "Print the generated C code", runEmitC},
+		{"check", "[file or folder]", "Check a program for errors", runCheck},
 		{"ast", "<file>", "Print the syntax tree of a source file", runAST},
 		{"tokens", "<file>", "Print the tokens of a source file", runTokens},
 		{"version", "", "Print the Vex version", runVersion},
@@ -104,24 +103,14 @@ func printUsage(w io.Writer) {
 }
 
 func runCheck(args []string, stdout, stderr io.Writer) int {
-	if len(args) != 1 {
-		fmt.Fprintln(stderr, "Usage: vex check <file>")
+	if len(args) > 1 {
+		fmt.Fprintln(stderr, "Usage: vex check [file or folder]")
 		return exitUsage
 	}
-	f, err := readSource(args[0])
-	if err != nil {
-		fmt.Fprintf(stderr, "vex: %v\n", err)
-		return exitError
+	if _, _, code := load(target(args), stderr); code != exitOK {
+		return code
 	}
-	tree, err := parser.Parse(f)
-	if err != nil {
-		return report(f, err, stderr)
-	}
-	warn(f, tree, stderr)
-	if _, err := types.Check(f, tree); err != nil {
-		return report(f, err, stderr)
-	}
-	fmt.Fprintf(stdout, "%s: no errors\n", f.Name)
+	fmt.Fprintf(stdout, "%s: no errors\n", target(args))
 	return exitOK
 }
 
@@ -175,10 +164,10 @@ func runTokens(args []string, stdout, stderr io.Writer) int {
 // Prints compile errors from [err] for source file [f] and returns the
 // exit code to use.
 // Prints the warnings found in [tree].
-func warn(f *diag.File, tree *ast.File, stderr io.Writer) {
+func warn(warnings diag.List, stderr io.Writer) {
 	color := useColor(stderr)
-	for _, d := range tree.Warnings {
-		fmt.Fprintln(stderr, diag.Format(f, d, color))
+	for _, d := range warnings {
+		fmt.Fprintln(stderr, diag.Format(nil, d, color))
 	}
 }
 
