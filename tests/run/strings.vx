@@ -1,0 +1,17 @@
+// The string methods. Indexes count characters, as len does.
+fn main() {
+    println("a-b-c".replace("-", "+"), "aaa".replace("a", "bb"), "abc".replace("x", "y"), "a.b".replace(".", ""))
+    println("héllo wörld".replace("ö", "o"), "".replace("a", "b"), "abab".replace("ab", "ab!"))
+    println("[{"  pad \t\n".trim()}] [{"  pad ".trimStart()}] [{"  pad ".trimEnd()}] [{"   ".trim()}] [{"".trim()}]")
+    println("vex.vx".endsWith(".vx"), "vex.vx".startsWith("vex"), "vex".startsWith("vexx"), "x".endsWith(""), "".startsWith(""))
+    println("hello".indexOf("l"), "hello".indexOf("z"), "héllo".indexOf("l"), "abc".indexOf(""), "🙂ok".indexOf("ok"))
+    println("hello".substring(1, 3), "héllo".substring(1, 2), "abc".substring(0, 3), "[{"abc".substring(2, 2)}]", "🙂ok".substring(1, 3))
+    println("héy🙂".chars(), "".chars(), "a".chars().len)
+    println("one\ntwo\r\nthree\n".lines(), "".lines(), "\n\nx".lines(), "no newline".lines())
+    let path = "  /home/ann/notes.txt  ".trim()
+    if let dot = path.indexOf(".") {
+        println(path.substring(0, dot), path.substring(dot + 1, path.len))
+    }
+    let words = "The quick brown fox".lower().split(" ").filter(fn(w: string) -> bool => !w.startsWith("q"))
+    println(words)
+}
