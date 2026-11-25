@@ -200,6 +200,230 @@ fn main() {
     }
     println(a, try? twice(0) ?? 0)
 }`, "", "nil nil 3\n8 10\n"},
+		{"generic functions and structs", `fn first<T>(xs: [T]) -> T? {
+    if xs.len == 0 {
+        return nil
+    }
+    return xs[0]
+}
+
+fn max<T: Comparable>(a: T, b: T) -> T {
+    if a > b {
+        return a
+    }
+    return b
+}
+
+fn count<T: Hashable>(xs: [T]) -> [T: int] {
+    var m: [T: int] = [:]
+    for x in xs {
+        m[x] = (m[x] ?? 0) + 1
+    }
+    return m
+}
+
+fn apply<T, U>(xs: [T], f: fn(T) -> U) -> [U] {
+    var out: [U] = []
+    for x in xs {
+        out.push(f(x))
+    }
+    return out
+}
+
+struct Box<T> {
+    value: T
+    fn get() -> T => value
+    fn set(v: T) {
+        value = v
+    }
+}
+
+struct Pair<A, B> {
+    a: A
+    b: B
+    fn swap() -> Pair<B, A> => Pair(a: b, b: a)
+}
+
+struct Stack<T> {
+    items: [T] = []
+    fn push(x: T) {
+        items.push(x)
+    }
+    fn pop() -> T? {
+        if items.len == 0 {
+            return nil
+        }
+        return items.pop()
+    }
+}
+
+fn empty<T>() -> [T] {
+    return []
+}
+
+fn main() {
+    println(first([3, 1, 2]), first(["a"]), first<int>([]))
+    println(max(3, 7), max("pear", "apple"), max(1.5, 0.5))
+    println(count(["a", "b", "a"]))
+    println(apply([1, 2, 3], fn(x) => "#{x}"))
+    let b = Box(value: "hi")
+    b.set("yo")
+    println(b, b.get())
+    let n: Box<int> = Box(value: 5)
+    println(n.value + 1)
+    let p = Pair(a: 1, b: "one")
+    println(p, p.swap())
+    let s = Stack<string>()
+    s.push("x")
+    s.push("y")
+    println(s.pop(), s.pop(), s.pop())
+    let e: [string] = empty()
+    println(e)
+    let boxes = [Box(value: 1), Box(value: 2)]
+    println(apply(boxes, fn(x) => x.value * 10))
+}`, "", "3 a nil\n7 pear 1.5\n[\"a\": 2, \"b\": 1]\n[\"#1\", \"#2\", \"#3\"]\nBox<string>(value: \"yo\") yo\n6\nPair<int, string>(a: 1, b: \"one\") Pair<string, int>(a: \"one\", b: 1)\ny x nil\n[]\n[10, 20]\n"},
+		{"generic linked list, cache and throwing callbacks", `enum Color { red, green }
+
+struct Node<T> {
+    value: T
+    next: Node<T>?
+}
+
+struct List<T> {
+    head: Node<T>?
+    size: int = 0
+
+    fn add(v: T) {
+        head = Node(value: v, next: head)
+        size += 1
+    }
+
+    fn each(f: fn(T)) {
+        var n = head
+        while true {
+            if let cur = n {
+                f(cur.value)
+                n = cur.next
+            } else {
+                break
+            }
+        }
+    }
+
+    fn toList() -> [T] {
+        var out: [T] = []
+        each(fn(x) { out.push(x) })
+        return out
+    }
+}
+
+struct Cache<K: Hashable, V> {
+    store: [K: V] = [:]
+    hits: int = 0
+
+    fn get(k: K, make: fn() -> V) -> V {
+        if let v = store[k] {
+            hits += 1
+            return v
+        }
+        let v = make()
+        store[k] = v
+        return v
+    }
+}
+
+fn orElse<T>(x: T?, d: T) -> T {
+    if let v = x {
+        return v
+    }
+    return d
+}
+
+fn largest<T: Comparable>(xs: [T]) -> T? {
+    var best = first(xs)
+    for x in xs {
+        if let b = best {
+            if x > b {
+                best = x
+            }
+        }
+    }
+    return best
+}
+
+fn first<T>(xs: [T]) -> T? {
+    if xs.len == 0 {
+        return nil
+    }
+    return xs[0]
+}
+
+fn parseAll<T>(xs: [string], f: fn(string) throws -> T) throws -> [T] {
+    var out: [T] = []
+    for x in xs {
+        out.push(try f(x))
+    }
+    return out
+}
+
+fn toInt(s: string) throws -> int {
+    if s == "" {
+        throw Error(message: "empty")
+    }
+    return int(s)
+}
+
+fn counter<T>(start: T, step: fn(T) -> T) -> fn() -> T {
+    var cur = start
+    return fn() -> T {
+        let r = cur
+        cur = step(cur)
+        return r
+    }
+}
+
+fn uniq<T: Hashable>(xs: [T]) -> [T] {
+    var seen: [T: bool] = [:]
+    var out: [T] = []
+    for x in xs {
+        if !seen.contains(x) {
+            seen[x] = true
+            out.push(x)
+        }
+    }
+    return out
+}
+
+fn main() throws {
+    let l = List<string>(head: nil)
+    l.add("a")
+    l.add("b")
+    l.add("c")
+    println(l.toList(), l.size)
+    let nums = List<int>(head: nil)
+    for i in 0..5 {
+        nums.add(i * i)
+    }
+    println(nums.toList())
+
+    let c = Cache<string, [int]>()
+    println(c.get("x", fn() => [1, 2]), c.get("x", fn() => [9]), c.hits)
+
+    let none: int? = nil
+    println(orElse(none, 7), orElse(3, 7), orElse(nil, "d"))
+    println(largest([3, 9, 2]), largest(["b", "a"]), largest<float>([]))
+    println(try parseAll(["1", "2"], toInt))
+    let r = try parseAll(["1", ""], toInt) catch e {
+        println("failed:", e.message)
+        []
+    }
+    println(r)
+    let next = counter(start: 1, step: fn(x) => x * 2)
+    println(next(), next(), next())
+    let s = counter(start: "a", step: fn(x) => x + "a")
+    println(s(), s())
+    println(uniq([1, 2, 1, 3, 2]), uniq([Color.red, Color.green, Color.red]), uniq(["x", "x"]))
+}`, "", "[\"c\", \"b\", \"a\"] 3\n[16, 9, 4, 1, 0]\n[1, 2] [1, 2] 1\n7 3 d\n9 b nil\n[1, 2]\nfailed: empty\n[]\n1 2 4\na aa\n[1, 2, 3] [Color.red, Color.green] [\"x\"]\n"},
 		{"maps", `enum Color { red, green }
 fn main() {
     var ages = ["ann": 31, "bob": 25]

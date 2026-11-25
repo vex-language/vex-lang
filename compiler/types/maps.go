@@ -9,8 +9,11 @@ import (
 
 // Reports whether values of [t] can be map keys.
 func mapKeyType(t Type) bool {
-	if e, ok := t.(*Enum); ok {
-		return e.Simple()
+	switch t := t.(type) {
+	case *Enum:
+		return t.Simple()
+	case *TypeParam:
+		return t.Has("Hashable")
 	}
 	return t == Int || t == Bool || t == String
 }

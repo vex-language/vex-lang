@@ -35,7 +35,7 @@ func (c *checker) call(e *ast.CallExpr, want Type) Type {
 func (c *checker) callTarget(e *ast.CallExpr, want Type) Type {
 	switch fn := e.Fn.(type) {
 	case *ast.Ident:
-		return c.callName(e, fn)
+		return c.callName(e, fn, want)
 	case *ast.MemberExpr:
 		return c.callMember(e, fn)
 	case *ast.ImplicitMember:
@@ -59,8 +59,11 @@ func (c *checker) checkArgs(e *ast.CallExpr) {
 
 // Checks a call of a plain name: a function, constructor, built-in, or a
 // method of the implicit `self`.
-func (c *checker) callName(e *ast.CallExpr, id *ast.Ident) Type {
+func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 	name := id.Name
+	if len(e.TypeArgs) > 0 && c.genFuncs[name] == nil && c.genStructs[name] == nil {
+		c.errorAt(e.TypeArgs[0], "remove the <...>", "'%s' is not generic, so it takes no type arguments", name)
+	}
 	if v := c.lookupVar(name); v != nil {
 		if _, ok := v.Type.(*FuncType); ok || v.Type == Invalid {
 			return c.callValue(e)
@@ -124,6 +127,12 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident) Type {
 	if f := c.funcs[name]; f != nil {
 		c.info.Calls[e] = &Call{Kind: FuncCall, Func: f, Args: c.bind(e, paramSlots(f), f.Name)}
 		return f.Result
+	}
+	if g := c.genFuncs[name]; g != nil {
+		return c.genericFuncCall(e, g, want)
+	}
+	if g := c.genStructs[name]; g != nil {
+		return c.genericStructCall(e, g, want)
 	}
 	if s := c.structs[name]; s != nil {
 		var slots []slot

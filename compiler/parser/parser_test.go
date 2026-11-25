@@ -215,6 +215,46 @@ func TestMaps(t *testing.T) {
 	}
 }
 
+func TestGenerics(t *testing.T) {
+	src := `fn first<T>(xs: [T]) -> T? => nil
+fn max<T: Comparable, U: Equatable & Hashable>(a: T, b: U) -> T => a
+struct Box<T> {
+    value: T
+    fn get() -> T => value
+}
+fn wrap(b: Box<[Box<int>]>, m: [string: Pair<int, bool>]) {
+}
+`
+	f, errs := parse(t, src)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	want := []string{
+		"(fn first<T> param xs: [T] -> T? (=> nil))",
+		"(fn max<T: Comparable, U: Equatable & Hashable> param a: T param b: U -> T (=> a))",
+		"(struct Box<T> field value: T (fn get -> T (=> value)))",
+		"(fn wrap param b: Box<[Box<int>]> param m: [string: Pair<int, bool>] block)",
+	}
+	for i, d := range f.Decls {
+		if got := ast.Sexpr(d); got != want[i] {
+			t.Errorf("decl %d\n got: %s\nwant: %s", i, got, want[i])
+		}
+	}
+	cases := []struct{ src, want string }{
+		{"first<int>(xs)", "(call<int> first xs)"},
+		{"Box<[string]>(value: [])", "(call<[string]> Box (value: list))"},
+		{"Pair<int, Box<int>>(a: 1)", "(call<int, Box<int>> Pair (a: 1))"},
+		{"println(a < b, c > (d))", "(call println (< a b) (> c d))"},
+		{"x = a<b", "(= x (< a b))"},
+		{"x = f<a>(b) && c", "(= x (&& (call<a> f b) c))"},
+	}
+	for _, c := range cases {
+		if got, want := body(t, c.src), "(block "+c.want+")"; got != want {
+			t.Errorf("%s\n got: %s\nwant: %s", c.src, got, want)
+		}
+	}
+}
+
 func TestErrorHandling(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{"let t = try load(p)", "(let t (try (call load p)))"},
@@ -446,6 +486,8 @@ func TestErrors(t *testing.T) {
 		{"catch without block", "fn main() {\n let n = try f() catch e\n}", "2:25", "expected '{' after catch, found end of line", "e.g. catch e { println(e.message) }"},
 		{"map entry without value", "fn main() {\n let m = [\"a\": 1, 2]\n}", "2:20", "expected ':' after a map key, found ']'", "write key: value"},
 		{"colon in a list", "fn main() {\n let m = [1, \"a\": 2]\n}", "2:17", "unexpected ':' in a list", "a list holds values, a map holds key: value pairs"},
+		{"empty type parameters", "fn f<>() {\n}", "1:5", "empty type parameter list", "remove the <>, or name a type parameter: <T>"},
+		{"single ampersand", "fn main() {\n let x = a & b\n}", "2:12", "unexpected '&'", "use && for logical and"},
 		{"ternary", "fn main() {\n let n = ok ? 1 : 2\n}", "2:13", "Vex has no ? : operator", "write match cond { true => a, false => b }"},
 		{"lone question", "fn main() {\n let n = x?\n}", "2:11", "unexpected '?'", "use ?. to read a member, or ?? to give a default"},
 		{"if var", "fn main() {\n if var x = y {}\n}", "2:5", "'if var' isn't supported", "write if let; copy it into a var inside the block"},

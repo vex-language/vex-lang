@@ -147,6 +147,47 @@ println(User.guest())         // User(name: "Guest", age: 18)
 
 Fields and methods are reachable inside methods without `self.`; `self` is available when needed.
 
+## Generics
+
+Functions and structs can take type parameters in `< >`. The types are usually worked out from the arguments, or from the type the result is stored in; they can also be written at the call.
+
+```swift
+fn first<T>(xs: [T]) -> T? {
+    if xs.len == 0 { return nil }
+    return xs[0]
+}
+
+struct Box<T> {
+    value: T
+    fn get() -> T => value
+}
+
+let n = first([3, 1, 2])          // T is int
+let b = Box(value: "hi")          // Box<string>
+let s = Stack<string>()           // written out: nothing to infer from
+let e: [int] = empty()            // T from the type it is stored in
+let x = first<int>([])
+```
+
+A type parameter can require what the generic code needs from it, with `&` between several:
+
+| Constraint | Allows | Met by |
+|---|---|---|
+| `Equatable` | `==`, `!=`, `list.contains` | int, float, bool, string, enums whose cases carry no values |
+| `Comparable` | `<`, `<=`, `>`, `>=`, and `==` | int, float, string |
+| `Hashable` | map keys, and `==` | int, bool, string, enums whose cases carry no values |
+
+```swift
+fn largest<T: Comparable>(xs: [T]) -> T? { ... }
+fn count<T: Hashable>(xs: [T]) -> [T: int] { ... }
+struct Index<K: Hashable & Comparable, V> { ... }
+```
+
+- Generic code is checked once, with `T` standing for any type that meets its constraints, so `a > b` on a plain `T` is an error that names the missing constraint.
+- Each use with new types compiles to its own copy, specialised for those types. Generic code runs as fast as code written for one type.
+- Type arguments in a call touch the name and the `(`: `first<int>(xs)`. With spaces, `<` and `>` are comparisons.
+- Not yet: methods with their own type parameters, generic enums, and using a generic function as a value (wrap it in a closure instead).
+
 ## Closures
 
 A closure is a function without a name, written like a function declaration. Function types are written `fn(int) -> bool`, or `fn()` for a function that takes and returns nothing.

@@ -267,6 +267,20 @@ println(ann)                 // User(name: "Ann", age: 31)
 println(User.guest().age)    // 18
 ```
 
+**Generics.** Functions and structs take type parameters, usually inferred. Each use compiles to its own specialised copy, so there's no runtime cost.
+
+```swift
+fn largest<T: Comparable>(xs: [T]) -> T? { ... }
+
+struct Stack<T> {
+    items: [T] = []
+    fn push(item: T) { items.push(item) }
+}
+
+println(largest([4, 17, 9]), largest(["kiwi", "apple"]))   // 17 kiwi
+let s = Stack<string>()
+```
+
 **Closures.** Functions without a name, written like `fn` declarations. They capture variables by reference, and a trailing block passes one as the last argument.
 
 ```swift

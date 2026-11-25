@@ -169,13 +169,34 @@ func (g *gen) line(format string, args ...any) {
 
 // --- Names and types ---
 
-func structName(s *types.Struct) string { return "S_" + s.Name }
+func structName(s *types.Struct) string { return "S_" + structIdent(s) }
+
+// Returns a C-safe name for [s]: its name, with the type arguments of a
+// generic instance spelled out, as in `Box__int`.
+func structIdent(s *types.Struct) string {
+	if s.Args == nil {
+		return s.Name
+	}
+	return s.Base + "__" + mangleList(s.Args)
+}
+
+func mangleList(ts []types.Type) string {
+	parts := make([]string, len(ts))
+	for i, t := range ts {
+		parts[i] = mangle(t)
+	}
+	return strings.Join(parts, "_")
+}
 
 // Returns the C name of a function or method. Methods include the length of
 // the struct name so `A_b.c` and `A.b_c` can't collide.
 func funcName(f *types.Func) string {
 	if f.Owner != nil {
-		return fmt.Sprintf("m%d%s_%s", len(f.Owner.Name), f.Owner.Name, f.Name)
+		owner := structIdent(f.Owner)
+		return fmt.Sprintf("m%d%s_%s", len(owner), owner, f.Name)
+	}
+	if f.TypeArgs != nil {
+		return "fn_" + f.Name + "__" + mangleList(f.TypeArgs)
 	}
 	if f.Enum != nil {
 		return fmt.Sprintf("m%d%s_%s", len(f.Enum.Name), f.Enum.Name, f.Name)
@@ -251,7 +272,8 @@ func mangle(t types.Type) string {
 	case *types.Map:
 		return "M_" + mangle(t.Key) + "_" + mangle(t.Value)
 	case *types.Struct:
-		return fmt.Sprintf("S%d%s", len(t.Name), t.Name)
+		id := structIdent(t)
+		return fmt.Sprintf("S%d%s", len(id), id)
 	case *types.Enum:
 		return fmt.Sprintf("E%d%s", len(t.Name), t.Name)
 	case *types.Optional:

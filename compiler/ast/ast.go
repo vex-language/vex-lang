@@ -71,8 +71,9 @@ type Ident struct {
 // A function or method: `fn add(a: int, b: int) -> int { ... }`.
 type FuncDecl struct {
 	Span
-	Name   *Ident
-	Params []*Param
+	Name       *Ident
+	TypeParams []*TypeParam
+	Params     []*Param
 
 	// The declared result type, or nil when the function returns nothing.
 	Result TypeExpr
@@ -100,9 +101,18 @@ type Param struct {
 // A struct with fields and methods.
 type StructDecl struct {
 	Span
-	Name    *Ident
-	Fields  []*Field
-	Methods []*FuncDecl
+	Name       *Ident
+	TypeParams []*TypeParam
+	Fields     []*Field
+	Methods    []*FuncDecl
+}
+
+// A type parameter of a generic function or struct: `T` or
+// `T: Comparable & Hashable`.
+type TypeParam struct {
+	Span
+	Name        *Ident
+	Constraints []*Ident
 }
 
 // A struct field: `age: int = 18`.
@@ -141,6 +151,9 @@ func (*EnumDecl) declNode()   {}
 type NamedType struct {
 	Span
 	Name string
+
+	// The type arguments of a generic struct: `Box<int>`.
+	Args []TypeExpr
 }
 
 // A list type: `[int]`.
@@ -372,7 +385,11 @@ type RangeExpr struct {
 // `Button("Add") { count += 1 }`.
 type CallExpr struct {
 	Span
-	Fn       Expr
+	Fn Expr
+
+	// Type arguments written at the call: `first<int>(xs)`.
+	TypeArgs []TypeExpr
+
 	Args     []*Arg
 	Trailing *Block
 }
