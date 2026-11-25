@@ -49,6 +49,7 @@ const (
 	As
 	Match
 	Static
+	Const
 	Guard
 	True
 	False
@@ -131,6 +132,7 @@ var keywords = map[string]Kind{
 	"continue":  Continue,
 	"struct":    Struct,
 	"static":    Static,
+	"const":     Const,
 	"enum":      Enum,
 	"interface": Interface,
 	"import":    Import,

@@ -276,6 +276,9 @@ func (p *parser) decl() ast.Decl {
 		case *ast.ExternTypeDecl:
 			d.Pub = true
 			return d
+		case *ast.ConstDecl:
+			d.Pub = true
+			return d
 		}
 		return nil
 	}
@@ -293,6 +296,8 @@ func (p *parser) decl() ast.Decl {
 		if t.Text == "export" && (p.peek(1).Kind == lexer.Fn || p.peek(1).Kind == lexer.Async) {
 			return p.exportDecl()
 		}
+	case lexer.Const:
+		return p.constDecl()
 	case lexer.Struct:
 		return p.structDecl()
 	case lexer.Enum:
@@ -608,13 +613,21 @@ func (p *parser) enumMember(e *ast.EnumDecl) {
 		return
 	case lexer.Static:
 		p.next()
+		if p.at(lexer.Const) {
+			k := p.constDecl()
+			k.Pub = pub
+			e.Consts = append(e.Consts, k)
+			return
+		}
 		if !p.at(lexer.Fn) && !p.at(lexer.Async) {
-			p.fail(p.tok(), "", "expected 'fn' after 'static', found %s", describe(p.tok()))
+			p.fail(p.tok(), "", "expected 'fn' or 'const' after 'static', found %s", describe(p.tok()))
 		}
 		m := p.funcDecl(true)
 		m.Pub = pub
 		e.Methods = append(e.Methods, m)
 		return
+	case lexer.Const:
+		p.fail(t, "write static const inside an enum", "a const inside an enum must be static")
 	case lexer.Ident:
 		if t.Text == "set" && p.peek(1).Kind == lexer.Ident {
 			p.fail(t, "use a method that returns a new value", "enums can't have setters, since their values never change")
@@ -871,13 +884,21 @@ func (p *parser) member(s *ast.StructDecl) {
 		return
 	case lexer.Static:
 		p.next()
+		if p.at(lexer.Const) {
+			k := p.constDecl()
+			k.Pub = pub
+			s.Consts = append(s.Consts, k)
+			return
+		}
 		if !p.at(lexer.Fn) && !p.at(lexer.Async) {
-			p.fail(p.tok(), "", "expected 'fn' after 'static', found %s", describe(p.tok()))
+			p.fail(p.tok(), "", "expected 'fn' or 'const' after 'static', found %s", describe(p.tok()))
 		}
 		m := p.funcDecl(true)
 		m.Pub = pub
 		s.Methods = append(s.Methods, m)
 		return
+	case lexer.Const:
+		p.fail(t, "write static const inside a struct", "a const inside a struct must be static")
 	case lexer.Pub:
 		p.fail(t, "one pub is enough", "unexpected 'pub'")
 	case lexer.Let, lexer.Var:
@@ -2122,4 +2143,21 @@ func (p *parser) patternAhead() bool {
 		return next.Kind == lexer.LParen && next.Pos.Offset == p.tok().End
 	}
 	return false
+}
+
+// Parses `const name: type = value`.
+func (p *parser) constDecl() *ast.ConstDecl {
+	start := p.next().Pos
+	k := &ast.ConstDecl{Name: p.ident("a name for the constant")}
+	if p.at(lexer.Colon) {
+		p.next()
+		k.Type = p.typeExpr()
+	}
+	if !p.at(lexer.Assign) {
+		p.fail(p.tok(), fmt.Sprintf("give it a value: const %s = ...", k.Name.Name), "expected '=' after the constant's name, found %s", describe(p.tok()))
+	}
+	p.next()
+	k.Value = p.expr()
+	k.Span = p.span(start)
+	return k
 }
