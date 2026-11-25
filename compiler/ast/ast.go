@@ -320,24 +320,9 @@ type LetStmt struct {
 	Type    TypeExpr
 	Value   Expr
 
-	// For `let (a, b) = value`, the pattern taking the record apart; Name
-	// is then nil.
-	Pattern *RecordPattern
-}
-
-// A pattern that takes a record apart: `(a, b)`, `(min: lo, max: _)` or
-// `(:min, :max)`.
-type RecordPattern struct {
-	Span
-	Fields []*PatternField
-}
-
-// A field of a [RecordPattern]. [Name] is the field for a named one, nil
-// for a positional one; [Bind] is the variable it goes into, `_` to skip
-// it.
-type PatternField struct {
-	Name *Ident
-	Bind *Ident
+	// For `let (a, b) = value` or `let Point(:x, :y) = p`, the pattern
+	// taking the value apart; Name is then nil.
+	Pattern Pattern
 }
 
 // An assignment: `x = 1`, `total += n`, `xs[0] = 5`, `user.age = 30`.
@@ -367,6 +352,11 @@ type IfStmt struct {
 	// For `if let name = value`, the name bound when [Cond], an optional,
 	// holds a value.
 	Bind *Ident
+
+	// For `if value case pattern when guard`, the pattern [Cond] must
+	// match, and the condition that must also hold, or nil.
+	Case  Pattern
+	Guard Expr
 }
 
 // `guard let name = value else { ... }`: runs the else block, which must
@@ -400,7 +390,7 @@ type ForStmt struct {
 
 	// For `for (a, b) in pairs`, the pattern each element is taken apart
 	// with; [Elem] then holds the whole element.
-	Pattern *RecordPattern
+	Pattern Pattern
 
 	// The list or [*RangeExpr] being iterated.
 	Iter Expr
@@ -646,10 +636,12 @@ type MatchExpr struct {
 	Arms    []*MatchArm
 }
 
-// One arm of a match: a pattern and either an expression or a block.
+// One arm of a match: a pattern, an optional `when` guard, and either an
+// expression or a block.
 type MatchArm struct {
 	Span
 	Pattern Pattern
+	Guard   Expr
 	Expr    Expr
 	Block   *Block
 }
@@ -665,13 +657,66 @@ type WildcardPattern struct {
 	Span
 }
 
-// A pattern naming an enum case: `empty`, or `circle(r)` binding the
-// case's values in order. A `_` binding ignores that value; [Binds] is nil
-// when there are no parentheses.
+// A bare name: an enum case such as `empty` where one is expected,
+// otherwise a name bound to the value.
+type NamePattern struct {
+	Span
+	Name *Ident
+}
+
+// A name with fields: an enum case such as `circle(r)` or
+// `circle(radius: r)`, or a struct such as `Point(x: 0, :y)`.
 type CasePattern struct {
 	Span
-	Name  *Ident
-	Binds []*Ident
+	Name *Ident
+	Args []*PatternField
+}
+
+// A record pattern: `(a, b)`, `(min: lo, max: _)` or `(:min, :max)`.
+type RecordPattern struct {
+	Span
+	Fields []*PatternField
+}
+
+// A field inside a pattern. [Name] is the field for a named one, nil for
+// a positional one. `:x` stands for `x: x`.
+type PatternField struct {
+	Name    *Ident
+	Pattern Pattern
+}
+
+// A list pattern: `[]`, `[a, b]` or `[first, ...rest]`. At most one
+// element is a [RestPattern].
+type ListPattern struct {
+	Span
+	Elems []Pattern
+}
+
+// `...rest` or `...` inside a list pattern: the elements the others don't
+// match, bound as a list when [Bind] is set.
+type RestPattern struct {
+	Span
+	Bind *Ident
+}
+
+// A range pattern: `1..=9`, or `0..10` without the end.
+type RangePattern struct {
+	Span
+	Lo, Hi    Expr
+	Inclusive bool
+}
+
+// A comparison pattern: `> 100`, `<= 0`.
+type RelationalPattern struct {
+	Span
+	Op    lexer.Kind
+	Value Expr
+}
+
+// Alternatives: `200 || 201`. Each binds the same names.
+type OrPattern struct {
+	Span
+	Alts []Pattern
 }
 
 // A literal pattern: `1`, `-1`, `"yes"`, `true`.
@@ -680,9 +725,16 @@ type LiteralPattern struct {
 	Value Expr
 }
 
-func (*WildcardPattern) patternNode() {}
-func (*CasePattern) patternNode()     {}
-func (*LiteralPattern) patternNode()  {}
+func (*WildcardPattern) patternNode()   {}
+func (*CasePattern) patternNode()       {}
+func (*NamePattern) patternNode()       {}
+func (*RecordPattern) patternNode()     {}
+func (*ListPattern) patternNode()       {}
+func (*RestPattern) patternNode()       {}
+func (*RangePattern) patternNode()      {}
+func (*RelationalPattern) patternNode() {}
+func (*OrPattern) patternNode()         {}
+func (*LiteralPattern) patternNode()    {}
 
 func (*ImplicitMember) exprNode()     {}
 func (*MatchExpr) exprNode()          {}

@@ -122,22 +122,71 @@ func PatternString(p Pattern) string {
 	switch p := p.(type) {
 	case *WildcardPattern:
 		return "_"
+	case *NamePattern:
+		return p.Name.Name
 	case *CasePattern:
-		if p.Binds == nil {
-			return p.Name.Name
+		return p.Name.Name + "(" + fieldsString(p.Args) + ")"
+	case *RecordPattern:
+		if len(p.Fields) == 1 && p.Fields[0].Name == nil {
+			return "(" + fieldsString(p.Fields) + ",)"
 		}
-		names := make([]string, len(p.Binds))
-		for i, b := range p.Binds {
-			names[i] = b.Name
+		return "(" + fieldsString(p.Fields) + ")"
+	case *ListPattern:
+		parts := make([]string, len(p.Elems))
+		for i, e := range p.Elems {
+			parts[i] = PatternString(e)
 		}
-		return p.Name.Name + "(" + strings.Join(names, ", ") + ")"
+		return "[" + strings.Join(parts, ", ") + "]"
+	case *RestPattern:
+		if p.Bind != nil {
+			return "..." + p.Bind.Name
+		}
+		return "..."
 	case *LiteralPattern:
-		if u, ok := p.Value.(*UnaryExpr); ok {
-			return "-" + Sexpr(u.X)
+		return literalString(p.Value)
+	case *RangePattern:
+		sep := ".."
+		if p.Inclusive {
+			sep = "..="
 		}
-		return Sexpr(p.Value)
+		return literalString(p.Lo) + sep + literalString(p.Hi)
+	case *RelationalPattern:
+		return op(p.Op) + " " + literalString(p.Value)
+	case *OrPattern:
+		parts := make([]string, len(p.Alts))
+		for i, a := range p.Alts {
+			parts[i] = PatternString(a)
+		}
+		return strings.Join(parts, " || ")
 	}
 	return "?"
+}
+
+func literalString(e Expr) string {
+	if u, ok := e.(*UnaryExpr); ok {
+		return "-" + Sexpr(u.X)
+	}
+	return Sexpr(e)
+}
+
+func fieldsString(fs []*PatternField) string {
+	parts := make([]string, len(fs))
+	for i, f := range fs {
+		switch {
+		case f.Name == nil:
+			parts[i] = PatternString(f.Pattern)
+		case isName(f.Pattern, f.Name.Name):
+			parts[i] = ":" + f.Name.Name
+		default:
+			parts[i] = f.Name.Name + ": " + PatternString(f.Pattern)
+		}
+	}
+	return strings.Join(parts, ", ")
+}
+
+func isName(p Pattern, name string) bool {
+	n, ok := p.(*NamePattern)
+	return ok && n.Name.Name == name
 }
 
 func op(k lexer.Kind) string { return strings.Trim(k.String(), "'") }
@@ -318,7 +367,7 @@ func build(n Node) *tree {
 			label = "var "
 		}
 		if n.Pattern != nil {
-			label += RecordPatternString(n.Pattern)
+			label += PatternString(n.Pattern)
 		} else {
 			label += n.Name.Name
 		}
@@ -338,6 +387,13 @@ func build(n Node) *tree {
 		if n.Bind != nil {
 			return branch("if let "+n.Bind.Name, buildExpr(n.Cond), build(n.Then), els)
 		}
+		if n.Case != nil {
+			label := "if case " + PatternString(n.Case)
+			if n.Guard != nil {
+				label += " when " + Sexpr(n.Guard)
+			}
+			return branch(label, buildExpr(n.Cond), build(n.Then), els)
+		}
 		return branch("if", buildExpr(n.Cond), build(n.Then), els)
 	case *GuardStmt:
 		return branch("guard let "+n.Bind.Name, buildExpr(n.Value), build(n.Else))
@@ -349,7 +405,7 @@ func build(n Node) *tree {
 	case *ForStmt:
 		elem := n.Elem.Name
 		if n.Pattern != nil {
-			elem = RecordPatternString(n.Pattern)
+			elem = PatternString(n.Pattern)
 		}
 		label := "for " + elem
 		if n.Index != nil {
@@ -484,7 +540,11 @@ func buildExpr(e Expr) *tree {
 			if a.Expr != nil {
 				body = buildExpr(a.Expr)
 			}
-			t.kids = append(t.kids, branch(PatternString(a.Pattern)+" =>", body))
+			label := PatternString(a.Pattern)
+			if a.Guard != nil {
+				label += " when " + Sexpr(a.Guard)
+			}
+			t.kids = append(t.kids, branch(label+" =>", body))
 		}
 		return t
 	case *CallExpr:
@@ -529,23 +589,4 @@ func interfacesString(ifaces []*NamedType) string {
 		s += sep + TypeString(id)
 	}
 	return s
-}
-
-// Returns a record pattern in source form, such as `(a, max: _)`.
-func RecordPatternString(p *RecordPattern) string {
-	parts := make([]string, len(p.Fields))
-	for i, f := range p.Fields {
-		switch {
-		case f.Name == nil:
-			parts[i] = f.Bind.Name
-		case f.Name.Name == f.Bind.Name:
-			parts[i] = ":" + f.Name.Name
-		default:
-			parts[i] = f.Name.Name + ": " + f.Bind.Name
-		}
-	}
-	if len(parts) == 1 && p.Fields[0].Name == nil {
-		return "(" + parts[0] + ",)"
-	}
-	return "(" + strings.Join(parts, ", ") + ")"
 }
