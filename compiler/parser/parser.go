@@ -907,10 +907,7 @@ func (p *parser) baseType() ast.TypeExpr {
 	t := p.tok()
 	switch t.Kind {
 	case lexer.LParen:
-		p.next()
-		inner := p.typeExpr()
-		p.expect(lexer.RParen)
-		return inner
+		return p.recordType()
 	case lexer.LBracket:
 		p.next()
 		elem := p.typeExpr()
@@ -966,7 +963,7 @@ func (p *parser) list(open lexer.Token, end lexer.Kind, item func()) {
 			p.skipNewlines()
 			continue
 		}
-		if p.at(lexer.RBrace) || p.at(lexer.EOF) {
+		if (p.at(lexer.RBrace) && end != lexer.RBrace) || p.at(lexer.EOF) {
 			p.fail(open, "add a matching "+closing[open.Kind], "unclosed %s", open.Kind)
 		}
 		if !p.at(end) {
@@ -1190,7 +1187,18 @@ func (p *parser) stmt() ast.Stmt {
 
 func (p *parser) letStmt() *ast.LetStmt {
 	t := p.next()
-	s := &ast.LetStmt{Mutable: t.Kind == lexer.Var, Name: p.ident("a variable name")}
+	s := &ast.LetStmt{Mutable: t.Kind == lexer.Var}
+	if p.at(lexer.LParen) {
+		s.Pattern = p.recordPattern()
+		if !p.at(lexer.Assign) {
+			p.fail(p.tok(), fmt.Sprintf("write %s %s = record", t.Text, ast.RecordPatternString(s.Pattern)), "expected '=' after the pattern, found %s", describe(p.tok()))
+		}
+		p.next()
+		s.Value = p.expr()
+		s.Span = p.span(t.Pos)
+		return s
+	}
+	s.Name = p.ident("a variable name")
 	if p.at(lexer.Colon) {
 		p.next()
 		s.Type = p.typeExpr()
@@ -1245,10 +1253,20 @@ func (p *parser) ifStmt() *ast.IfStmt {
 
 func (p *parser) forStmt() *ast.ForStmt {
 	start := p.expect(lexer.For).Pos
-	s := &ast.ForStmt{Elem: p.ident("a loop variable")}
-	if p.at(lexer.Comma) {
+	s := &ast.ForStmt{}
+	loopVar := func() {
+		if p.at(lexer.LParen) {
+			s.Pattern = p.recordPattern()
+			s.Elem = &ast.Ident{Span: s.Pattern.Span, Name: "$elem"}
+		} else {
+			s.Elem = p.ident("a loop variable")
+		}
+	}
+	loopVar()
+	if p.at(lexer.Comma) && s.Pattern == nil {
 		p.next()
-		s.Index, s.Elem = s.Elem, p.ident("a loop variable")
+		s.Index = s.Elem
+		loopVar()
 	}
 	if !p.at(lexer.In) {
 		p.fail(p.tok(), "write for x in items { ... }", "expected 'in', found %s", describe(p.tok()))
@@ -1619,13 +1637,19 @@ func (p *parser) primary() ast.Expr {
 		p.next()
 		saved, savedHead := p.noTrailing, p.elemHead
 		p.noTrailing, p.elemHead = false, false
+		defer func() { p.noTrailing, p.elemHead = saved, savedHead }()
 		p.skipNewlines()
 		if p.at(lexer.RParen) {
 			p.fail(p.tok(), "", "expected an expression inside ( )")
 		}
+		if p.at(lexer.Ident) && p.peek(1).Kind == lexer.Colon {
+			return p.recordLit(t)
+		}
 		x := p.expr()
 		p.skipNewlines()
-		p.noTrailing, p.elemHead = saved, savedHead
+		if p.at(lexer.Comma) {
+			return p.recordLit(t, &ast.Arg{Span: ast.Span{Start: x.Pos(), End: x.EndOffset()}, Value: x})
+		}
 		p.expect(lexer.RParen)
 		return x
 	case lexer.Fn:
@@ -1886,4 +1910,99 @@ func (p *parser) interpolated() ast.Expr {
 		}
 		p.fail(t, "", "expected } to end the interpolation, found %s", describe(t))
 	}
+}
+
+// Parses a record type, or a type in parentheses: `(int, string)`,
+// `({int x, int y})`, `(int, {string name})`, `(int,)` or `(T)`.
+func (p *parser) recordType() ast.TypeExpr {
+	open := p.next()
+	rt := &ast.RecordType{}
+	comma := false
+	for !p.at(lexer.RParen) {
+		if p.at(lexer.LBrace) {
+			brace := p.next()
+			p.list(brace, lexer.RBrace, func() {
+				te := p.typeExpr()
+				rt.Named = append(rt.Named, &ast.NamedField{Type: te, Name: p.ident("a field name after its type, as in {int x}")})
+			})
+			if len(rt.Named) == 0 {
+				p.fail(brace, "write the named fields, e.g. ({int x, int y})", "the braces of a record type need at least one field")
+			}
+			break
+		}
+		rt.Positional = append(rt.Positional, p.typeExpr())
+		if !p.at(lexer.Comma) {
+			break
+		}
+		p.next()
+		comma = true
+	}
+	if len(rt.Positional) == 0 && len(rt.Named) == 0 {
+		p.fail(p.tok(), "write the field types, e.g. (int, string)", "a record type needs at least one field")
+	}
+	p.expect(lexer.RParen)
+	if len(rt.Positional) == 1 && len(rt.Named) == 0 && !comma {
+		return rt.Positional[0]
+	}
+	rt.Span = p.span(open.Pos)
+	return rt
+}
+
+// Parses the rest of a record value after `(`, given the fields already
+// read.
+func (p *parser) recordLit(open lexer.Token, fields ...*ast.Arg) ast.Expr {
+	r := &ast.RecordLit{Fields: fields}
+	if len(fields) > 0 {
+		p.next()
+	}
+	for {
+		p.skipNewlines()
+		if p.at(lexer.RParen) {
+			break
+		}
+		start := p.tok().Pos
+		a := &ast.Arg{}
+		if p.at(lexer.Ident) && p.peek(1).Kind == lexer.Colon {
+			a.Name = p.ident("a field name")
+			p.next()
+		}
+		a.Value = p.expr()
+		a.Span = p.span(start)
+		r.Fields = append(r.Fields, a)
+		p.skipNewlines()
+		if !p.at(lexer.Comma) {
+			break
+		}
+		p.next()
+	}
+	p.expect(lexer.RParen)
+	r.Span = p.span(open.Pos)
+	return r
+}
+
+// Parses a record pattern: `(a, b)`, `(min: lo, max: _)` or `(:min, :max)`.
+func (p *parser) recordPattern() *ast.RecordPattern {
+	open := p.next()
+	pat := &ast.RecordPattern{}
+	p.list(open, lexer.RParen, func() {
+		f := &ast.PatternField{}
+		switch {
+		case p.at(lexer.Colon):
+			p.next()
+			f.Name = p.ident("a field name after ':'")
+			f.Bind = &ast.Ident{Span: f.Name.Span, Name: f.Name.Name}
+		case p.at(lexer.Ident) && p.peek(1).Kind == lexer.Colon:
+			f.Name = p.ident("a field name")
+			p.next()
+			f.Bind = p.ident("a variable name or _")
+		default:
+			f.Bind = p.ident("a variable name or _")
+		}
+		pat.Fields = append(pat.Fields, f)
+	})
+	if len(pat.Fields) == 0 {
+		p.fail(open, "write the names, e.g. let (a, b) = pair", "a record pattern needs at least one name")
+	}
+	pat.Span = p.span(open.Pos)
+	return pat
 }

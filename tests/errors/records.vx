@@ -1,0 +1,39 @@
+fn pair() -> (int, string) {
+    return (1, "a")
+}
+fn bad() -> ({int x, int x}) {
+    return (x: 1)
+}
+fn main() {
+    let p = pair()
+    println(p.$3, p.$0, p.name)
+    p.$1 = 5
+    let (a) = p
+    let (a1, b1, c1) = p
+    let (x: q, y: w) = (x: 1, z: 2)
+    let n = 5
+    let (u, v) = n
+    let r = (x: 1, x: 2)
+    let $1 = 3
+    let s: (int, string) = (1, 2)
+    let f = fn() {}
+    println((1, f) == (1, f))
+    let t = (1, println("x"))
+    var m: [(int, int): string] = [:]
+}
+
+// error: 4:26: field 'x' is written twice
+// error: 9:15: (int, string) has no field '$3'
+// error: 9:21: (int, string) has no field '$0'
+// error: 9:27: (int, string) has no field 'name'
+// error: 10:7: record fields can't be changed
+// error: 11:9: the pattern must match every field of (int, string)
+// error: 12:9: the pattern must match every field of (int, string)
+// error: 13:9: the pattern must match every field of ({int x, int z})
+// error: 15:9: only records can be taken apart, found int
+// error: 16:20: field 'x' is given twice
+// error: 17:9: names starting with $ are the positional fields of records
+// error: 18:28: expected (int, string), found (int, int)
+// error: 20:13: values of type (int, fn()) can't be compared with ==
+// error: 21:17: this expression has no value to store in a record
+// error: 22:13: (int, int) can't be a map key

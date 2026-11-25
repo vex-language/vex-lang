@@ -72,7 +72,7 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 
 Goal: the language features real apps need before any UI work.
 
-**Progress:** 26 of 49 tasks done. The language has enums and `match`, optionals, errors, closures, generics (functions, structs, enums and methods), interfaces (generic, extending others, with properties, for structs and enums), maps, modules, C interop (handles, sized numbers, callbacks, exports, Objective-C), async/await with an event loop, isolates and channels, collection `if`/`for`/spread, builder blocks, getters, setters and `didSet`, and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
+**Progress:** 27 of 49 tasks done. The language has enums and `match`, optionals, errors, closures, generics (functions, structs, enums and methods), interfaces (generic, extending others, with properties, for structs and enums), maps, modules, C interop (handles, sized numbers, callbacks, exports, Objective-C), async/await with an event loop, isolates and channels, records, collection `if`/`for`/spread, builder blocks, getters, setters and `didSet`, and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
 
 ### Done
 - [x] **V-100** Enums with data plus `match` (exhaustive) (L)
@@ -106,7 +106,7 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-147** Isolates: `isolate.run` and `isolate.spawn` run code in parallel on threads with their own heaps; `Channel<T>` carries deep-copied messages between them; `while let` (XL)
 
 ### Modern language features
-- [ ] **V-136** Records: anonymous `(int, string)` and named `(x: int, y: int)` values, so functions can return several values (M)
+- [x] **V-136** Records in the Dart 3 style: `(int, string)`, `({int x, int y})`, `.$1` and named fields, value equality, and `let`/`var`/`for` destructuring (M)
 - [ ] **V-137** Destructuring and richer patterns: `let (a, b) = pair`, struct and list patterns, guards in `match` arms, ranges, `if case` (L)
 - [ ] **V-138** Constants: top-level `const` values computed at compile time (S)
 - [ ] **V-139** Extensions: add methods to existing types, built-in ones included (M)
@@ -259,3 +259,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | C interop: sized numbers exist only in extern and export signatures and convert to `int`/`float` at the call, so Vex code keeps one int and one float. `extern type` gives typed opaque pointers. A `fn` parameter becomes a C function pointer plus a `void *` context, kept as a GC root until C calls `vex_release`. `export fn` gives C a function under its own name. `.m` sources compile with ARC (V-130) |
 | 2026-11-25 | Async: `async fn` results are plain types, and a call without `await` gives a `Future<T>` (or `Future<T, E>`), as in Dart. Each task runs on its own stack, switched by a small assembly routine for arm64 and x86-64, so functions aren't rewritten into state machines and code that doesn't await stays as fast as before. The loop is built in: it runs after `main`, and `vex_poll` lets platform run loops drive it. Streams come later as their own step (V-135) |
 | 2026-11-25 | Isolates: each is a thread with its own heap, collector and loop, so the runtime's state is thread-local and needs no locks. The heap's fields share one thread-local struct, so an allocation looks up thread-local storage once; on macOS that keeps the cost to about 4% in allocation-heavy code. Values are copied as messages, keeping sharing and cycles, and the compiler rejects functions, futures, handles and interface values. Channels live outside the heaps and are shared; `isolate.run` follows Dart 3's `Isolate.run`. `while let` came with it, for receive loops (V-147) |
+| 2026-11-25 | Records follow Dart 3 exactly: `(int, string)`, named fields in braces as `({int x, int y})`, positional fields read as `$1`. They are C structs passed by value, typed by their shape, with equality generated per type. Simple `let`, `var` and `for` destructuring came with them; patterns in `match` stay in V-137 (V-136) |

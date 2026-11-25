@@ -246,6 +246,20 @@ type NamedType struct {
 }
 
 // A list type: `[int]`.
+// A record type: `(int, string)`, `({int x, int y})` or
+// `(int, {string name})`.
+type RecordType struct {
+	Span
+	Positional []TypeExpr
+	Named      []*NamedField
+}
+
+// A named field of a [RecordType]: `int x`.
+type NamedField struct {
+	Type TypeExpr
+	Name *Ident
+}
+
 type ListType struct {
 	Span
 	Elem TypeExpr
@@ -285,6 +299,7 @@ type OptionalType struct {
 }
 
 func (*ListType) typeNode()     {}
+func (*RecordType) typeNode()   {}
 func (*MapType) typeNode()      {}
 func (*OptionalType) typeNode() {}
 func (*FuncType) typeNode()     {}
@@ -304,6 +319,25 @@ type LetStmt struct {
 	Name    *Ident
 	Type    TypeExpr
 	Value   Expr
+
+	// For `let (a, b) = value`, the pattern taking the record apart; Name
+	// is then nil.
+	Pattern *RecordPattern
+}
+
+// A pattern that takes a record apart: `(a, b)`, `(min: lo, max: _)` or
+// `(:min, :max)`.
+type RecordPattern struct {
+	Span
+	Fields []*PatternField
+}
+
+// A field of a [RecordPattern]. [Name] is the field for a named one, nil
+// for a positional one; [Bind] is the variable it goes into, `_` to skip
+// it.
+type PatternField struct {
+	Name *Ident
+	Bind *Ident
 }
 
 // An assignment: `x = 1`, `total += n`, `xs[0] = 5`, `user.age = 30`.
@@ -363,6 +397,10 @@ type ForStmt struct {
 	// The index variable of `for i, x in xs`, or nil.
 	Index *Ident
 	Elem  *Ident
+
+	// For `for (a, b) in pairs`, the pattern each element is taken apart
+	// with; [Elem] then holds the whole element.
+	Pattern *RecordPattern
 
 	// The list or [*RangeExpr] being iterated.
 	Iter Expr
@@ -565,6 +603,13 @@ type ImplicitMember struct {
 	Name *Ident
 }
 
+// A record value: `(1, "a")`, `(x: 1, y: 2)` or `(1, name: "a")`. Fields
+// with a name are named fields; the others are positional.
+type RecordLit struct {
+	Span
+	Fields []*Arg
+}
+
 // `await x`: waits for the future [X], or runs the async call [X].
 type AwaitExpr struct {
 	Span
@@ -660,5 +705,6 @@ func (*RangeExpr) exprNode()          {}
 func (*CallExpr) exprNode()           {}
 func (*TryExpr) exprNode()            {}
 func (*AwaitExpr) exprNode()          {}
+func (*RecordLit) exprNode()          {}
 func (*IndexExpr) exprNode()          {}
 func (*MemberExpr) exprNode()         {}

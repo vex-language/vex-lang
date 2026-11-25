@@ -64,6 +64,13 @@ func (l *lexer) run() {
 			l.blockComment()
 		case isLetter(c):
 			l.identifier()
+		case c == '$' && isDigit(l.peek(1)):
+			// The positional fields of records: `$1`, `$2`, ...
+			l.pos++
+			for l.pos < len(l.src) && isDigit(l.src[l.pos]) {
+				l.pos++
+			}
+			l.emit(Ident, start, l.pos, "")
 		case isDigit(c):
 			l.number()
 		case c == '"':

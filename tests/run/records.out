@@ -1,0 +1,18 @@
+(3, 2) 3 2
+2 1
+(max: 9, min: -2) -2 9
+-2 9
+98
+("one", 1)
+(1,) (x: 1.5, y: 2)
+(1.0, 2.0)
+(3, color: Color.green, name: "vex") nil
+abc Color.green 3
+abc 6
+0 a 1 b 2 c 
+true true true
+true false
+((1, 2), (x: "in", y: [1, 2])) 2
+(6, s: "from isolate")
+["Ada", "Bob"]
+(5, 6)

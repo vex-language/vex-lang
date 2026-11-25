@@ -119,6 +119,8 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		return c.tryExpr(e, want, false)
 	case *ast.AwaitExpr:
 		return c.awaitExpr(e, want)
+	case *ast.RecordLit:
+		return c.recordLit(e, want)
 	}
 	return Invalid
 }
@@ -533,6 +535,13 @@ func comparable(t Type) bool {
 		return t.Simple()
 	case *TypeParam:
 		return t.Has("Equatable")
+	case *Record:
+		for _, f := range t.FieldTypes() {
+			if !comparable(f) {
+				return false
+			}
+		}
+		return true
 	}
 	if _, ok := t.(*Handle); ok {
 		return true
@@ -598,6 +607,21 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 	}
 	x := c.recv(e)
 	switch x := x.(type) {
+	case *Record:
+		ft := x.Field(name)
+		if ft == nil {
+			hint := didYouMean(name, x.FieldNames())
+			if strings.HasPrefix(name, "$") && hint == "" {
+				hint = "positional fields count from $1"
+			}
+			c.errorAt(e.Name, hint, "%s has no field '%s'", x, name)
+			return Invalid
+		}
+		if writing {
+			c.errorAt(e.Name, "make a new record instead", "record fields can't be changed")
+		}
+		c.info.Members[e] = &Member{RecordField: name}
+		return ft
 	case *Enum:
 		if p := x.Property(name); p != nil {
 			c.methodPrivate(e.Name, p.Get)

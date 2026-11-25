@@ -26,6 +26,11 @@ func (g *gen) collectOptionals() {
 			visit(t.Elem)
 		case *types.Future:
 			visit(t.Elem)
+		case *types.Record:
+			g.recs[ctype(t)] = t
+			for _, f := range t.FieldTypes() {
+				visit(f)
+			}
 		case *types.Map:
 			visit(t.Key)
 			visit(t.Value)
