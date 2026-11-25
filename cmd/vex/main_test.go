@@ -193,3 +193,33 @@ func TestEmitC(t *testing.T) {
 		t.Errorf("code %d, output:\n%s", code, out)
 	}
 }
+
+func TestBuildOutputPath(t *testing.T) {
+	needCC(t)
+	dir := t.TempDir()
+	script := filepath.Join(dir, "script")
+	src := "fn main() {\n    println(\"hi\")\n}\n"
+	if err := os.WriteFile(script, []byte(src), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if code, _, errOut := runCLI("build", script, "-o", script); code != exitUsage || !strings.Contains(errOut, "would replace the source file") {
+		t.Errorf("same output as source: code %d, stderr %q", code, errOut)
+	}
+	if got, _ := os.ReadFile(script); string(got) != src {
+		t.Errorf("source was changed: %q", got)
+	}
+
+	store := filepath.Join(dir, "store")
+	if err := os.MkdirAll(store, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	os.WriteFile(filepath.Join(store, "package.toml"), []byte("[package]\nname = \"store\"\n"), 0o644)
+	os.WriteFile(filepath.Join(store, "main.vx"), []byte(src), 0o644)
+	exe := filepath.Join(store, "store")
+	if code, out, errOut := runCLI("build", store, "-o", store); code != exitOK || out != "Built "+exe+"\n" {
+		t.Fatalf("folder output: code %d, stdout %q, stderr %q", code, out, errOut)
+	}
+	if got, err := exec.Command(exe).Output(); err != nil || string(got) != "hi\n" {
+		t.Errorf("running the binary: %q, %v", got, err)
+	}
+}

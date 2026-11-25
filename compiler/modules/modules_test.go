@@ -176,20 +176,20 @@ sources = [
     "lib/b.o",
 ]
 libs = ["z", "sqlite3"]
-flags = ["-DNAME=\"x, y\"", "-Inative", "-O3"]
+flags = ["-DNAME=\"x, y\"", "-Inative", "-O3", "-Wall", "-Wno-unused", "-fvisibility=hidden", "-mmacosx-version-min=11.0", "-std=c11"]
 `
 	p, errs := ParseProject(diag.NewFile("package.toml", src))
 	if len(errs) > 0 {
 		t.Fatal(errs)
 	}
 	got := fmt.Sprintf("%q %q %q", p.CSources, p.CLibs, p.CFlags)
-	if want := `["native/a.c" "lib/b.o"] ["z" "sqlite3"] ["-DNAME=\"x, y\"" "-Inative" "-O3"]`; got != want {
+	if want := `["native/a.c" "lib/b.o"] ["z" "sqlite3"] ["-DNAME=\"x, y\"" "-Inative" "-O3" "-Wall" "-Wno-unused" "-fvisibility=hidden" "-mmacosx-version-min=11.0" "-std=c11"]`; got != want {
 		t.Errorf("\n got %s\nwant %s", got, want)
 	}
 	prog := &Program{Dir: "/proj", CSources: p.CSources, CLibs: p.CLibs, CFlags: p.CFlags}
 	opts := prog.CCOptions()
 	got = fmt.Sprintf("%q %q %q", opts.Sources, opts.Libs, opts.Flags)
-	if want := `["/proj/native/a.c" "/proj/lib/b.o"] ["z" "sqlite3"] ["-DNAME=\"x, y\"" "-I/proj/native" "-O3"]`; got != want {
+	if want := `["/proj/native/a.c" "/proj/lib/b.o"] ["z" "sqlite3"] ["-DNAME=\"x, y\"" "-I/proj/native" "-O3" "-Wall" "-Wno-unused" "-fvisibility=hidden" "-mmacosx-version-min=11.0" "-std=c11"]`; got != want {
 		t.Errorf("options\n got %s\nwant %s", got, want)
 	}
 
@@ -202,6 +202,12 @@ flags = ["-DNAME=\"x, y\"", "-Inative", "-O3"]
 		{"[c]\nlibs = [\"-lz\"]\n", "2:8: '-lz' isn't a library name"},
 		{"[c]\nflags = [\"-o\", \"out\"]\n", "2:9: flag '-o' isn't allowed\n2:9: flag 'out' isn't allowed"},
 		{"[c]\nflags = [\"-D\"]\n", "2:9: flag '-D' isn't allowed"},
+		{"[c]\nflags = [\"-fplugin=/tmp/x.dylib\"]\n", "2:9: flag '-fplugin=/tmp/x.dylib' isn't allowed"},
+		{"[c]\nflags = [\"-Wl,-o,/tmp/x\"]\n", "2:9: flag '-Wl,-o,/tmp/x' isn't allowed"},
+		{"[c]\nflags = [\"-Wp,-MD,/tmp/x\"]\n", "2:9: flag '-Wp,-MD,/tmp/x' isn't allowed"},
+		{"[c]\nflags = [\"-I../../..\"]\n", "2:9: flag '-I../../..' isn't allowed"},
+		{"[c]\nflags = [\"-L/usr/lib\"]\n", "2:9: flag '-L/usr/lib' isn't allowed"},
+		{"[c]\nflags = [\"-fprofile-generate\"]\n", "2:9: flag '-fprofile-generate' isn't allowed"},
 		{"[c]\ncolour = []\n", "2:1: unknown key 'colour' in [c]"},
 		{"[c]\nlibs = [\"z\"]\nlibs = []\n", "3:1: 'libs' is already set on line 4"},
 		{"[c]\nlibs = [\"z\"\n", "2:8: the value of 'libs' must be a list of strings"},

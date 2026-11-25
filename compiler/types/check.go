@@ -57,7 +57,7 @@ type checker struct {
 	// checking other code, and how deeply nested the current instance is.
 	jobs    []func()
 	depth   int
-	tooDeep bool
+	tooDeep map[string]bool
 
 	scope *scope
 
@@ -677,6 +677,7 @@ func (c *checker) checkDefaults() {
 		}
 		back()
 	}
+	c.checkDefaultCycles()
 	for _, f := range c.info.Funcs {
 		if instanced(f) {
 			continue
@@ -899,31 +900,21 @@ func terminates(s ast.Stmt) bool {
 	return false
 }
 
-// Reports whether [s] contains a `break` for the enclosing loop.
+// Reports whether [s] contains a `break` for the enclosing loop, including
+// one inside a match arm or a catch block, but not one in a nested loop or
+// closure.
 func breaks(s ast.Stmt) bool {
-	switch s := s.(type) {
-	case *ast.BreakStmt:
-		return true
-	case *ast.Block:
-		for _, st := range s.Stmts {
-			if breaks(st) {
-				return true
-			}
+	found := false
+	ast.Inspect(s, func(n ast.Node) bool {
+		switch n.(type) {
+		case *ast.BreakStmt:
+			found = true
+		case *ast.WhileStmt, *ast.ForStmt, *ast.FuncLit:
+			return n == ast.Node(s)
 		}
-	case *ast.IfStmt:
-		return breaks(s.Then) || (s.Else != nil && breaks(s.Else))
-	case *ast.GuardStmt:
-		return breaks(s.Else)
-	case *ast.ExprStmt:
-		if m, ok := s.X.(*ast.MatchExpr); ok {
-			for _, a := range m.Arms {
-				if a.Block != nil && breaks(a.Block) {
-					return true
-				}
-			}
-		}
-	}
-	return false
+		return !found
+	})
+	return found
 }
 
 // --- Statements ---
@@ -1066,8 +1057,11 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		target = c.expr(x, nil)
 		c.writing = false
 		c.assignMember(s, x, c.info.Uses[x])
-		if k, ok := c.info.Uses[x].(*Const); ok {
-			c.errorAt(x, "", "can't change constant '%s'", k)
+		switch u := c.info.Uses[x].(type) {
+		case *Const:
+			c.errorAt(x, "", "can't change constant '%s'", u)
+		case *Func:
+			c.errorAt(x, "declare a variable holding a function instead: var f = "+u.Name, "can't assign to function '%s'", u.Name)
 		}
 		if v, ok := c.info.Uses[x].(*Var); ok && !v.Mutable {
 			switch v.Kind {
@@ -1090,7 +1084,9 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		c.writing = true
 		target = c.expr(x, nil)
 		c.writing = false
-		if m := c.info.Members[x]; m != nil && m.Builtin != "" {
+		if cs := c.info.CaseValues[x]; cs != nil {
+			c.errorAt(x, "", "can't assign to enum case '%s'", cs.Name)
+		} else if m := c.info.Members[x]; m != nil && m.Builtin != "" {
 			c.errorAt(x.Name, "", "%s can't be changed", m.Builtin)
 		} else if m != nil && m.Const != nil {
 			c.errorAt(x, "", "can't change constant '%s'", m.Const)
@@ -1263,4 +1259,70 @@ func capitalize(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// Reports field defaults that create their own struct again, such as
+// `struct S { a: S? = S() }`, which would never finish.
+func (c *checker) checkDefaultCycles() {
+	type slot struct {
+		s *Struct
+		i int
+	}
+	// Each default leads to the defaults its constructor calls leave out.
+	next := func(at slot) []slot {
+		var out []slot
+		ast.Inspect(at.s.Fields[at.i].Default, func(n ast.Node) bool {
+			e, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			call := c.info.Calls[e]
+			if call == nil || call.Kind != ConstructorCall || call.Struct == nil {
+				return true
+			}
+			for j, a := range call.Args {
+				if j < len(call.Struct.Fields) && a != nil && a == call.Struct.Fields[j].Default {
+					out = append(out, slot{call.Struct, j})
+				}
+			}
+			return true
+		})
+		return out
+	}
+	const (
+		visiting = 1
+		done     = 2
+	)
+	state := map[slot]int{}
+	var visit func(at slot) bool
+	visit = func(at slot) bool {
+		switch state[at] {
+		case visiting:
+			return true
+		case done:
+			return false
+		}
+		state[at] = visiting
+		cyclic := false
+		for _, n := range next(at) {
+			if visit(n) {
+				cyclic = true
+				break
+			}
+		}
+		state[at] = done
+		return cyclic
+	}
+	for _, s := range c.info.Structs {
+		if s.generic != nil {
+			continue
+		}
+		for i, f := range s.Fields {
+			if f.Default != nil && state[slot{s, i}] == 0 && visit(slot{s, i}) {
+				back := c.enter(s.Decl)
+				c.errorAt(f.Default, "pass that field explicitly, or default it to nil", "the default of '%s' creates another %s that uses the same default, so it never ends", f.Name, s.Name)
+				back()
+			}
+		}
+	}
 }

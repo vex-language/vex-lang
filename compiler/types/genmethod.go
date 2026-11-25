@@ -128,7 +128,7 @@ func (c *checker) instMethod(m *Func, args []Type, at ast.Node) *Func {
 	for _, a := range args {
 		abstract = abstract || hasTypeParam(a)
 	}
-	if !abstract && !c.deepEnough(at, m.Name) {
+	if !c.deepEnough(at, m.Name, args, abstract) {
 		return nil
 	}
 	f := &Func{Name: m.Name, Module: m.Module, Decl: m.Decl, Owner: m.Owner, Enum: m.Enum, Static: m.Static, TypeArgs: args}

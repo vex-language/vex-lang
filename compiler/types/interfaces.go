@@ -62,7 +62,7 @@ func (c *checker) instIface(g *genericIface, args []Type, at ast.Node) *Interfac
 	for _, a := range args {
 		abstract = abstract || hasTypeParam(a)
 	}
-	if !abstract && !c.deepEnough(at, g.decl.Name.Name) {
+	if !c.deepEnough(at, g.decl.Name.Name, args, abstract) {
 		return nil
 	}
 	defer c.enter(g.decl)()
