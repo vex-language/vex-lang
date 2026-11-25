@@ -106,6 +106,7 @@ func newChecker() *checker {
 			Captures:       map[*ast.FuncLit][]*Var{},
 			CaseValues:     map[ast.Expr]*Case{},
 			Wraps:          map[ast.Expr]*Optional{},
+			ThrowingRefs:   map[ast.Expr]bool{},
 			Elements:       map[*ast.ExprStmt]ast.Expr{},
 			Observers:      map[*ast.AssignStmt]*Func{},
 			Chains:         map[ast.Expr]bool{},

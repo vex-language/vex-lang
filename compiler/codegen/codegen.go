@@ -64,6 +64,10 @@ type gen struct {
 	// Named functions used as values, which need a wrapper.
 	fnValues map[*types.Func]bool
 
+	// Functions used as throwing function values, which get a wrapper
+	// taking the error slot.
+	throwingValues map[*types.Func]bool
+
 	// Optional and record types, which each need a C struct, by name.
 	opts map[string]*types.Optional
 	recs map[string]*types.Record
@@ -83,7 +87,7 @@ type gen struct {
 // Returns the C source of the program described by [info]. [srcName] is
 // the file name shown in runtime errors.
 func Generate(info *types.Info, srcName string) string {
-	g := &gen{info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{},
+	g := &gen{info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{}, throwingValues: map[*types.Func]bool{},
 		opts: map[string]*types.Optional{}, recs: map[string]*types.Record{}, recvs: map[ast.Expr]string{}, chaining: map[ast.Expr]bool{},
 		builds: map[ast.Expr]string{}, litNames: map[*ast.FuncLit]string{}, codecs: map[string]bool{}}
 	g.collectOptionals()
@@ -117,7 +121,10 @@ func Generate(info *types.Info, srcName string) string {
 	}
 	for _, f := range info.Funcs {
 		if g.fnValues[f] {
-			g.fnValueWrapper(f)
+			g.fnValueWrapper(f, false)
+		}
+		if g.throwingValues[f] {
+			g.fnValueWrapper(f, true)
 		}
 		if f.Async {
 			g.spawnWrapper(f)
@@ -1173,8 +1180,9 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 }
 
 // Writes `fnv_NAME`, which lets the top-level function [f] be called
-// through a function value.
-func (g *gen) fnValueWrapper(f *types.Func) {
+// through a function value, or with [throwing] `fntv_NAME`, which takes
+// the error slot of a throwing function value that [f] never fills.
+func (g *gen) fnValueWrapper(f *types.Func, throwing bool) {
 	params := []string{"void *env_"}
 	var args []string
 	for i, p := range f.Params {
@@ -1185,7 +1193,12 @@ func (g *gen) fnValueWrapper(f *types.Func) {
 		params = append(params, "void **vx_err")
 		args = append(args, "vx_err")
 	}
-	sig := decl(f.Result, "fnv_"+funcName(f)+"("+strings.Join(params, ", ")+")")
+	name := "fnv_"
+	if throwing {
+		params = append(params, "void **vx_err")
+		name = "fntv_"
+	}
+	sig := decl(f.Result, name+funcName(f)+"("+strings.Join(params, ", ")+")")
 	fmt.Fprintf(&g.lamDecls, "static %s;\n", sig)
 	call := funcName(f) + "(" + strings.Join(args, ", ") + ")"
 	if f.Result != types.Void {
@@ -1337,6 +1350,10 @@ func (g *gen) value(e ast.Expr) string {
 		case *types.Property:
 			return g.memberCall(u.Get, g.selfType(), g.selfRef())
 		case *types.Func:
+			if g.info.ThrowingRefs[e] {
+				g.throwingValues[u] = true
+				return "((vx_fn){(void *)fntv_" + funcName(u) + ", NULL})"
+			}
 			g.fnValues[u] = true
 			return "((vx_fn){(void *)fnv_" + funcName(u) + ", NULL})"
 		case *types.Const:

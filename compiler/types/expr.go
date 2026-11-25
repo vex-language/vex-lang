@@ -25,6 +25,7 @@ func (c *checker) expr(e ast.Expr, want Type) Type {
 		}
 	}
 	t := c.exprType(e, hint)
+	t = c.throwingRef(e, t, hint)
 	c.info.Types[e] = t
 	if opt && t != Invalid && t != Void {
 		if _, isOpt := t.(*Optional); !isOpt && assignableType(o.Elem, t) {
@@ -235,6 +236,29 @@ func (c *checker) ident(id *ast.Ident) Type {
 }
 
 // Returns the type of function [f] used as a value.
+// Returns the type of [e], whose own type is [t], where [want] is expected.
+// A function that doesn't throw can be used where a throwing one is
+// expected: `apply(twice)` with `apply(f: fn(int) throws -> int)`.
+func (c *checker) throwingRef(e ast.Expr, t, want Type) Type {
+	ft, ok := t.(*FuncType)
+	wf, wok := want.(*FuncType)
+	if !ok || !wok || ft.Throws != nil || wf.Throws == nil {
+		return t
+	}
+	id, ok := e.(*ast.Ident)
+	if !ok {
+		return t
+	}
+	if _, ok := c.info.Uses[id].(*Func); !ok {
+		return t
+	}
+	if !Identical(ft, &FuncType{Params: wf.Params, Result: wf.Result}) {
+		return t
+	}
+	c.info.ThrowingRefs[e] = true
+	return &FuncType{Params: ft.Params, Result: ft.Result, Throws: wf.Throws}
+}
+
 func funcValue(f *Func) *FuncType {
 	ft := &FuncType{Result: f.Result, Throws: f.Throws}
 	for _, p := range f.Params {
