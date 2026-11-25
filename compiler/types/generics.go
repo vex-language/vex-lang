@@ -64,12 +64,16 @@ func (c *checker) typeParams(tps []*ast.TypeParam) []*TypeParam {
 	for n, tp := range tps {
 		p := out[n]
 		for _, id := range tp.Constraints {
-			if len(id.Args) > 0 || c.genIfaces[id.Name] != nil {
+			if len(id.Args) > 0 || c.genIfaces[id.Name] != nil || c.aliases[id.Name] != nil {
 				switch t := c.resolveType(id).(type) {
 				case *Interface:
 					p.Ifaces = append(p.Ifaces, t)
-				case *Struct, *Enum:
-					c.errorAt(id, "use an interface", "'%s' is not an interface", t)
+				default:
+					if t != Invalid && c.aliases[id.Name] != nil && len(id.Args) == 0 {
+						c.errorAt(id, "use an interface", "'%s' names %s, not an interface", id.Name, t)
+					} else if t != Invalid {
+						c.errorAt(id, "use an interface", "'%s' is not an interface", t)
+					}
 				}
 				continue
 			}
@@ -331,6 +335,8 @@ func (c *checker) taken(id *ast.Ident) bool {
 		line, what = c.genIfaces[name].decl.Pos().Line, "an interface"
 	case c.handles[name] != nil:
 		line, what = c.handles[name].Decl.Pos().Line, "an extern type"
+	case c.aliases[name] != nil:
+		line, what = c.aliases[name].decl.Pos().Line, "a typedef"
 	default:
 		return false
 	}

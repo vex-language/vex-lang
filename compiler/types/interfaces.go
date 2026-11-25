@@ -221,7 +221,7 @@ func (c *checker) ifaceRef(te *ast.NamedType, quiet bool, what string) *Interfac
 	if te.Module != "" {
 		return c.qualifiedIface(te, quiet)
 	}
-	if c.genIfaces[te.Name] != nil || len(te.Args) > 0 && c.interfaces[te.Name] != nil {
+	if c.genIfaces[te.Name] != nil || len(te.Args) > 0 && c.interfaces[te.Name] != nil || c.aliases[te.Name] != nil {
 		var t Type
 		if quiet {
 			c.scratch(false, func() { t = c.resolveType(te) })
@@ -229,6 +229,9 @@ func (c *checker) ifaceRef(te *ast.NamedType, quiet bool, what string) *Interfac
 			t = c.resolveType(te)
 		}
 		i, _ := t.(*Interface)
+		if i == nil && t != Invalid && c.aliases[te.Name] != nil {
+			report(te, "only interfaces can be listed after ':'", "'%s' names %s, not an interface", te.Name, t)
+		}
 		return i
 	}
 	if i := c.interfaces[te.Name]; i != nil {
