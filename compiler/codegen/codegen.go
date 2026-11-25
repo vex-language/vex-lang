@@ -111,8 +111,12 @@ func Generate(info *types.Info, srcName string) string {
 	for _, name := range sortedKeys(g.opts) {
 		g.line("typedef struct { bool has; %s; } %s;", decl(g.opts[name].Elem, "v"), name)
 	}
+	g.descType()
 	for _, s := range info.Structs {
 		g.line("struct %s {", structName(s))
+		if len(s.Interfaces) > 0 {
+			g.line("    const vx_desc *vx_t;")
+		}
 		for _, f := range s.Fields {
 			g.line("    %s;", decl(f.Type, "f_"+f.Name))
 		}
@@ -140,6 +144,11 @@ func Generate(info *types.Info, srcName string) string {
 		g.line("static %s;", g.signature(f, false))
 	}
 	g.b.WriteString(g.lamDecls.String())
+	for _, s := range info.Structs {
+		if len(s.Interfaces) > 0 {
+			g.descriptor(s)
+		}
+	}
 	g.b.WriteString(defs.String())
 	g.b.WriteString(g.lams.String())
 	g.line("")
@@ -201,6 +210,9 @@ func funcName(f *types.Func) string {
 	if f.Enum != nil {
 		return fmt.Sprintf("m%d%s_%s", len(f.Enum.Name), f.Enum.Name, f.Name)
 	}
+	if f.Iface != nil {
+		return fmt.Sprintf("i%d%s_%s", len(f.Iface.Name), f.Iface.Name, f.Name)
+	}
 	return "fn_" + f.Name
 }
 
@@ -210,6 +222,8 @@ func ctype(t types.Type) string {
 		return "vx_list *"
 	case *types.Map:
 		return "vx_map *"
+	case *types.Interface:
+		return "void *"
 	case *types.Struct:
 		return structName(t) + " *"
 	case *types.FuncType:
@@ -271,6 +285,8 @@ func mangle(t types.Type) string {
 		return "L_" + mangle(t.Elem)
 	case *types.Map:
 		return "M_" + mangle(t.Key) + "_" + mangle(t.Value)
+	case *types.Interface:
+		return ifaceName(t)
 	case *types.Struct:
 		id := structIdent(t)
 		return fmt.Sprintf("S%d%s", len(id), id)
@@ -348,6 +364,9 @@ func (g *gen) constructor(s *types.Struct) {
 	g.line("")
 	g.line("static %s {", constructorSig(s))
 	g.line("    %s *o = vx_alloc(sizeof(%s));", structName(s), structName(s))
+	if len(s.Interfaces) > 0 {
+		g.line("    o->vx_t = &desc_%s;", structIdent(s))
+	}
 	for _, f := range s.Fields {
 		g.line("    o->f_%s = f_%s;", f.Name, f.Name)
 	}
@@ -363,6 +382,9 @@ func (g *gen) signature(f *types.Func, define bool) string {
 	}
 	if f.Enum != nil && !f.Static {
 		params = append(params, enumName(f.Enum)+" *self")
+	}
+	if f.Iface != nil {
+		params = append(params, "void *self")
 	}
 	for i, p := range f.Params {
 		name := "v_" + p.Name
@@ -424,6 +446,8 @@ func (g *gen) needRepr(t types.Type) {
 			g.needRepr(t.Key)
 			g.needRepr(t.Value)
 		}
+	case *types.Interface:
+		g.reprs[mangle(t)] = t
 	case *types.Struct:
 		if _, ok := g.reprs[mangle(t)]; !ok {
 			g.reprs[mangle(t)] = t
@@ -461,7 +485,7 @@ func (g *gen) reprNames() []string {
 // strings quoted.
 func repr(t types.Type, x string) string {
 	switch t := t.(type) {
-	case *types.List, *types.Map, *types.Struct, *types.Enum, *types.Optional:
+	case *types.List, *types.Map, *types.Struct, *types.Enum, *types.Optional, *types.Interface:
 		return fmt.Sprintf("repr_%s(%s)", mangle(t), x)
 	case *types.FuncType:
 		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
@@ -509,6 +533,8 @@ func (g *gen) repr(name string, t types.Type) {
 		g.line("        s = vx_str_concat(s, %s);", repr(t.Elem, fmt.Sprintf("((%s*)v->data)[i]", ctype(t.Elem))))
 		g.line("    }")
 		g.line("    return vx_str_concat(s, VX_LIT(\"]\"));")
+	case *types.Interface:
+		g.line("    return (*(const vx_desc **)v)->repr(v);")
 	case *types.Map:
 		g.line("    if (v->len == 0) return VX_LIT(\"[:]\");")
 		g.line("    vx_str s = VX_LIT(\"[\");")
@@ -1256,6 +1282,8 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 		return g.orderedBy(append([]ast.Expr{c.Recv}, c.Args...), append([]int{-1}, rank...), func(cs []string) string {
 			return funcName(c.Func) + "(" + g.args(e, cs) + ")"
 		})
+	case types.InterfaceCall:
+		return g.ifaceCall(e, c, rank)
 	case types.BuiltinCall:
 		return g.builtin(c, line)
 	case types.MemberBuiltinCall:

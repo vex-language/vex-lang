@@ -200,6 +200,88 @@ fn main() {
     }
     println(a, try? twice(0) ?? 0)
 }`, "", "nil nil 3\n8 10\n"},
+		{"interfaces", `interface Shape {
+    fn area() -> float
+    fn name() -> string => "shape"
+    fn describe() -> string => "{name()} with area {area()}"
+}
+
+interface Scalable {
+    fn scale(by: float)
+}
+
+struct Circle: Shape, Scalable {
+    r: float
+    fn area() -> float => 3.0 * r * r
+    fn name() -> string => "circle"
+    fn scale(by: float) {
+        r = r * by
+    }
+}
+
+struct Square: Shape {
+    s: float
+    fn area() -> float => s * s
+}
+
+struct Labeled<T>: Shape {
+    label: string
+    value: T
+    fn area() -> float => 0.0
+    fn name() -> string => "{label}={value}"
+}
+
+fn total(shapes: [Shape]) -> float {
+    var sum = 0.0
+    for s in shapes {
+        sum += s.area()
+    }
+    return sum
+}
+
+fn biggest<T: Shape>(xs: [T]) -> T? {
+    if xs.len == 0 {
+        return nil
+    }
+    var best = xs[0]
+    for x in xs {
+        if x.area() > best.area() {
+            best = x
+        }
+    }
+    return best
+}
+
+fn grow(items: [Scalable]) {
+    for i in items {
+        i.scale(by: 2.0)
+    }
+}
+
+fn main() {
+    let c = Circle(r: 1.0)
+    let shapes: [Shape] = [c, Square(s: 2.0), Labeled(label: "n", value: 5)]
+    for s in shapes {
+        println(s.describe())
+    }
+    println(total(shapes))
+    grow([c])
+    println(c.area(), c.describe(), shapes[0].area())
+    println(biggest([Square(s: 1.0), Square(s: 3.0)]), biggest(shapes))
+    let one: Shape = Square(s: 4.0)
+    println(one, shapes, "{one}")
+    var maybe: Shape? = nil
+    println(maybe?.area())
+    maybe = c
+    println(maybe?.area() ?? 0.0)
+    let byName: [string: Shape] = ["sq": Square(s: 1.5)]
+    println(byName["sq"]?.name())
+    let pick: Shape = match shapes.len > 2 {
+        true => Square(s: 9.0),
+        false => c,
+    }
+    println(pick)
+}`, "", "circle with area 3.0\nshape with area 4.0\nn=5 with area 0.0\n7.0\n12.0 circle with area 12.0 12.0\nSquare(s: 3.0) Circle(r: 2.0)\nSquare(s: 4.0) [Circle(r: 2.0), Square(s: 2.0), Labeled<int>(label: \"n\", value: 5)] Square(s: 4.0)\nnil\n12.0\nshape\nSquare(s: 9.0)\n"},
 		{"generic functions and structs", `fn first<T>(xs: [T]) -> T? {
     if xs.len == 0 {
         return nil
@@ -1056,6 +1138,41 @@ fn main() {
 
 func TestUncaughtErrors(t *testing.T) {
 	cases := []struct{ name, src, out, err string }{
+		{"interface methods", `interface Parser {
+    fn parse(text: string) throws -> int
+    fn parseOr(text: string, fallback: int) -> int {
+        return try parse(text) catch {
+            fallback
+        }
+    }
+}
+
+struct Plain: Parser {
+    fn parse(text: string) throws -> int {
+        if text == "" {
+            throw Error(message: "empty input")
+        }
+        return int(text)
+    }
+}
+
+struct Doubling: Parser {
+    base: Plain = Plain()
+    fn parse(text: string) throws -> int => 2 * (try base.parse(text))
+}
+
+fn main() throws {
+    let parsers: [Parser] = [Plain(), Doubling()]
+    for p in parsers {
+        println(try p.parse("21"), p.parseOr("", -1))
+    }
+    let r = try parsers[1].parse("") catch e {
+        println("failed:", e.message)
+        0
+    }
+    println(r)
+    println(try parsers[0].parse(""))
+}`, "21 -1\n42 -1\nfailed: empty input\n0\n", "error: empty input\n"},
 		{"Error", `fn main() throws {
     println("start")
     throw Error("disk full")
