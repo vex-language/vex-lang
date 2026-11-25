@@ -70,6 +70,7 @@ const (
 	Dot
 	DotDot
 	DotDotEq
+	Ellipsis
 	Arrow
 	FatArrow
 	Question
@@ -150,6 +151,7 @@ var operators = []struct {
 	text string
 	kind Kind
 }{
+	{"...", Ellipsis},
 	{"..=", DotDotEq},
 	{"&+=", AmpPlusAssign},
 	{"&-=", AmpMinusAssign},

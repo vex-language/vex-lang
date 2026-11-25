@@ -248,7 +248,14 @@ println(ages["zoe"] ?? 0, ages.len)          // 0 3
 for name, age in ages { println(name, age) }
 ```
 
-**Strings.** `s.len` counts Unicode code points. Also `.upper()` and `.lower()` (A–Z only for now), `.contains(x)` and `.split(sep)`.
+**Collection `if`, `for` and spread.** As in Dart, literals can include elements conditionally, loop to produce them, and spread other collections.
+
+```swift
+let menu = [home, if loggedIn profile else login, for t in tabs Tab(t), ...extras]
+let config = ["debug": false, if verbose "log": true, ...overrides]
+```
+
+**Strings.** `s.len` counts Unicode code points. Also `.upper()` and `.lower()` (A–Z only for now), `.contains(x)`, `.split(sep)`, `.replace(old, with)`, `.trim()`, `.startsWith(x)`, `.endsWith(x)`, `.indexOf(x)` (an `int?`), `.substring(from, to)`, `.chars()` and `.lines()`.
 
 **Structs.** Fields can have defaults, methods use fields directly, and `static fn` belongs to the type. Struct values are shared references.
 
@@ -328,6 +335,20 @@ let evens = nums.filter(fn(x) => x % 2 == 0)
 var taps = 0
 let add = Button(title: "Add") { taps += 1 }   // onTap: fn()
 add.onTap()                                    // taps is 1
+```
+
+**Builder blocks.** When the last parameter is a list, the trailing block builds it, one element per line, with `if`, `for` and `let` inside.
+
+```swift
+Column(spacing: 12) {                          // children: [View]
+    Text("Hello")
+    if loggedIn {
+        Avatar(user)
+    }
+    for item in items {
+        Row(item.name)
+    }
+}
 ```
 
 **Enums and match.** Lowercase cases that can carry values, read with an exhaustive `match`.
@@ -427,7 +448,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, standard library | In progress: 17 of 47 tasks; next are builder blocks, collection `if`/`for`, getters and setters for the UI, then records, patterns, extensions and async |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, builder blocks, standard library | In progress: 19 of 47 tasks; next are getters and setters, generics and interfaces next steps for the UI, then records, patterns, extensions and async |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |

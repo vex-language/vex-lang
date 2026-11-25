@@ -628,6 +628,17 @@ static void *vx_list_pop(vx_list *l, int line) {
     return l->data + l->len * l->esz;
 }
 
+// Adds the elements of [src], which have the same size, to the end of [l].
+static void vx_list_append(vx_list *l, vx_list *src) {
+    int64_t n = src->len;
+    if (l->len + n > l->cap) {
+        while (l->len + n > l->cap) l->cap *= 2;
+        l->data = vx_realloc(l->data, (size_t)(l->cap * l->esz));
+    }
+    if (n > 0) memcpy(l->data + l->len * l->esz, src->data, (size_t)(n * l->esz));
+    l->len += n;
+}
+
 static vx_list *vx_str_split(vx_str s, vx_str sep, int line) {
     if (sep.len == 0) vx_fail(line, "split separator can't be empty");
     vx_list *l = vx_list_new(sizeof(vx_str), 0, NULL);
@@ -958,6 +969,14 @@ static vx_list *vx_map_list(vx_map *m, bool values) {
         if (VX_MAP_SEQ(e) != 0) vx_list_push(l, e + (values ? m->voff : VX_MAP_KEY));
     }
     return l;
+}
+
+// Sets every entry of [src] in [m], in insertion order.
+static void vx_map_merge(vx_map *m, vx_map *src) {
+    for (int64_t i = 0; i < src->used; i++) {
+        char *e = VX_MAP_ENTRY(src, i);
+        if (VX_MAP_SEQ(e) != 0) memcpy(vx_map_set(m, e + VX_MAP_KEY), e + src->voff, (size_t)src->vsz);
+    }
 }
 
 // --- Conversions ---

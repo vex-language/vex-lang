@@ -123,6 +123,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 	i.Captures = map[*ast.FuncLit][]*Var{}
 	i.CaseValues = map[ast.Expr]*Case{}
 	i.Wraps = map[ast.Expr]*Optional{}
+	i.Elements = map[*ast.ExprStmt]ast.Expr{}
 	i.Chains = map[ast.Expr]bool{}
 	i.Matches = map[*ast.MatchExpr]*Match{}
 	i.Throwing = map[*ast.CallExpr]Type{}
@@ -134,6 +135,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 	defer func() {
 		i.Types, i.Uses, i.Defs, i.Calls, i.Members = saved.Types, saved.Uses, saved.Defs, saved.Calls, saved.Members
 		i.Selves, i.Captures, i.CaseValues, i.Wraps = saved.Selves, saved.Captures, saved.CaseValues, saved.Wraps
+		i.Elements = saved.Elements
 		i.Chains, i.Matches, i.Throwing, i.Tries = saved.Chains, saved.Matches, saved.Throwing, saved.Tries
 		if !keepErrors {
 			c.errs = errs
@@ -608,8 +610,7 @@ func (c *checker) inferFromArgs(e *ast.CallExpr, slots []slot, b *binding) {
 	}
 	if e.Trailing != nil && len(slots) > 0 && !set[len(slots)-1] {
 		s := slots[len(slots)-1]
-		lit := &ast.FuncLit{Span: e.Trailing.Span, Body: e.Trailing}
-		b.unify(s.typ, c.expr(lit, b.partial(s.typ)))
+		b.unify(s.typ, c.expr(trailingLit(e.Trailing, s.typ), b.partial(s.typ)))
 	}
 }
 

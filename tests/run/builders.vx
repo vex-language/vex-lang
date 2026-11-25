@@ -1,0 +1,106 @@
+// Collection if, for and spread, and builder blocks.
+
+interface View {
+    fn draw() -> string
+}
+
+struct Text: View {
+    value: string
+    fn draw() -> string => value
+}
+
+struct Button: View {
+    label: string
+    onTap: fn() -> string
+    fn draw() -> string => "[{label}: {onTap()}]"
+}
+
+struct Column: View {
+    spacing: int = 0
+    children: [View]
+    fn draw() -> string {
+        var parts: [string] = []
+        for c in children {
+            parts.push(c.draw())
+        }
+        return "Column({strings(parts)})"
+    }
+}
+
+fn strings(parts: [string]) -> string {
+    var out = ""
+    for i, p in parts {
+        if i > 0 {
+            out += ", "
+        }
+        out += p
+    }
+    return out
+}
+
+fn wrap<T>(items: [T]) -> [T] => items
+
+fn evens<T>(items: [T]) -> [T] => [for i, x in items if i % 2 == 0 x]
+
+fn screen(user: string?, items: [string]) -> View {
+    return Column(spacing: 8) {
+        if let name = user {
+            Text("Hi {name}")
+        } else {
+            Button("Log in") { return "login" }
+        }
+        let count = items.len
+        Text("{count} items")
+        for i, item in items {
+            Button(item) { return "open {i}" }
+        }
+        if count == 0 {
+            Text("empty")
+        }
+        Column {
+            Text("footer")
+        }
+        ...[Text("a"), Text("b")]
+    }
+}
+
+fn main() {
+    let loggedIn = true
+    let n = -1
+    let extras = [7, 8]
+    let maybe: [int]? = nil
+    let more: [int]? = [9]
+
+    // Literals.
+    println([1, if loggedIn 2 else 3, if !loggedIn 4, for i in 0..3 i * 10, ...extras])
+    println([if loggedIn -1 else 0, if loggedIn n -1 else 0], [if loggedIn [1, 2] else []])
+    println([...?maybe, ...?more], [for x in [1, 2, 3] if x != 2 x * x], [for i in 1..=2 for j in 1..=2 i * j])
+    println([if let m = more m.len else 0], [for k, v in ["a": 1] "{k}={v}"])
+    let opts: [int?] = [nil, ...extras]
+    println(opts)
+    let empty: [int] = [for x in extras if x > 100 x]
+    println(empty, empty.len)
+
+    // Maps.
+    let base = ["a": 1, "b": 2]
+    println(["z": 0, ...base, if loggedIn "b": 20, for w in ["x", "y"] w: w.len])
+    let fromSpread: [string: int] = [...base]
+    println(fromSpread, [...base, ...["c": 3]])
+
+    // Builder blocks.
+    println(screen("Ann", ["milk", "eggs"]).draw())
+    println(screen(nil, []).draw())
+    println(wrap { 1; 2; for x in extras { x } }, wrap<string>() { "s" }, evens(["a", "b", "c", "d", "e"]))
+
+    // Closures made in a loop capture each pass's value.
+    var taps: [fn() -> int] = []
+    let handlers = wrap {
+        for i in 0..3 {
+            fn() -> int => i * 100
+        }
+    }
+    for h in handlers {
+        taps.push(h)
+    }
+    println(taps.map(fn(f: fn() -> int) -> int => f()))
+}

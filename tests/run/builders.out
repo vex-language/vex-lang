@@ -1,0 +1,12 @@
+[1, 2, 0, 10, 20, 7, 8]
+[-1, -2] [[1, 2]]
+[9] [1, 9] [1, 2, 2, 4]
+[1] ["a=1"]
+[nil, 7, 8]
+[] 0
+["z": 0, "a": 1, "b": 20, "x": 1, "y": 1]
+["a": 1, "b": 2] ["a": 1, "b": 2, "c": 3]
+Column(Hi Ann, 2 items, [milk: open 0], [eggs: open 1], Column(footer), a, b)
+Column([Log in: login], 0 items, empty, Column(footer), a, b)
+[1, 2, 7, 8] ["s"] ["a", "c", "e"]
+[0, 100, 200]

@@ -199,6 +199,28 @@ func TestWarnings(t *testing.T) {
 	}
 }
 
+func TestCollectionElements(t *testing.T) {
+	cases := []struct{ src, want string }{
+		{"let a = [1, if ok 2 else 3]", `(let a (list 1 (if ok (block 2) (block 3))))`},
+		{"let a = [for x in xs x * 2, ...ys, ...?zs]", `(let a (list (for x xs (block (* x 2))) (... ys) (...? zs)))`},
+		{"let a = [if a 1 else if b 2 else 3]", `(let a (list (if a (block 1) (if b (block 2) (block 3)))))`},
+		{"let a = [if ok [1] else -1, if ok (2), if f(x) -1]", `(let a (list (if ok (block (list 1)) (block (- 1))) (if ok (block 2)) (if (call f x) (block (- 1)))))`},
+		{"let a = [if ok n -1, if ok xs[0]]", `(let a (list (if ok (block (- n 1))) (if ok (block (index xs 0)))))`},
+		{"let a = [for i, x in xs if x > 0 i]", `(let a (list (for i, x xs (block (if (> x 0) (block i))))))`},
+		{"let a = [\n    if ok\n        1\n    else\n        2,\n]", `(let a (list (if ok (block 1) (block 2))))`},
+		{"let a = [if let n = maybe n]", `(let a (list (if let n maybe (block n))))`},
+		{"let m = [\"a\": 1, if ok \"b\": 2, for k in ks k: 0, ...base]", `(let m (map (: "a" 1) (if ok (block (: "b" 2))) (for k ks (block (: k 0))) (... base)))`},
+		{"let a = [...xs]", `(let a (list (... xs)))`},
+		{"Column {\n    Text(\"a\")\n    ...rest\n}", `(call Column (block (call Text "a") (... rest)))`},
+		{"f(x) { a }", `(call f x (block a))`},
+	}
+	for _, c := range cases {
+		if got, want := body(t, c.src), "(block "+c.want+")"; got != want {
+			t.Errorf("%s\n got: %s\nwant: %s", c.src, got, want)
+		}
+	}
+}
+
 func TestMaps(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{"let m: [string: int] = [:]", "(let m: [string: int] map)"},
@@ -557,6 +579,9 @@ func TestErrors(t *testing.T) {
 		{"typed var without value", "fn main() {\n var n: int\n}", "2:12", "'var n' needs a value", "give it a starting value, e.g. var n: int = ..."},
 		{"missing let", "fn main() {\n x: int = 5\n}", "2:2", "missing 'let' or 'var' before 'x'", "write let x = ... or var x = ..."},
 		{"go style declare", "fn main() {\n x := 5\n}", "2:2", "missing 'let' or 'var' before 'x'", "write let x = ... or var x = ..."},
+		{"element missing", "fn main() {\n let a = [if ok]\n}", "2:16", "expected an element after the condition or loop, found ']'", "e.g. [if ok 1 else 2] or [for x in xs x * 2]"},
+		{"spread outside literal", "fn main() {\n let a = ...xs\n}", "2:10", "'...' can only be used in a list or map literal", "use it inside a list or map literal, e.g. [...xs, 4]"},
+		{"entry in element list", "fn main() {\n let a = [1, if ok \"k\": 2]\n}", "2:23", "unexpected ':' in a list", "a list holds values, a map holds key: value pairs"},
 		{"else on new line", "fn main() {\n if a {\n }\n else {\n }\n}", "4:2", "'else' must be on the same line as the closing }", "write } else {"},
 		{"else without if", "fn main() {\n else {}\n}", "2:2", "'else' without a matching 'if'", ""},
 		{"assign in condition", "fn main() {\n if a = 1 {}\n}", "2:7", "use == to compare in a condition", "= assigns a value; == compares"},

@@ -99,6 +99,25 @@ println(nums)            // [1, 2, 3, 4]
 let empty: [string] = []
 ```
 
+**Collection `if`, `for` and spread.** Inside a list or map literal, `if` and `for` produce elements and `...` adds every element of another collection, as in Dart:
+
+```swift
+let items = [
+    header,
+    if loggedIn profile else loginButton,
+    for u in users u.name,
+    for x in nums if x > 0 x * 2,
+    ...extras,
+    ...?maybeMore,                 // nothing when maybeMore is nil
+]
+let scores = ["ann": 3, if bonus "bob": 5, ...others]
+```
+
+- The element follows the condition or loop directly, without braces. `if` and `for` nest, and `else if` chains work.
+- A `(`, `[` or `-` after a space starts the element: in `[if wide [1, 2]]` the list is the element, and in `[if neg -1]` the element is `-1`. Without the space, `xs[0]` and `f(x)` stay part of the condition.
+- `if let n = maybe n` works too.
+- Spreading a map into a map sets its entries in order, so a later key replaces an earlier one.
+
 ## Maps
 
 ```swift
@@ -359,7 +378,7 @@ apply(fn(x) => x + 1, 5)       // parameter types come from fn(int) -> int
 - Each loop iteration has its own loop variable, so closures made in a loop each keep their own value.
 - Call function values with unnamed arguments: `f(1, 2)`.
 
-**Trailing blocks.** A `{ ... }` block after a call is passed as its last argument, which must have type `fn()`:
+**Trailing blocks.** A `{ ... }` block after a call is passed as its last argument, which must have type `fn()` or be a list (see builder blocks below). A call with only a trailing block can leave out the `()`: `Column { ... }`.
 
 ```swift
 fn repeat(times: int, action: fn()) {
@@ -376,6 +395,32 @@ struct Button {
 let add = Button(title: "Add") { count += 1 }
 add.onTap()
 ```
+
+**Builder blocks.** When the last parameter is a list, a trailing block builds that list: each line is one element. `let`, `var`, `if`, `for` and `...` work inside, with braces as in ordinary code:
+
+```swift
+struct Column: View {
+    spacing: int = 0
+    children: [View]
+}
+
+Column(spacing: 12) {
+    Text("Hello")
+    let count = items.len
+    if count > 0 {
+        Text("{count} items")
+    } else {
+        Button("Add") { add() }
+    }
+    for item in items {
+        Row(item.name)
+    }
+    ...footer
+}
+```
+
+- Each line must give an element of the list type; a call without a value, such as `println(...)`, is an error inside the block. Other statements (`return`, assignments, `while`) belong outside it or in a closure.
+- Builder blocks nest, and closures inside them, such as a button's `onTap`, are ordinary closures.
 
 **Lists.** `filter` keeps the items a function accepts; `map` turns each item into a new value.
 
