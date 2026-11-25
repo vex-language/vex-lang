@@ -555,6 +555,11 @@ type Info struct {
 	// passed as an int?; each is stored as a present value.
 	Wraps map[ast.Expr]*Optional
 
+	// The elements of collection literals with a body and of builder
+	// blocks: each expression statement that adds an element, mapped to
+	// the [ast.ListLit] or [ast.MapLit] it adds to.
+	Elements map[*ast.ExprStmt]ast.Expr
+
 	// Optional chains (`x?.name`, `x?.f()`). The value is true when the
 	// member's own value must be wrapped in an optional, false when it
 	// already is one or has no value.

@@ -95,6 +95,7 @@ func newChecker() *checker {
 			Captures:   map[*ast.FuncLit][]*Var{},
 			CaseValues: map[ast.Expr]*Case{},
 			Wraps:      map[ast.Expr]*Optional{},
+			Elements:   map[*ast.ExprStmt]ast.Expr{},
 			Chains:     map[ast.Expr]bool{},
 			Matches:    map[*ast.MatchExpr]*Match{},
 			FuncOf:     map[*ast.FuncDecl]*Func{},
@@ -965,6 +966,12 @@ func (c *checker) assign(s *ast.AssignStmt) {
 }
 
 func (c *checker) forStmt(s *ast.ForStmt) {
+	c.forLoop(s, func() { c.stmt(s.Body) })
+}
+
+// Checks the header of the loop [s], declaring its variables, and then its
+// body with [body].
+func (c *checker) forLoop(s *ast.ForStmt, body func()) {
 	c.push()
 	defer c.pop()
 	var elem Type = Invalid
@@ -992,7 +999,7 @@ func (c *checker) forStmt(s *ast.ForStmt) {
 				c.declare(s.Elem, t.Key, false, LoopVar)
 			}
 			c.loops++
-			c.stmt(s.Body)
+			body()
 			c.loops--
 			return
 		default:
@@ -1006,7 +1013,7 @@ func (c *checker) forStmt(s *ast.ForStmt) {
 	}
 	c.declare(s.Elem, elem, false, LoopVar)
 	c.loops++
-	c.stmt(s.Body)
+	body()
 	c.loops--
 }
 

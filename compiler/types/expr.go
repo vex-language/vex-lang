@@ -61,9 +61,24 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 	case *ast.Ident:
 		return c.ident(e)
 	case *ast.MapLit:
+		if e.Body != nil {
+			return c.collection(e, e.Body, want, true)
+		}
 		return c.mapLit(e, want)
 	case *ast.ListLit:
+		if e.Body != nil {
+			return c.collection(e, e.Body, want, false)
+		}
 		return c.listLit(e, want)
+	case *ast.SpreadExpr:
+		c.expr(e.X, nil)
+		c.errorAt(e, "use it inside a list or map literal, e.g. [...xs, 4]", "'...' can only be used in a list or map literal")
+		return Invalid
+	case *ast.MapEntry:
+		c.expr(e.Key, nil)
+		c.expr(e.Value, nil)
+		c.errorAt(e, "", "unexpected 'key: value' outside a map literal")
+		return Invalid
 	case *ast.UnaryExpr:
 		return c.unary(e, want)
 	case *ast.BinaryExpr:

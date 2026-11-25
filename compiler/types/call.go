@@ -379,7 +379,7 @@ func (c *checker) bind(e *ast.CallExpr, slots []slot, callee string) []ast.Expr 
 	}
 	if call := c.info.Calls[e]; e.Trailing != nil && (call == nil || call.Kind != BuiltinCall) {
 		if i := c.trailing(e, slots, set, callee); i >= 0 {
-			lit := &ast.FuncLit{Span: e.Trailing.Span, Body: e.Trailing}
+			lit := trailingLit(e.Trailing, slots[i].typ)
 			t := c.expr(lit, slots[i].typ)
 			c.assignable(slots[i].typ, t, lit, slots[i].describe())
 			out[i], set[i] = lit, true
@@ -428,11 +428,23 @@ func (c *checker) trailing(e *ast.CallExpr, slots []slot, set []bool, callee str
 		c.errorAt(e.Trailing, "", "the last argument of %s is given twice: in the call and as a trailing block", callee)
 		return -1
 	}
+	if _, ok := slots[i].typ.(*List); ok {
+		return i
+	}
 	if ft, ok := slots[i].typ.(*FuncType); !ok || len(ft.Params) > 0 {
-		c.errorAt(e.Trailing, "", "a trailing block needs the last parameter of %s to be fn(), but '%s' is %s", callee, slots[i].name, slots[i].typ)
+		c.errorAt(e.Trailing, "", "a trailing block needs the last parameter of %s to be fn() or a list, but '%s' is %s", callee, slots[i].name, slots[i].typ)
 		return -1
 	}
 	return i
+}
+
+// Returns the argument a trailing block [b] gives for a parameter of type
+// [t]: a builder block for a list, otherwise a closure.
+func trailingLit(b *ast.Block, t Type) ast.Expr {
+	if _, ok := t.(*List); ok {
+		return &ast.ListLit{Span: b.Span, Body: b}
+	}
+	return &ast.FuncLit{Span: b.Span, Body: b}
 }
 
 // Returns [t] with "a" or "an" before it: "an int", "a string".
