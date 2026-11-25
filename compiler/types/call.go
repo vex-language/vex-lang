@@ -587,6 +587,18 @@ func builtinMember(recv Type, name string) *memberSig {
 			return &memberSig{[]slot{{name: "text", typ: String}}, Bool}
 		case "split":
 			return &memberSig{[]slot{{name: "separator", typ: String}}, &List{Elem: String}}
+		case "replace":
+			return &memberSig{[]slot{{name: "old", typ: String}, {name: "with", typ: String}}, String}
+		case "trim", "trimStart", "trimEnd":
+			return &memberSig{nil, String}
+		case "startsWith", "endsWith":
+			return &memberSig{[]slot{{name: "text", typ: String}}, Bool}
+		case "indexOf":
+			return &memberSig{[]slot{{name: "text", typ: String}}, &Optional{Elem: Int}}
+		case "substring":
+			return &memberSig{[]slot{{name: "from", typ: Int}, {name: "to", typ: Int}}, String}
+		case "chars", "lines":
+			return &memberSig{nil, &List{Elem: String}}
 		}
 	}
 	return nil
@@ -600,7 +612,8 @@ func builtinMemberNames(recv Type) []string {
 		return []string{"len", "keys", "values", "contains", "remove"}
 	}
 	if recv == String {
-		return []string{"len", "upper", "lower", "contains", "split"}
+		return []string{"len", "upper", "lower", "contains", "split", "replace", "trim", "trimStart", "trimEnd",
+			"startsWith", "endsWith", "indexOf", "substring", "chars", "lines"}
 	}
 	return nil
 }

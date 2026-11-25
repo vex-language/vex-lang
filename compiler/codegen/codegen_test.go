@@ -1277,6 +1277,10 @@ func TestRuntimeErrors(t *testing.T) {
 		{"assert", "assert(1 > 2)", "assertion failed\n --> main.vx:2"},
 		{"assert message", `assert(false, "math is broken")`, "assertion failed: math is broken\n --> main.vx:2"},
 		{"empty split", `println("a".split(""))`, "split separator can't be empty\n --> main.vx:2"},
+		{"empty replace", `println("a".replace("", "b"))`, "replace needs text to look for, not an empty string\n --> main.vx:2"},
+		{"substring past end", `println("x".substring(0, 2))`, "substring(0, 2) is out of range for a string of length 1\n --> main.vx:2"},
+		{"substring backwards", `println("héllo".substring(3, 1))`, "substring(3, 1) is out of range for a string of length 5\n --> main.vx:2"},
+		{"substring negative", `println("abc".substring(-1, 1))`, "substring(-1, 1) is out of range for a string of length 3\n --> main.vx:2"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -1461,6 +1461,18 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 			return fmt.Sprintf("vx_str_contains(%s, %s)", cs[0], cs[1])
 		case "split":
 			return fmt.Sprintf("vx_str_split(%s, %s, %d)", cs[0], cs[1], line)
+		case "replace":
+			return fmt.Sprintf("vx_str_replace(%s, %s, %s, %d)", cs[0], cs[1], cs[2], line)
+		case "trim", "chars", "lines":
+			return fmt.Sprintf("vx_str_%s(%s)", c.Builtin, cs[0])
+		case "trimStart", "trimEnd", "startsWith", "endsWith":
+			name := map[string]string{"trimStart": "trim_start", "trimEnd": "trim_end", "startsWith": "starts_with", "endsWith": "ends_with"}[c.Builtin]
+			return fmt.Sprintf("vx_str_%s(%s)", name, strings.Join(cs, ", "))
+		case "indexOf":
+			i := g.temp()
+			return fmt.Sprintf("({ int64_t %s = vx_str_index_of(%s, %s); (%s){%s >= 0, %s}; })", i, cs[0], cs[1], ctype(g.info.Types[e]), i, i)
+		case "substring":
+			return fmt.Sprintf("vx_str_substring(%s, %s, %s, %d)", cs[0], cs[1], cs[2], line)
 		}
 		panic("codegen: unknown built-in member " + c.Builtin)
 	})
