@@ -1389,9 +1389,11 @@ static char **vx_argv;
 
 static const char *vx_os_error(void) { return strerror(vx_errno); }
 
-static const char *vx_fs_read(const char *path) {
+// Returns the bytes of the file at [path], or a string with a null pointer
+// on failure.
+static vx_str vx_fs_read(const char *path) {
     FILE *f = fopen(path, "rb");
-    if (!f) { vx_errno = errno; return NULL; }
+    if (!f) { vx_errno = errno; return (vx_str){NULL, 0}; }
     size_t cap = 4096, len = 0;
     char *buf = vx_alloc_atomic(cap);
     size_t n;
@@ -1405,16 +1407,16 @@ static const char *vx_fs_read(const char *path) {
     bool failed = ferror(f);
     if (failed) vx_errno = errno;
     fclose(f);
-    if (failed) return NULL;
+    if (failed) return (vx_str){NULL, 0};
     buf[len] = 0;
-    return buf;
+    return (vx_str){buf, (int64_t)len};
 }
 
-static bool vx_fs_write(const char *path, const char *text, bool append) {
+static bool vx_fs_write(const char *path, vx_str text, bool append) {
     FILE *f = fopen(path, append ? "ab" : "wb");
     if (!f) { vx_errno = errno; return false; }
-    size_t n = strlen(text);
-    bool ok = fwrite(text, 1, n, f) == n;
+    size_t n = (size_t)text.len;
+    bool ok = n == 0 || fwrite(text.ptr, 1, n, f) == n;
     if (!ok) vx_errno = errno;
     if (fclose(f) != 0 && ok) { vx_errno = errno; ok = false; }
     return ok;

@@ -3,6 +3,7 @@ first
 second
 13 made by append
 true
+4 4
 ["a.txt", "b.txt", "c.txt", "new.txt", "notes.txt"]
 ["a.txt", "c.txt", "new.txt", "notes.txt"]
 ["a"]
