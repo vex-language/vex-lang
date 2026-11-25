@@ -428,10 +428,17 @@ func mangle(t types.Type) string {
 		return "U1_" + mangle(t.Elem)
 	case *types.FuncType:
 		parts := []string{fmt.Sprintf("F%d", len(t.Params))}
+		if t.Throws != nil {
+			parts[0] = fmt.Sprintf("T%d", len(t.Params))
+		}
 		for _, p := range t.Params {
 			parts = append(parts, mangle(p))
 		}
-		return strings.Join(append(parts, mangle(t.Result)), "_")
+		parts = append(parts, mangle(t.Result))
+		if t.Throws != nil {
+			parts = append(parts, mangle(t.Throws))
+		}
+		return strings.Join(parts, "_")
 	}
 	if t == types.String {
 		return "str"
