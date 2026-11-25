@@ -679,11 +679,11 @@ func (p *parser) enumMember(e *ast.EnumDecl) {
 func (p *parser) matchExpr() ast.Expr {
 	start := p.next().Pos
 	m := &ast.MatchExpr{}
-	saved := p.noTrailing
+	saved, savedHead := p.noTrailing, p.elemHead
 	p.noTrailing = true
 	m.Subject = p.expr()
-	p.noTrailing = false
-	defer func() { p.noTrailing = saved }()
+	p.noTrailing, p.elemHead = false, false
+	defer func() { p.noTrailing, p.elemHead = saved, savedHead }()
 	if !p.at(lexer.LBrace) {
 		hint := ""
 		if p.tok().IsAutoSemi() {
@@ -2084,9 +2084,9 @@ func (p *parser) funcLit() ast.Expr {
 func (p *parser) interpolated() ast.Expr {
 	head := p.next()
 	s := &ast.InterpolatedString{Texts: []string{head.Value}}
-	saved := p.noTrailing
-	p.noTrailing = false
-	defer func() { p.noTrailing = saved }()
+	saved, savedHead := p.noTrailing, p.elemHead
+	p.noTrailing, p.elemHead = false, false
+	defer func() { p.noTrailing, p.elemHead = saved, savedHead }()
 	for {
 		if k := p.tok().Kind; k == lexer.StringMid || k == lexer.StringTail {
 			p.fail(p.tok(), `put a value inside, or write \{ for a literal brace`, "empty {} in string")
