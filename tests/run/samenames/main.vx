@@ -21,6 +21,15 @@ fn loud<T: a.Named>(x: T) -> string => x.shout()
 
 const tags = ["main"]
 
+// Type arguments from another module end the line like any other.
+struct Holder {
+    user: Box<a.User>
+    pair: Box<(int, {string name})>
+    n: int
+}
+
+fn same<T>(x: T) -> T => x
+
 fn main() {
     println(tags, a.tags, b.tags, a.size + b.size)
     println(User(name: "u").hello())
@@ -38,4 +47,6 @@ fn main() {
     let n: a.Named = b.User(name: "q")
     println(a.wrap(7).value, a.wrap("seven").value)
     println(n.label(), loud(b.User(name: "r")), b.User(name: "s").label())
+    let h = Holder(user: Box(value: same<a.User>(a.User(name: "h"))), pair: Box(value: same<(int, {string name})>((1, name: "p"))), n: 2)
+    println(h.user.value.hello(), h.pair.value.name, h.n)
 }

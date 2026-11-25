@@ -1183,10 +1183,22 @@ func (p *parser) typeArgsAhead() bool {
 	if p.tok().Pos.Offset != p.lastEnd {
 		return false
 	}
-	depth := 0
+	depth, braces := 0, 0
 	for i := 0; ; i++ {
 		t := p.peek(i)
 		switch t.Kind {
+		// Braces only open a record type's named fields, as in
+		// `(int, {string name})`.
+		case lexer.LBrace:
+			if prev := p.peek(i - 1).Kind; prev != lexer.LParen && prev != lexer.Comma {
+				return false
+			}
+			braces++
+		case lexer.RBrace:
+			if braces == 0 {
+				return false
+			}
+			braces--
 		case lexer.Lt:
 			depth++
 		case lexer.Gt:
@@ -1202,7 +1214,7 @@ func (p *parser) typeArgsAhead() bool {
 				return false
 			}
 		case lexer.Ident, lexer.LBracket, lexer.RBracket, lexer.Colon, lexer.Comma, lexer.Question,
-			lexer.Fn, lexer.LParen, lexer.RParen, lexer.Arrow, lexer.Throws:
+			lexer.Fn, lexer.LParen, lexer.RParen, lexer.Arrow, lexer.Throws, lexer.Dot:
 		default:
 			return false
 		}

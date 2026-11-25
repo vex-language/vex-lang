@@ -160,7 +160,7 @@ func (l *lexer) closesTypeArgs() bool {
 				prev := l.toks[i-1]
 				return prev.Kind == Ident && prev.End == t.Pos.Offset
 			}
-		case Ident, LBracket, RBracket, Colon, Comma, Question, Fn, LParen, RParen, Arrow:
+		case Ident, LBracket, RBracket, Colon, Comma, Question, Fn, LParen, RParen, Arrow, Dot, Throws, LBrace, RBrace:
 		default:
 			return false
 		}
