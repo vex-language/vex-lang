@@ -1066,9 +1066,13 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		target = c.expr(x, nil)
 		c.writing = false
 		c.assignMember(s, x, c.info.Uses[x])
-		if k, ok := c.info.Uses[x].(*Const); ok {
-			c.errorAt(x, "", "can't change constant '%s'", k)
+		switch u := c.info.Uses[x].(type) {
+		case *Const:
+			c.errorAt(x, "", "can't change constant '%s'", u)
+		case *Func:
+			c.errorAt(x, "declare a variable holding a function instead: var f = "+u.Name, "can't assign to function '%s'", u.Name)
 		}
+
 		if v, ok := c.info.Uses[x].(*Var); ok && !v.Mutable {
 			switch v.Kind {
 			case LocalVar:
@@ -1090,7 +1094,9 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		c.writing = true
 		target = c.expr(x, nil)
 		c.writing = false
-		if m := c.info.Members[x]; m != nil && m.Builtin != "" {
+		if cs := c.info.CaseValues[x]; cs != nil {
+			c.errorAt(x, "", "can't assign to enum case '%s'", cs.Name)
+		} else if m := c.info.Members[x]; m != nil && m.Builtin != "" {
 			c.errorAt(x.Name, "", "%s can't be changed", m.Builtin)
 		} else if m != nil && m.Const != nil {
 			c.errorAt(x, "", "can't change constant '%s'", m.Const)
