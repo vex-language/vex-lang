@@ -1,0 +1,78 @@
+import "vex:isolate"
+
+enum Color {
+    red
+    green
+}
+
+fn divmod(a: int, b: int) -> (int, int) {
+    return (a / b, a % b)
+}
+
+fn bounds(xs: [int]) -> ({int min, int max}) {
+    var lo = xs[0]
+    var hi = xs[0]
+    for x in xs {
+        if x < lo {
+            lo = x
+        }
+        if x > hi {
+            hi = x
+        }
+    }
+    return (max: hi, min: lo)
+}
+
+fn swap<A, B>(p: (A, B)) -> (B, A) {
+    return (p.$2, p.$1)
+}
+
+fn find(name: string) -> (int, {string name, Color? color})? {
+    if name == "" {
+        return nil
+    }
+    return (name.len, name: name, color: .green)
+}
+
+async fn main() {
+    let r = divmod(17, 5)
+    println(r, r.$1, r.$2)
+    let (q, rem) = divmod(9, 4)
+    println(q, rem)
+    let b = bounds([4, -2, 9, 3])
+    println(b, b.min, b.max)
+    let (:min, :max) = b
+    println(min, max)
+    var (min: lo, max: _) = b
+    lo += 100
+    println(lo)
+    println(swap((1, "one")))
+    println((1,), (x: 1.5, y: 2))
+    let pt: (float, float) = (1, 2)
+    println(pt)
+    println(find("vex"), find(""))
+    if let f = find("abc") {
+        println(f.name, f.color, f.$1)
+    }
+    let pairs = [("a", 1), ("b", 2), ("c", 3)]
+    var total = 0
+    for (name, n) in pairs {
+        total += n
+        print(name)
+    }
+    println("", total)
+    for i, (name, _) in pairs {
+        print(i, name, "")
+    }
+    println()
+    println((1, "x") == (1, "x"), (1, "x") != (1, "y"), (a: Color.red, b: 2) == (b: 2, a: Color.red))
+    println(pairs.contains(("b", 2)), pairs.contains(("b", 3)))
+    let nested = ((1, 2), (x: "in", y: [1, 2]))
+    println(nested, nested.$2.y.len)
+    let back = await isolate.run(fn() -> (int, {string s}) { return (r.$1 * 2, s: "from isolate") })
+    println(back)
+    let names = [(first: "Ada", last: "L"), (first: "Bob", last: "M")]
+    println(names.map(fn(n) => n.first))
+    let adder = fn(x: int) -> (int, int) => (x, x + 1)
+    println(adder(5))
+}
