@@ -153,7 +153,15 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		var exit *exec.ExitError
 		if errors.As(err, &exit) {
 			if status, ok := exit.Sys().(syscall.WaitStatus); ok && status.Signaled() {
-				fmt.Fprintf(stderr, "vex: the program crashed (%v); this is a bug in vex\n", status.Signal())
+				switch sig := status.Signal(); sig {
+				// A closed pipe, an interrupt or a request to stop ends the
+				// program as it would end any other.
+				case syscall.SIGPIPE, syscall.SIGINT, syscall.SIGTERM, syscall.SIGHUP:
+				case syscall.SIGKILL:
+					fmt.Fprintf(stderr, "vex: the program was killed\n")
+				default:
+					fmt.Fprintf(stderr, "vex: the program crashed (%v); this is a bug in vex\n", sig)
+				}
 				return 128 + int(status.Signal())
 			}
 			return exit.ExitCode()
