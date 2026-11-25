@@ -1,0 +1,14 @@
+// After a syntax error, each later declaration is still checked.
+fn broken( {
+}
+interface Shape {
+    fn area() -> int x
+}
+extern type 3
+const = 1
+fn main() {}
+
+// error: 2:12: expected a parameter name, found '{'
+// error: 5:22: expected '{' or '=>' to start the body of area, found 'x'
+// error: 7:13: expected a type name, found number 3
+// error: 8:7: expected a name for the constant, found '='
