@@ -41,6 +41,10 @@ type parser struct {
 	// Set inside an interface, where methods may leave out their body.
 	inInterface bool
 	inExtern    bool
+
+	// Set while parsing a field's default value, where a block that starts
+	// with `didSet` belongs to the field.
+	inDefault bool
 }
 
 // Parses [f] into a syntax tree.
@@ -921,7 +925,10 @@ func (p *parser) member(s *ast.StructDecl) {
 	f := &ast.Field{Pub: pub, Name: name, Type: p.typeExpr()}
 	if p.at(lexer.Assign) {
 		p.next()
+		saved := p.inDefault
+		p.inDefault = true
 		f.Default = p.expr()
+		p.inDefault = saved
 	}
 	f.Span = p.span(name.Start)
 	if p.at(lexer.LBrace) {
@@ -980,6 +987,24 @@ func (p *parser) accessor() *ast.FuncDecl {
 }
 
 // Parses the `{ didSet { ... } }` block after field [f].
+// Reports whether the `{` at the current token may start a trailing
+// block. In a field's default value, a block starting with `didSet`
+// belongs to the field.
+func (p *parser) trailingAllowed() bool {
+	return !p.noTrailing && !(p.inDefault && p.observerAhead())
+}
+
+// Reports whether the `{` at the current token opens a field's observer
+// block: `{ didSet { ... } }`.
+func (p *parser) observerAhead() bool {
+	i := 1
+	for p.peek(i).Kind == lexer.Semi {
+		i++
+	}
+	t := p.peek(i)
+	return t.Kind == lexer.Ident && (t.Text == "didSet" || t.Text == "willSet")
+}
+
 func (p *parser) observer(f *ast.Field) *ast.FuncDecl {
 	p.next()
 	p.skipNewlines()
@@ -1710,7 +1735,7 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			open := p.next()
 			call := &ast.CallExpr{Fn: x, TypeArgs: typeArgs}
 			p.list(open, lexer.RParen, func() { call.Args = append(call.Args, p.arg()) })
-			if !p.noTrailing && p.at(lexer.LBrace) {
+			if p.at(lexer.LBrace) && p.trailingAllowed() {
 				call.Trailing = p.block()
 			}
 			call.Span = p.span(x.Pos())
@@ -1730,7 +1755,7 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			x = &ast.IndexExpr{Span: p.span(x.Pos()), X: x, Index: idx}
 		case lexer.LBrace:
 			// `Column { ... }` is a call with only a trailing block.
-			if p.noTrailing || !qualifiable(x) {
+			if !p.trailingAllowed() || !qualifiable(x) {
 				return x
 			}
 			x = &ast.CallExpr{Fn: x, TypeArgs: typeArgs, Trailing: p.block(), Span: p.span(x.Pos())}
