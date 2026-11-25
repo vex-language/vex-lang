@@ -72,7 +72,7 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 
 Goal: the language features real apps need before any UI work.
 
-**Progress:** 24 of 48 tasks done. The language has enums and `match`, optionals, errors, closures, generics (functions, structs, enums and methods), interfaces (generic, extending others, with properties, for structs and enums), maps, modules, C interop (handles, sized numbers, callbacks, exports, Objective-C), collection `if`/`for`/spread, builder blocks, getters, setters and `didSet`, and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
+**Progress:** 25 of 49 tasks done. The language has enums and `match`, optionals, errors, closures, generics (functions, structs, enums and methods), interfaces (generic, extending others, with properties, for structs and enums), maps, modules, C interop (handles, sized numbers, callbacks, exports, Objective-C), async/await with an event loop, collection `if`/`for`/spread, builder blocks, getters, setters and `didSet`, and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
 
 ### Done
 - [x] **V-100** Enums with data plus `match` (exhaustive) (L)
@@ -101,7 +101,8 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-130** C interop: sized numbers (`int32`, `uint8`, `float32`...) in extern signatures, `extern type` pointer handles, `fn` callbacks with a kept context, `export fn`, Objective-C `.m` sources and Apple frameworks (M)
 
 ### Needed by the UI framework (Phase 3 starts after these)
-- [ ] **V-135** `async`/`await` with an event loop, for UI events, timers and HTTP (V-601) (XL)
+- [x] **V-135** `async`/`await` with an event loop: `async fn`, `Future<T>`, `await`, `all`/`any`, `run`, `time.sleep`, and `vex_poll` for platform run loops; each task runs on its own stack (XL)
+- [ ] **V-148** Streams: `Stream<T>`, `async*` functions with `yield`, `for await`, and awaiting inside closures, for UI events and HTTP bodies (L)
 - [ ] **V-147** Isolates and threads: isolates run in parallel on their own threads with their own heaps and talk by sending messages, as in Dart; a `compute`-style helper runs a function on another core (XL)
 
 ### Modern language features
@@ -256,3 +257,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | Generic enums take their type arguments from case values or the expected type, else `Result<int>.err(...)`; generic methods declare `<U>` like functions and are instantiated per receiver type; generic functions become values from the expected function type or as `first<int>`. A `>` closing type arguments that touch a name ends a line like a name does (V-125) |
 | 2026-11-25 | Interfaces use the same forms as structs: `interface Store<T>`, `interface Shape: Drawable`, `enum Suit: Drawable`. `get`/`set` in an interface is met by an accessor or a stored field. An interface value is still a plain pointer: implementers carry tables for every interface they implement, including extended ones, so using a `Shape` as a `Drawable` costs nothing (V-126) |
 | 2026-11-25 | C interop: sized numbers exist only in extern and export signatures and convert to `int`/`float` at the call, so Vex code keeps one int and one float. `extern type` gives typed opaque pointers. A `fn` parameter becomes a C function pointer plus a `void *` context, kept as a GC root until C calls `vex_release`. `export fn` gives C a function under its own name. `.m` sources compile with ARC (V-130) |
+| 2026-11-25 | Async: `async fn` results are plain types, and a call without `await` gives a `Future<T>` (or `Future<T, E>`), as in Dart. Each task runs on its own stack, switched by a small assembly routine for arm64 and x86-64, so functions aren't rewritten into state machines and code that doesn't await stays as fast as before. The loop is built in: it runs after `main`, and `vex_poll` lets platform run loops drive it. Streams come later as their own step (V-135) |

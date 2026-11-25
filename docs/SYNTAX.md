@@ -446,7 +446,7 @@ fn helper() { }                         // private to models
 - `vex:` modules come with the compiler:
   - `vex:math`: `abs`, `min`, `max`, `clamp`, `pow` and `gcd` for integers and comparable values; `sqrt`, `cbrt`, `powf`, `exp`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `hypot`, `floor`, `ceil`, `round`, `trunc`, `absf` and `pi()` for floats
   - `vex:strings`: `repeat`, `join`, `padLeft`, `padRight`
-  - `vex:time`: `nanos()` for measuring and `unix()` for the date
+  - `vex:time`: `nanos()` for measuring, `unix()` for the date, and `sleep(ms)`, a future that completes after `ms` milliseconds
   - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, and failures throw an `Error` naming the path and the reason
   - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status)
 
@@ -792,6 +792,43 @@ let file = try open(path) catch e {
 - `fn main() throws` lets errors reach the top: the program prints `error: <message>` and exits with code 1.
 - Errors are passed back like return values, not by unwinding the stack, so code that doesn't throw pays nothing and a `try` costs one check after each call.
 
+## Async
+
+An `async fn` can wait for other work with `await` without blocking the program: while it waits, other tasks and timers run. Its result type is the plain value, as in Dart.
+
+```swift
+import "vex:time"
+
+async fn fetch(url: string) throws -> string {
+    await time.sleep(100)                    // pauses this function only
+    return "page of {url}"
+}
+
+async fn main() throws {
+    let page = try await fetch("a.com")      // await gives the value; try handles the error
+    println(page)
+}
+```
+
+Calling an async function without `await` starts it right away and gives a `Future<T>`, so several can run at once:
+
+```swift
+let a = fetch("a.com")                       // Future<string, Error>; both are running now
+let b = fetch("b.com")
+let pages = try await all([a, b])            // [string], in the order given
+let first = try await any([fetch("x.com"), fetch("y.com")])   // the first to finish
+```
+
+- `Future<T>` holds a value of `T` once it is done; `Future<T, E>` can also fail with `E`, which is `Error` or an enum. A future can be stored, passed and awaited any number of times.
+- `await` works on a call of an async function, which runs it here, or on any future. Code that can fail needs `try`, `try?` or `try ... catch` around the await, as with other calls.
+- `all(futures)` gives a future of every value, failing at the first error; with `Future<void>` it gives `Future<void>`. `any(futures)` gives the first to finish.
+- `async fn main()` runs as the first task. The program ends when main is done and nothing else is pending: tasks still running and timers keep it alive. A plain `fn main()` can start tasks too, and they run after it returns.
+- `run(future)` waits for a future from code that isn't async, running the other tasks meanwhile: `let page = try run(fetch("a.com"))`. Async functions use `await` instead.
+- Methods and static methods can be async. Interface methods, closures, `extern fn` and `export fn` can't be, and an async function can't be used as a value yet.
+- Each task has its own small stack, so an `await` deep inside nested calls costs no more than one at the top, and code that doesn't await pays nothing.
+- Apps with their own run loop, such as iOS and Android, call the C function `int64_t vex_poll(void)` from it. It runs everything that is ready and returns the milliseconds until the next timer, or -1 when nothing is pending.
+- `all`, `any` and `run` are ordinary names: a function of the program with the same name replaces them.
+
 ## Built-ins
 
 | Name | Description |
@@ -809,7 +846,7 @@ let file = try open(path) catch e {
 
 ## Types
 
-The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, structs, enums, function types `fn(T) -> R` and optionals `T?`.
+The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, structs, enums, function types `fn(T) -> R`, optionals `T?` and futures `Future<T>`.
 
 - `let x = ...` takes its type from the value. An empty list or map needs the type written: `let xs: [int] = []`, `let m: [string: int] = [:]`.
 - Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.
