@@ -402,7 +402,9 @@ func tail(first bool) Kind {
 func (l *lexer) escape(b *strings.Builder) {
 	start := l.pos
 	l.pos++
-	if l.pos >= len(l.src) || l.src[l.pos] == '\n' {
+	// A backslash at the end of a line leaves the string unterminated,
+	// which is reported once, whatever the line ending.
+	if l.pos >= len(l.src) || l.src[l.pos] == '\n' || strings.HasPrefix(l.src[l.pos:], "\r\n") {
 		return
 	}
 	c := l.src[l.pos]

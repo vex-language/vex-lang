@@ -215,6 +215,15 @@ func TestReportsSeveralErrors(t *testing.T) {
 	}
 }
 
+func TestBackslashAtCRLFLineEnd(t *testing.T) {
+	for _, src := range []string{"\"abc\\\nx", "\"abc\\\r\nx"} {
+		_, errs := lex(t, src)
+		if len(errs) != 1 || errs[0].Message != "unterminated string" {
+			t.Errorf("%q: got %v, want one unterminated string", src, errs)
+		}
+	}
+}
+
 func TestSingleQuotedIsOneError(t *testing.T) {
 	toks, errs := lex(t, "println('hi')")
 	if len(errs) != 1 || errs[0].Len != 4 {
