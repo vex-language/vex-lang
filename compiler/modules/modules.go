@@ -72,12 +72,15 @@ type Program struct {
 	CSources []string
 	CLibs    []string
 	CFlags   []string
+
+	// Apple frameworks to link, such as Foundation or UIKit.
+	CFrameworks []string
 }
 
 // Returns the C code of the project file, with paths made absolute, for
 // the C compiler.
 func (p *Program) CCOptions() cc.Options {
-	opts := cc.Options{Libs: p.CLibs}
+	opts := cc.Options{Libs: p.CLibs, Frameworks: p.CFrameworks}
 	for _, s := range p.CSources {
 		opts.Sources = append(opts.Sources, filepath.Join(p.Dir, filepath.FromSlash(s)))
 	}
@@ -146,7 +149,7 @@ func LoadFS(fsys fs.FS, root, shown string, isDir bool) (*Program, error) {
 			return nil, err
 		}
 		l.prog.Name = proj.Name
-		l.prog.CSources, l.prog.CLibs, l.prog.CFlags = proj.CSources, proj.CLibs, proj.CFlags
+		l.prog.CSources, l.prog.CLibs, l.prog.CFlags, l.prog.CFrameworks = proj.CSources, proj.CLibs, proj.CFlags, proj.CFrameworks
 		for _, src := range proj.CSources {
 			if _, err := fs.Stat(l.fsys, path.Join(root, src)); err != nil {
 				return nil, fmt.Errorf("%s: C source '%s' not found", l.display(path.Join(root, ProjectFile)), src)

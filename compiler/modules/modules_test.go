@@ -198,6 +198,7 @@ flags = ["-DNAME=\"x, y\"", "-Inative", "-O3"]
 		{"[c]\nsources = [\"../x.c\"]\n", "2:11: '../x.c' is outside the project"},
 		{"[c]\nsources = [\"/x.c\"]\n", "2:11: '/x.c' is outside the project"},
 		{"[c]\nsources = [\"x.py\"]\n", "2:11: 'x.py' isn't a C source file"},
+		{"[c]\nframeworks = [\"-framework UIKit\"]\n", "2:14: '-framework UIKit' isn't a framework name"},
 		{"[c]\nlibs = [\"-lz\"]\n", "2:8: '-lz' isn't a library name"},
 		{"[c]\nflags = [\"-o\", \"out\"]\n", "2:9: flag '-o' isn't allowed\n2:9: flag 'out' isn't allowed"},
 		{"[c]\nflags = [\"-D\"]\n", "2:9: flag '-D' isn't allowed"},
