@@ -72,39 +72,64 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 
 Goal: the language features real apps need before any UI work.
 
+**Progress:** 17 of 47 tasks done. The language has enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
+
+### Done
 - [x] **V-100** Enums with data plus `match` (exhaustive) (L)
 - [x] **V-101** Optionals `User?` with `if let`, `??` and `?.`; no null crashes (L)
 - [x] **V-102** Errors: `throws` / `throws(E)`, `throw`, `try`, `catch`, `try?` (L)
 - [x] **V-103** Closures / lambdas, needed for UI event handlers (L)
 - [x] **V-104** Generics for functions and structs (XL)
-- [x] **V-105** Modules: a folder is a module; `import "vex:math"`, `import "models"`, `as`; `pub` visibility; `package.toml`; first `vex:math` and `vex:strings` (L)
-- [ ] **V-121** Package manager: `vex get` from public git repos, `package.lock` with hashes ([design](docs/design/packages.md)) (L)
-- [ ] **V-122** `vex doc`: API docs from `///` comments (M)
 - [x] **V-106** Maps `[string: int]` (M)
+- [x] **V-117** Interfaces: a struct declares which interfaces it implements (L)
+- [x] **V-105** Modules: a folder is a module; `import "vex:math"`, `import "models"`, `as`; `pub` visibility; `package.toml`; first `vex:math` and `vex:strings` (L)
 - [x] **V-107** Memory management: tracing GC, stage 1 mark and sweep ([design](docs/design/memory.md)) (XL)
 - [x] **V-113** Hardening: fuzzing, sanitizers, Linux and macOS CI, feature-combination tests (M)
 - [x] **V-114** Hardening 2: random program generator with known output, stack overflow errors, independent review (M)
+- [x] **V-120** Integer overflow stops the program by default; `&+` `&-` `&*` wrap; benchmarked against Go (M)
+- [x] **V-110** C interop: `extern fn` with `as "c_name"`, string conversion, `[c]` sources, libs and flags in `package.toml` (M)
+- [x] **V-127** Standard library: float math in `vex:math` through C (`sqrt`, `sin`, …) and `vex:time` (M)
+- [x] **V-129** Standard library: files, processes and environment (`vex:fs`, `vex:os`); `vex run` passes arguments (M)
+- [x] **V-131** Strings: `replace`, `trim`, `trimStart`, `trimEnd`, `startsWith`, `endsWith`, `indexOf`, `substring`, `chars`, `lines` (M)
+- [x] **V-108** Standard library: strings, math, time and files, delivered by V-127, V-129 and V-131 (L)
+
+### Needed by the UI framework (Phase 3 starts after these)
+- [ ] **V-118** Builder blocks: several values in a trailing `{ }` become a list argument (M)
+- [ ] **V-119** Property setters: code that runs when a field is assigned (M)
+- [ ] **V-125** Generics, next steps: methods with their own type parameters, generic enums such as `Result<T>`, generic functions as values (M)
+- [ ] **V-126** Interfaces, next steps: generic interfaces such as `Comparable<T>`, interfaces that extend others, enums that implement interfaces (M)
+- [ ] **V-130** C interop, next steps: C `int`, `float` and pointer types for extern signatures, callbacks into Vex, Objective-C sources for iOS (M)
+- [ ] **V-133** Collection `if`, `for` and spread `...` inside list and map literals and builder blocks, as in Dart (M)
+- [ ] **V-134** Getters: computed properties read like fields, next to V-119 setters (S)
+- [ ] **V-135** `async`/`await` with an event loop, for UI events, timers and HTTP (V-601) (XL)
+
+### Modern language features
+- [ ] **V-136** Records: anonymous `(int, string)` and named `(x: int, y: int)` values, so functions can return several values (M)
+- [ ] **V-137** Destructuring and richer patterns: `let (a, b) = pair`, struct and list patterns, guards in `match` arms, ranges, `if case` (L)
+- [ ] **V-138** Constants: top-level `const` values computed at compile time (S)
+- [ ] **V-139** Extensions: add methods to existing types, built-in ones included (M)
+- [ ] **V-140** Type aliases for long types (S)
+- [ ] **V-141** Multi-line and raw strings (S)
+- [ ] **V-142** Operator overloading for structs: arithmetic, `==`, ordering and indexing (M)
+- [ ] **V-143** Tear-offs: methods and constructors as values, as in `names.map(user.greet)` (S)
+- [ ] **V-144** Sealed interfaces: a closed set of structs that `match` checks exhaustively, with type patterns (M)
+- [ ] **V-145** Null-aware elements in collections and `?[ ]` indexing (S)
+- [ ] **V-146** Extension types: zero-cost wrappers that make `UserId` and `int` different types (M)
+
+### Tools and packages
+- [ ] **V-121** Package manager: `vex get` from public git repos, `package.lock` with hashes ([design](docs/design/packages.md)) (L)
+- [ ] **V-122** `vex doc`: API docs from `///` comments (M)
+- [ ] **V-124** Benchmark suite in the repo (`bench/`): Vex programs with Go equivalents and a script that compares them (M)
+- [ ] **V-123** Stack traces: runtime errors list the chain of calls with their lines (M)
+- [ ] **V-128** Modules, next steps: warn about unused imports, `pub` names whose types are private, and errors sorted with the root module first (S)
+
+### Runtime and libraries
+- [ ] **V-109** JSON encode/decode built in, no codegen step (L)
+- [ ] **V-132** Bytes: a type for binary data, and reading and writing binary files (M)
 - [ ] **V-115** Print values through one growing buffer; deeply nested values print in quadratic time today (S)
 - [ ] **V-116** Unicode-aware strings: `upper`/`lower` beyond A–Z, and counting visible characters (grapheme clusters) (M)
 - [ ] **V-111** GC stage 2: precise roots and object layouts (L)
 - [ ] **V-112** GC stage 3: generational collection, returning memory to the OS (XL)
-- [ ] **V-108** Standard library: strings, math, time, files (L)
-- [ ] **V-109** JSON encode/decode built in, no codegen step (L)
-- [x] **V-110** C interop: `extern fn` with `as "c_name"`, string conversion, `[c]` sources, libs and flags in `package.toml` (M)
-- [x] **V-117** Interfaces: a struct declares which interfaces it implements (L)
-- [ ] **V-118** Builder blocks: several values in a trailing `{ }` become a list argument (M)
-- [ ] **V-119** Property setters: code that runs when a field is assigned (M)
-- [ ] **V-123** Stack traces: runtime errors list the chain of calls with their lines (M)
-- [ ] **V-124** Benchmark suite in the repo (`bench/`): Vex programs with Go equivalents and a script that compares them (M)
-- [ ] **V-125** Generics, next steps: methods with their own type parameters, generic enums such as `Result<T>`, generic functions as values (M)
-- [x] **V-127** Standard library: float math in `vex:math` through C (`sqrt`, `sin`, …) and `vex:time` (M)
-- [x] **V-129** Standard library: files, processes and environment (`vex:fs`, `vex:os`); `vex run` passes arguments (M)
-- [x] **V-131** Strings: `replace`, `trim`, `trimStart`, `trimEnd`, `startsWith`, `endsWith`, `indexOf`, `substring`, `chars`, `lines` (M)
-- [ ] **V-132** Bytes: a type for binary data, and reading and writing binary files (M)
-- [ ] **V-130** C interop, next steps: C `int`, `float` and pointer types for extern signatures, callbacks into Vex, Objective-C sources for iOS (M)
-- [ ] **V-128** Modules, next steps: warn about unused imports, `pub` names whose types are private, and errors sorted with the root module first (S)
-- [ ] **V-126** Interfaces, next steps: generic interfaces such as `Comparable<T>`, interfaces that extend others, enums that implement interfaces (M)
-- [x] **V-120** Integer overflow stops the program by default; `&+` `&-` `&*` wrap; benchmarked against Go (M)
 
 ---
 
@@ -223,3 +248,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | C interop: `extern fn` without a body, `as "c_name"` for another C name; strings cross as NUL-terminated `const char *` copies; a project's C code goes in a `[c]` section of `package.toml`. Externs are called through an assembly-label alias, so their declarations can't clash with system headers, and well-known math functions use the C compiler's built-ins |
 | 2026-11-25 | `vex:fs` and `vex:os` are Vex wrappers over small C helpers in the runtime; failures throw `Error`s naming the path and the reason. Files are text for now; binary data waits for a bytes type |
 | 2026-11-25 | String indexes (`indexOf`, `substring`) count characters, like `len`; `indexOf` returns `int?` rather than -1; substrings share the original text |
+| 2026-11-25 | New features follow modern languages, Dart 3 first (records, patterns, collection `if`/`for`, extensions, sealed types, async), so Phase 2 gains V-133 to V-146; each still needs its syntax approved |
