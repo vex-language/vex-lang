@@ -1415,20 +1415,7 @@ func (p *parser) ifStmt() *ast.IfStmt {
 func (p *parser) forStmt() *ast.ForStmt {
 	start := p.expect(lexer.For).Pos
 	s := &ast.ForStmt{}
-	loopVar := func() {
-		if p.patternAhead() {
-			s.Pattern = p.primaryPattern()
-			s.Elem = &ast.Ident{Span: ast.Span{Start: s.Pattern.Pos(), End: s.Pattern.EndOffset()}, Name: "$elem"}
-		} else {
-			s.Elem = p.ident("a loop variable")
-		}
-	}
-	loopVar()
-	if p.at(lexer.Comma) && s.Pattern == nil {
-		p.next()
-		s.Index = s.Elem
-		loopVar()
-	}
+	p.loopVars(s)
 	if !p.at(lexer.In) {
 		p.fail(p.tok(), "write for x in items { ... }", "expected 'in', found %s", describe(p.tok()))
 	}
@@ -1448,6 +1435,25 @@ func (p *parser) forStmt() *ast.ForStmt {
 	s.Body = p.block()
 	s.Span = p.span(start)
 	return s
+}
+
+// Parses the loop variables of `for`: a name, `i, x`, or a pattern such as
+// `(a, b)` that takes each element apart.
+func (p *parser) loopVars(s *ast.ForStmt) {
+	loopVar := func() {
+		if p.patternAhead() {
+			s.Pattern = p.primaryPattern()
+			s.Elem = &ast.Ident{Span: ast.Span{Start: s.Pattern.Pos(), End: s.Pattern.EndOffset()}, Name: "$elem"}
+		} else {
+			s.Elem = p.ident("a loop variable")
+		}
+	}
+	loopVar()
+	if p.at(lexer.Comma) && s.Pattern == nil {
+		p.next()
+		s.Index = s.Elem
+		loopVar()
+	}
 }
 
 // Parses the condition of an `if` or `while` and checks that the body follows.
@@ -1944,13 +1950,14 @@ func (p *parser) element(kind *litKind) ast.Stmt {
 		return s
 	case lexer.For:
 		p.next()
-		s := &ast.ForStmt{Elem: p.ident("a loop variable")}
-		if p.at(lexer.Comma) {
-			p.next()
-			s.Index, s.Elem = s.Elem, p.ident("a loop variable")
-		}
+		s := &ast.ForStmt{}
+		p.loopVars(s)
 		if !p.at(lexer.In) {
-			p.fail(p.tok(), fmt.Sprintf("write for %s in items %s", s.Elem.Name, s.Elem.Name), "expected 'in', found %s", describe(p.tok()))
+			hint := "write for x in items x"
+			if s.Pattern == nil {
+				hint = fmt.Sprintf("write for %s in items %s", s.Elem.Name, s.Elem.Name)
+			}
+			p.fail(p.tok(), hint, "expected 'in', found %s", describe(p.tok()))
 		}
 		p.next()
 		s.Iter = p.elemHeader(func() ast.Expr {
