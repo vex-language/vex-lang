@@ -569,6 +569,18 @@ func Identical(a, b Type) bool {
 	case *Channel:
 		b, ok := b.(*Channel)
 		return ok && Identical(a.Elem, b.Elem)
+	case *Record:
+		b, ok := b.(*Record)
+		if !ok || !sameShape(a, b) {
+			return false
+		}
+		bt := b.FieldTypes()
+		for i, t := range a.FieldTypes() {
+			if !Identical(t, bt[i]) {
+				return false
+			}
+		}
+		return true
 	case *Future:
 		b, ok := b.(*Future)
 		return ok && Identical(a.Elem, b.Elem) && (a.Throws == nil) == (b.Throws == nil) && (a.Throws == nil || Identical(a.Throws, b.Throws))
@@ -666,6 +678,9 @@ type Member struct {
 
 	// The built-in property name, such as `len`.
 	Builtin string
+
+	// The record field read: `$1` or a name.
+	RecordField string
 }
 
 // Everything the checker learned about a file, for later compiler stages.

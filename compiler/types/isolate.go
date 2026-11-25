@@ -74,6 +74,13 @@ func unsendable(t Type, seen map[Type]bool) string {
 		return unsendable(t.Elem, seen)
 	case *Channel:
 		return ""
+	case *Record:
+		for _, f := range t.FieldTypes() {
+			if bad := unsendable(f, seen); bad != "" {
+				return bad
+			}
+		}
+		return ""
 	case *Struct:
 		for _, f := range t.Fields {
 			if bad := unsendable(f.Type, seen); bad != "" {

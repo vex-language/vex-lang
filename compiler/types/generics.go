@@ -185,6 +185,13 @@ func hasTypeParam(t Type) bool {
 		return hasTypeParam(t.Elem) || hasTypeParam(t.Throws)
 	case *Channel:
 		return hasTypeParam(t.Elem)
+	case *Record:
+		for _, f := range t.FieldTypes() {
+			if hasTypeParam(f) {
+				return true
+			}
+		}
+		return false
 	case *FuncType:
 		for _, p := range t.Params {
 			if hasTypeParam(p) {
@@ -224,6 +231,13 @@ func keyOf(t Type) string {
 		return keyOf(t.Elem) + "?"
 	case *Channel:
 		return "Channel<" + keyOf(t.Elem) + ">"
+	case *Record:
+		var b strings.Builder
+		b.WriteString("(")
+		for i, n := range t.FieldNames() {
+			b.WriteString(n + ":" + keyOf(t.FieldTypes()[i]) + ",")
+		}
+		return b.String() + ")"
 	case *Future:
 		if t.Throws != nil {
 			return "Future<" + keyOf(t.Elem) + ", " + keyOf(t.Throws) + ">"
@@ -741,6 +755,13 @@ func (b *binding) unify(p, a Type) {
 		if a, ok := a.(*Channel); ok {
 			b.unify(p.Elem, a.Elem)
 		}
+	case *Record:
+		if a, ok := a.(*Record); ok && sameShape(p, a) {
+			at := a.FieldTypes()
+			for i, t := range p.FieldTypes() {
+				b.unify(t, at[i])
+			}
+		}
 	case *FuncType:
 		if a, ok := a.(*FuncType); ok && len(a.Params) == len(p.Params) {
 			for i := range p.Params {
@@ -845,6 +866,16 @@ func (b *binding) subst(t Type) Type {
 			return &Channel{Elem: e}
 		}
 		return nil
+	case *Record:
+		var ts []Type
+		for _, f := range t.FieldTypes() {
+			s := b.subst(f)
+			if s == nil {
+				return nil
+			}
+			ts = append(ts, s)
+		}
+		return t.withTypes(ts)
 	case *FuncType:
 		out := &FuncType{Throws: t.Throws}
 		for _, p := range t.Params {

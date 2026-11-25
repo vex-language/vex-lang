@@ -235,6 +235,8 @@ func (c *checker) reserved(id *ast.Ident, what string) bool {
 		c.errorAt(id, "choose another name", "'Error' is the built-in error type and can't be used as %s name", what)
 	case id.Name == "self":
 		c.errorAt(id, "choose another name", "'self' can't be used as %s name", what)
+	case strings.HasPrefix(id.Name, "$") && id.Name != "$elem":
+		c.errorAt(id, "choose a name that starts with a letter", "names starting with $ are the positional fields of records")
 	case c.imported(id.Name) != nil:
 		c.errorAt(id, "choose another name, or rename the import with as", "'%s' is an imported module and can't be used as %s name", id.Name, what)
 	default:
@@ -532,6 +534,8 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 			ft.Throws = c.throwsType(te.Throws)
 		}
 		return ft
+	case *ast.RecordType:
+		return c.recordType(te)
 	case *ast.NamedType:
 		if te.Module != "" {
 			return c.qualifiedType(te)
@@ -898,6 +902,11 @@ func (c *checker) stmt(s ast.Stmt) {
 		}
 		c.pop()
 	case *ast.LetStmt:
+		if s.Pattern != nil {
+			t := c.expr(s.Value, nil)
+			c.destructure(s.Pattern, t, s.Mutable, LocalVar)
+			break
+		}
 		var want Type
 		if s.Type != nil {
 			want = c.resolveType(s.Type)
@@ -1126,6 +1135,9 @@ func (c *checker) forLoop(s *ast.ForStmt, body func()) {
 		case *List:
 			elem = t.Elem
 		case *Map:
+			if s.Pattern != nil {
+				c.errorAt(s.Pattern, "write for key, value in map", "a map loop takes the key and the value as two names, not a pattern")
+			}
 			if s.Index != nil {
 				c.declare(s.Index, t.Key, false, LoopVar)
 				c.declare(s.Elem, t.Value, false, LoopVar)
@@ -1146,6 +1158,9 @@ func (c *checker) forLoop(s *ast.ForStmt, body func()) {
 		c.declare(s.Index, Int, false, LoopVar)
 	}
 	c.declare(s.Elem, elem, false, LoopVar)
+	if s.Pattern != nil {
+		c.destructure(s.Pattern, elem, false, LoopVar)
+	}
 	c.loops++
 	body()
 	c.loops--

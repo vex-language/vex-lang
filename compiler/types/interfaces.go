@@ -579,6 +579,12 @@ func (c *checker) substType(t Type, bound map[*TypeParam]Type) Type {
 		return &Future{Elem: c.substType(t.Elem, bound), Throws: t.Throws}
 	case *Channel:
 		return &Channel{Elem: c.substType(t.Elem, bound)}
+	case *Record:
+		var ts []Type
+		for _, f := range t.FieldTypes() {
+			ts = append(ts, c.substType(f, bound))
+		}
+		return t.withTypes(ts)
 	case *FuncType:
 		return &FuncType{Params: args(t.Params), Result: c.substType(t.Result, bound), Throws: t.Throws}
 	case *Struct:
