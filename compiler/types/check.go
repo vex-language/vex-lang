@@ -677,6 +677,7 @@ func (c *checker) checkDefaults() {
 		}
 		back()
 	}
+	c.checkDefaultCycles()
 	for _, f := range c.info.Funcs {
 		if instanced(f) {
 			continue
@@ -1269,4 +1270,70 @@ func capitalize(s string) string {
 		return s
 	}
 	return strings.ToUpper(s[:1]) + s[1:]
+}
+
+// Reports field defaults that create their own struct again, such as
+// `struct S { a: S? = S() }`, which would never finish.
+func (c *checker) checkDefaultCycles() {
+	type slot struct {
+		s *Struct
+		i int
+	}
+	// Each default leads to the defaults its constructor calls leave out.
+	next := func(at slot) []slot {
+		var out []slot
+		ast.Inspect(at.s.Fields[at.i].Default, func(n ast.Node) bool {
+			e, ok := n.(*ast.CallExpr)
+			if !ok {
+				return true
+			}
+			call := c.info.Calls[e]
+			if call == nil || call.Kind != ConstructorCall || call.Struct == nil {
+				return true
+			}
+			for j, a := range call.Args {
+				if j < len(call.Struct.Fields) && a != nil && a == call.Struct.Fields[j].Default {
+					out = append(out, slot{call.Struct, j})
+				}
+			}
+			return true
+		})
+		return out
+	}
+	const (
+		visiting = 1
+		done     = 2
+	)
+	state := map[slot]int{}
+	var visit func(at slot) bool
+	visit = func(at slot) bool {
+		switch state[at] {
+		case visiting:
+			return true
+		case done:
+			return false
+		}
+		state[at] = visiting
+		cyclic := false
+		for _, n := range next(at) {
+			if visit(n) {
+				cyclic = true
+				break
+			}
+		}
+		state[at] = done
+		return cyclic
+	}
+	for _, s := range c.info.Structs {
+		if s.generic != nil {
+			continue
+		}
+		for i, f := range s.Fields {
+			if f.Default != nil && state[slot{s, i}] == 0 && visit(slot{s, i}) {
+				back := c.enter(s.Decl)
+				c.errorAt(f.Default, "pass that field explicitly, or default it to nil", "the default of '%s' creates another %s that uses the same default, so it never ends", f.Name, s.Name)
+				back()
+			}
+		}
+	}
 }
