@@ -346,6 +346,10 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 		return Bool
 	}
 
+	if wrapping(e.Op) && (x != Int || y != Int) {
+		c.errorAt(e, "", "'%s' works only on int, found %s and %s", op, x, y)
+		return Invalid
+	}
 	if Identical(x, y) {
 		switch {
 		case e.Op == lexer.Plus && (numeric(x) || x == String):
@@ -410,6 +414,16 @@ func precedenceOf(k lexer.Kind) int {
 		return 6
 	}
 	return 0
+}
+
+// Reports whether [k] is an operator that wraps around on overflow instead
+// of stopping the program: `&+`, `&-`, `&*` and their assignments.
+func wrapping(k lexer.Kind) bool {
+	switch k {
+	case lexer.AmpPlus, lexer.AmpMinus, lexer.AmpStar, lexer.AmpPlusAssign, lexer.AmpMinusAssign, lexer.AmpStarAssign:
+		return true
+	}
+	return false
 }
 
 // Reports whether values of type [t] can be compared with `==`.

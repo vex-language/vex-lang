@@ -870,7 +870,8 @@ func (p *parser) bodyStart(keyword string) {
 func (p *parser) simpleStmt() ast.Stmt {
 	x := p.expr()
 	switch k := p.tok().Kind; k {
-	case lexer.Assign, lexer.PlusAssign, lexer.MinusAssign, lexer.StarAssign, lexer.SlashAssign, lexer.PercentAssign:
+	case lexer.Assign, lexer.PlusAssign, lexer.MinusAssign, lexer.StarAssign, lexer.SlashAssign, lexer.PercentAssign,
+		lexer.AmpPlusAssign, lexer.AmpMinusAssign, lexer.AmpStarAssign:
 		opTok := p.next()
 		switch x.(type) {
 		case *ast.Ident, *ast.IndexExpr, *ast.MemberExpr:
@@ -913,9 +914,9 @@ func precedence(k lexer.Kind) int {
 		return 4
 	case lexer.QuestionQuestion:
 		return 5
-	case lexer.Plus, lexer.Minus:
+	case lexer.Plus, lexer.Minus, lexer.AmpPlus, lexer.AmpMinus:
 		return 6
-	case lexer.Star, lexer.Slash, lexer.Percent:
+	case lexer.Star, lexer.Slash, lexer.Percent, lexer.AmpStar:
 		return 7
 	}
 	return 0

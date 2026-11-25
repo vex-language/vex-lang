@@ -59,6 +59,7 @@ func TestTokens(t *testing.T) {
 		{"identifiers", "name _tmp user2 isAdult", "id:name id:_tmp id:user2 id:isAdult NL EOF"},
 		{"operators", "+ - * / % ! && || = += -= *= /= %= == != < <= > >= -> => . .. ..= ? ?. ??",
 			"+ - * / % ! && || = += -= *= /= %= == != < <= > >= -> => . .. ..= ? ?. ?? EOF"},
+		{"wrapping operators", "&+ &- &* &+= &-= &*= a&&-b", "&+ &- &* &+= &-= &*= id:a && - id:b NL EOF"},
 		{"punctuation", "( ) { } [ ] , : ;", "( ) { } [ ] , : ; EOF"},
 		{"integers", "0 42 1_000_000 0xFF 0b1010 0o17", "int:0 int:42 int:1000000 int:0xFF int:0b1010 int:0o17 NL EOF"},
 		{"floats", "3.14 1e9 2.5e-3 1E+2 0.5", "float:3.14 float:1e9 float:2.5e-3 float:1E+2 float:0.5 NL EOF"},
