@@ -1,0 +1,12 @@
+6.0 false 2.0x3.0, area 6.0, square false
+4.0x6.0, area 24.0, square false
+8.0 12.0
+1.0
+0.6
+0.85 3
+10 ["0->5", "5->6", "6->26"]
+[]
+c 2
+["one", "two"]
+grow
+7776.0

@@ -1,0 +1,126 @@
+// Getters, setters and didSet.
+
+struct Rect {
+    width: float
+    height: float
+
+    get area -> float => width * height
+    get isSquare -> bool {
+        return width == height
+    }
+    get scale -> float => width
+    set scale(factor: float) {
+        width *= factor
+        height *= factor
+    }
+
+    fn describe() -> string => "{width}x{height}, area {area}, square {isSquare}"
+}
+
+struct Slider {
+    _value: float = 0
+    writes: int = 0
+
+    get value -> float => _value
+    set value(v: float) {
+        writes += 1
+        if v > 1.0 {
+            _value = 1.0
+        } else if v < 0.0 {
+            _value = 0.0
+        } else {
+            _value = v
+        }
+    }
+
+    fn nudge() {
+        value += 0.25
+    }
+}
+
+struct Counter {
+    count: int = 0 {
+        didSet {
+            history.push("{oldValue}->{count}")
+            if count > 10 {
+                count = 10
+            }
+        }
+    }
+    history: [string] = []
+
+    fn bump() {
+        count += 1
+    }
+}
+
+struct Box<T> {
+    item: T {
+        didSet {
+            changes += 1
+        }
+    }
+    changes: int = 0
+
+    get value -> T => item
+    set value(v: T) {
+        item = v
+    }
+}
+
+struct Log {
+    lines: [string] = []
+    set add(line: string) {
+        lines.push(line)
+    }
+}
+
+struct Holder {
+    rect: Rect
+}
+
+fn grow(r: Rect) -> Rect {
+    println("grow")
+    return r
+}
+
+fn main() {
+    let r = Rect(width: 2.0, height: 3.0)
+    println(r.area, r.isSquare, r.describe())
+    r.scale = 2.0
+    println(r.describe())
+    r.scale *= 0.5
+    println(r.width, r.height)
+
+    let s = Slider()
+    s.value = 2.0
+    println(s.value)
+    s.value -= 0.4
+    println(s.value)
+    s.nudge()
+    println(s.value, s.writes)
+
+    let c = Counter()
+    c.count = 5
+    c.bump()
+    c.count += 20
+    println(c.count, c.history)
+    let fresh = Counter(count: 3)
+    println(fresh.history)
+
+    let b = Box(item: "a")
+    b.value = "b"
+    b.item = "c"
+    println(b.value, b.changes)
+
+    let log = Log()
+    log.add = "one"
+    log.add = "two"
+    println(log.lines)
+
+    // The receiver is evaluated once.
+    grow(r).scale = 1.0
+    let h = Holder(rect: r)
+    h.rect.scale += 1.0
+    println(h.rect.area)
+}
