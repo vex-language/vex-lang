@@ -717,9 +717,55 @@ static int64_t vx_float_to_int(double v, int line) {
 
 // --- Arithmetic ---
 
+__attribute__((noreturn, cold, noinline))
+static void vx_overflow(int64_t a, char op, int64_t b, int line) {
+    vx_fail(line, "integer overflow: %" PRId64 " %c %" PRId64 " doesn't fit in an int; use &%c to wrap around", a, op, b, op);
+}
+
+// Checked int arithmetic. The overflow test is a single flag check after
+// the instruction, and the failure path is kept out of the hot code.
+static inline int64_t vx_add(int64_t a, int64_t b, int line) {
+    int64_t r;
+    if (__builtin_expect(__builtin_add_overflow(a, b, &r), 0)) vx_overflow(a, '+', b, line);
+    return r;
+}
+
+static inline int64_t vx_sub(int64_t a, int64_t b, int line) {
+    int64_t r;
+    if (__builtin_expect(__builtin_sub_overflow(a, b, &r), 0)) vx_overflow(a, '-', b, line);
+    return r;
+}
+
+static inline int64_t vx_mul(int64_t a, int64_t b, int line) {
+    // With a constant factor, two comparisons against precomputed limits
+    // are cheaper than a full overflow test (which needs smulh on arm64).
+    if (__builtin_constant_p(b) && b > 0) {
+        if (__builtin_expect(a > INT64_MAX / b || a < INT64_MIN / b, 0)) vx_overflow(a, '*', b, line);
+        return a * b;
+    }
+    if (__builtin_constant_p(a) && a > 0) {
+        if (__builtin_expect(b > INT64_MAX / a || b < INT64_MIN / a, 0)) vx_overflow(a, '*', b, line);
+        return a * b;
+    }
+    int64_t r;
+    if (__builtin_expect(__builtin_mul_overflow(a, b, &r), 0)) vx_overflow(a, '*', b, line);
+    return r;
+}
+
+static inline int64_t vx_neg(int64_t a, int line) {
+    if (__builtin_expect(a == INT64_MIN, 0)) vx_fail(line, "integer overflow: -(%" PRId64 ") doesn't fit in an int", a);
+    return -a;
+}
+
+// Wrapping arithmetic for &+, &- and &*.
+#define VX_WRAP(a, op, b) ((int64_t)((uint64_t)(a) op (uint64_t)(b)))
+
 static int64_t vx_div(int64_t a, int64_t b, int line) {
     if (b == 0) vx_fail(line, "division by zero");
-    if (b == -1) return (int64_t)(0 - (uint64_t)a);
+    if (b == -1) {
+        if (a == INT64_MIN) vx_fail(line, "integer overflow: %" PRId64 " / -1 doesn't fit in an int", a);
+        return -a;
+    }
     return a / b;
 }
 
