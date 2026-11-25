@@ -77,7 +77,7 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-102** Errors: `throws` / `throws(E)`, `throw`, `try`, `catch`, `try?` (L)
 - [x] **V-103** Closures / lambdas, needed for UI event handlers (L)
 - [x] **V-104** Generics for functions and structs (XL)
-- [ ] **V-105** Modules and imports (`import "ui"`), multi-file projects, project file (L)
+- [ ] **V-105** Modules: a folder is a module; `import "vex:math"`, `import "package:ui"`, `import "models"`; `vex.toml` (L)
 - [ ] **V-121** Package manager: `vex get` from public git repos, `vex.lock` with hashes ([design](docs/design/packages.md)) (L)
 - [ ] **V-122** `vex doc`: API docs from `///` comments (M)
 - [x] **V-106** Maps `[string: int]` (M)
@@ -210,3 +210,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | Maps: `[K: V]` types and `["a": 1]` / `[:]` literals; `m[k]` gives an optional; loops follow insertion order; keys are int, string, bool or simple enums; values can't be optional (V-106) |
 | 2026-11-25 | Generics: `<T>` type parameters on functions and structs, inferred from arguments or the expected type, or written as `f<int>(...)` touching the name; constraints `<T: Comparable & Hashable>` from built-in Equatable, Comparable and Hashable (interfaces join them in V-117); compiled by specialising each use, checked once generically (V-104) |
 | 2026-11-25 | Interfaces: `interface I { fn m() }`, methods with a body are defaults; structs opt in with `struct S: I, J` and are checked there; `[I]`, `I` and `I?` hold any implementing struct, called through a per-struct method table (thunks keep each call type-exact); interfaces also work as generic constraints `<T: I>` (V-117) |
+| 2026-11-25 | Imports name packages, as in Dart: `vex:name` for the standard library, `package:name` for dependencies, a relative folder for the project's own code; a folder is one module; `vex.toml` maps each package name to a git URL and version, so no domain is needed ([packages](docs/design/packages.md)) |

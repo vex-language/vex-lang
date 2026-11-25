@@ -70,7 +70,7 @@ Jump to the [language tour](#language-tour) below, or read the full reference in
 ## Where it's going: native UI
 
 ```swift
-import "ui"
+import "package:ui"
 
 struct Counter: View {
     let count = State(0)
