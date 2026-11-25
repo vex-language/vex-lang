@@ -1,0 +1,6 @@
+[package]
+name = "cinterop"
+
+# C code with handles, sized numbers, callbacks and exports.
+[c]
+sources = ["native/ffi.c"]

@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 
@@ -81,6 +82,10 @@ func TestExamples(t *testing.T) {
 	paths = append(paths, more...)
 	paths = append(paths, projects("../examples/*")...)
 	paths = append(paths, projects("run/*")...)
+	if runtime.GOOS == "darwin" {
+		// Projects that use Objective-C and Apple frameworks.
+		paths = append(paths, projects("run_darwin/*")...)
+	}
 	for _, path := range paths {
 		name := strings.TrimSuffix(filepath.Base(path), ".vx")
 		base := strings.TrimSuffix(path, ".vx")
