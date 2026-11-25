@@ -141,6 +141,14 @@ func (c *checker) ident(id *ast.Ident) Type {
 		c.errorAt(id, fmt.Sprintf("create one with %s(...)", s.Name), "'%s' is a type, not a value", s.Name)
 		return Invalid
 	}
+	if g := c.genFuncs[id.Name]; g != nil {
+		c.errorAt(id, fmt.Sprintf("wrap it in a closure, e.g. fn(x: int) => %s(x)", id.Name), "generic function '%s' can't be used as a value", id.Name)
+		return Invalid
+	}
+	if g := c.genStructs[id.Name]; g != nil {
+		c.errorAt(id, fmt.Sprintf("create one with %s(...)", id.Name), "'%s' is a type, not a value", id.Name)
+		return Invalid
+	}
 	if en := c.enums[id.Name]; en != nil {
 		c.errorAt(id, caseHint("use one of its cases, e.g. ", en, true), "'%s' is a type, not a value", en.Name)
 		return Invalid
@@ -338,14 +346,21 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 			if _, ok := x.(*Optional); ok {
 				hint = "compare with nil, or unwrap it first with if let"
 			}
+			if tp, ok := x.(*TypeParam); ok {
+				hint = fmt.Sprintf("require it: <%s: Equatable>", tp.Name)
+			}
 			c.errorAt(e, hint, "values of type %s can't be compared with %s", x, op)
 		}
 		return Bool
 	case lexer.Lt, lexer.LtEq, lexer.Gt, lexer.GtEq:
 		if !Identical(x, y) {
 			c.errorAt(e, conversionHint(x, y), "can't compare %s with %s", x, y)
-		} else if x != Int && x != Float && x != String {
-			c.errorAt(e, "", "values of type %s can't be ordered with %s", x, op)
+		} else if !ordered(x) {
+			hint := ""
+			if tp, ok := x.(*TypeParam); ok {
+				hint = fmt.Sprintf("require it: <%s: Comparable>", tp.Name)
+			}
+			c.errorAt(e, hint, "values of type %s can't be ordered with %s", x, op)
 		}
 		return Bool
 	}
@@ -430,10 +445,21 @@ func wrapping(k lexer.Kind) bool {
 	return false
 }
 
+// Reports whether values of type [t] can be ordered with `<`.
+func ordered(t Type) bool {
+	if tp, ok := t.(*TypeParam); ok {
+		return tp.Has("Comparable")
+	}
+	return t == Int || t == Float || t == String
+}
+
 // Reports whether values of type [t] can be compared with `==`.
 func comparable(t Type) bool {
-	if e, ok := t.(*Enum); ok {
-		return e.Simple()
+	switch t := t.(type) {
+	case *Enum:
+		return t.Simple()
+	case *TypeParam:
+		return t.Has("Equatable")
 	}
 	return t == Int || t == Float || t == Bool || t == String
 }

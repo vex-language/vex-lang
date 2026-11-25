@@ -46,6 +46,27 @@ type Map struct{ Key, Value Type }
 // Returns the type in source form, such as `[string: int]`.
 func (m *Map) String() string { return "[" + m.Key.String() + ": " + m.Value.String() + "]" }
 
+// A type parameter of a generic function or struct, as seen while its
+// body is checked. [Constraints] name what the type must support.
+type TypeParam struct {
+	Name        string
+	Constraints []string
+}
+
+// Returns the parameter's name.
+func (t *TypeParam) String() string { return t.Name }
+
+// Reports whether the parameter guarantees [constraint]. Comparable and
+// Hashable types can also be compared with `==`.
+func (t *TypeParam) Has(constraint string) bool {
+	for _, c := range t.Constraints {
+		if c == constraint || constraint == "Equatable" && (c == "Comparable" || c == "Hashable") {
+			return true
+		}
+	}
+	return false
+}
+
 // A function type such as `fn(int) -> bool`.
 type FuncType struct {
 	Params []Type
@@ -86,6 +107,17 @@ type Struct struct {
 	Fields  []*Field
 	Methods []*Func
 	Decl    *ast.StructDecl
+
+	// For an instance of a generic struct such as `Box<int>`: the generic
+	// struct's name and the type arguments. Name is then `Box<int>`.
+	Base string
+	Args []Type
+
+	generic *genericStruct
+
+	// Set for instances whose arguments are type parameters. They are only
+	// used while checking generic code and are never compiled.
+	abstract bool
 }
 
 // Returns the struct's name.
@@ -202,6 +234,10 @@ type Func struct {
 	Owner  *Struct
 	Enum   *Enum
 	Static bool
+
+	// The type arguments of an instance of a generic function, such as
+	// [int] for `first<int>`.
+	TypeArgs []Type
 }
 
 // Returns the signature, such as `fn add(a: int, b: int) -> int`.

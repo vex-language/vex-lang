@@ -438,6 +438,27 @@ func TestErrors(t *testing.T) {
 		name, decls, body string
 		pos, msg, hint    string
 	}{
+		// Generics.
+		{"unordered type parameter", "fn big<T>(a: T, b: T) -> bool => a > b", "", "1:34", "values of type T can't be ordered with >", "require it: <T: Comparable>"},
+		{"type parameter equality", "fn eq<T>(a: T, b: T) -> bool => a == b", "", "1:33", "values of type T can't be compared with ==", "require it: <T: Equatable>"},
+		{"type parameter arithmetic", "fn add<T>(a: T) -> T => a + 1", "", "1:25", "can't use '+' with T and int", ""},
+		{"unmet constraint", "fn max<T: Comparable>(a: T, b: T) -> T => a", "println(max([1], [2]))", "3:9", "max needs T to be Comparable, but [int] isn't", "Comparable types are int, float, string and type parameters that require Comparable"},
+		{"unmet constraint in type", "struct Set<T: Hashable> {\n    items: [T: bool]\n}", "let s: Set<float>? = nil", "5:12", "Set needs T to be Hashable, but float isn't", "Hashable types are int, string, bool and enums whose cases carry no values"},
+		{"type argument not inferred", "fn empty<T>() -> [T] => []", "let e = empty()", "3:9", "can't tell the type of T in this call to empty", "write it: empty<int>(...)"},
+		{"wrong type argument count", "fn id<T>(x: T) -> T => x", "println(id<int, int>(1))", "3:12", "id takes 1 type argument, found 2", ""},
+		{"generic type without arguments", "struct Box<T> {\n    v: T\n}", "let b: Box? = nil", "5:8", "Box is generic, so it needs type arguments", "write its type arguments, e.g. Box<int>"},
+		{"type arguments on plain type", "struct P {\n    v: int\n}", "let p: P<int>? = nil", "5:8", "'P' is not generic, so it takes no type arguments", ""},
+		{"type arguments on plain function", "fn f(x: int) {\n}", "f<int>(1)", "4:3", "'f' is not generic, so it takes no type arguments", "remove the <...>"},
+		{"unknown constraint", "fn f<T: Sortable>(x: T) {\n}", "", "1:9", "unknown constraint 'Sortable'", "use Equatable (==), Comparable (< >) or Hashable (map keys)"},
+		{"misspelled constraint", "fn f<T: Comparble>(x: T) {\n}", "", "1:9", "unknown constraint 'Comparble'", "did you mean 'Comparable'?"},
+		{"generic function as value", "fn id<T>(x: T) -> T => x", "let g = id", "3:9", "generic function 'id' can't be used as a value", "wrap it in a closure, e.g. fn(x: int) => id(x)"},
+		{"method type parameters", "struct S {\n    fn m<T>(x: T) {\n    }\n}", "", "2:10", "methods can't have their own type parameters yet", "make it a top-level generic function"},
+		{"growing instances", "fn f<T>(x: T) {\n    f([x])\n}", "f(1)", "2:5", "generic 'f' is used with types nested too deeply", "make sure generic code doesn't call itself with ever larger types, such as [T], then [[T]]"},
+		{"duplicate type parameter", "fn f<T, T>(x: T) {\n}", "", "1:9", "type parameter 'T' is declared twice", ""},
+		{"generic name taken", "struct Box<T> {\n    v: T\n}\nfn Box() {\n}", "", "4:4", "'Box' is already declared as a struct on line 1", ""},
+		{"generic struct contains itself", "struct Node<T> {\n    next: Node<T>\n}", "", "2:11", "struct 'Node<T>' contains itself through field 'next', so it could never be created", "use a list instead, e.g. children: [Node<T>]"},
+		{"instance body type error", "fn f<T>(x: T) {\n    let y: int = x\n}", "f(1)", "2:18", "expected int, found T", ""},
+
 		// Maps.
 		{"float key", "", "let m: [float: int] = [:]", "2:9", "float can't be a map key", "use int, string, bool or an enum whose cases carry no values"},
 		{"optional value", "", "let m: [string: int?] = [:]", "2:17", "map values can't be optional, since a missing key already reads as nil", "remove the key instead of storing nil"},
@@ -646,5 +667,16 @@ func TestTourChecks(t *testing.T) {
 	}
 	if _, errs := check(t, string(src)); errs != nil {
 		t.Fatalf("tour.vx has type errors:\n%v", errs)
+	}
+}
+
+func TestGenericErrorsReportedOnce(t *testing.T) {
+	_, errs := check(t, "fn f<T>(x: T) -> int => x + 1\nfn main() {\n    f(1)\n    f(\"a\")\n    f([true])\n}\n")
+	if len(errs) != 1 {
+		t.Fatalf("got %d errors, want 1: %v", len(errs), errs)
+	}
+	_, errs = check(t, "fn main<T>() {\n}\n")
+	if len(errs) != 1 || errs[0].Message != "main can't be generic" {
+		t.Fatalf("got %v, want main can't be generic", errs)
 	}
 }
