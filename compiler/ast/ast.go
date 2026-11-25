@@ -204,6 +204,16 @@ type EnumDecl struct {
 	Consts     []*ConstDecl
 }
 
+// A type alias: `typedef Name = Type`, or with type parameters
+// `typedef Pair<T> = (T, T)`. It is another name for [Type].
+type TypeAliasDecl struct {
+	Span
+	Pub        bool
+	Name       *Ident
+	TypeParams []*TypeParam
+	Type       TypeExpr
+}
+
 // A constant: `const name: type = value` at the top level, or `static
 // const` inside a struct or enum. [Type] is nil when it is inferred.
 type ConstDecl struct {
@@ -242,6 +252,7 @@ func (*EnumDecl) declNode()       {}
 func (*InterfaceDecl) declNode()  {}
 func (*ExternTypeDecl) declNode() {}
 func (*ConstDecl) declNode()      {}
+func (*TypeAliasDecl) declNode()  {}
 
 // --- Types ---
 

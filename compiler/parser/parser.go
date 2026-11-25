@@ -194,7 +194,7 @@ func (p *parser) syncDecl() {
 			depth++
 		case lexer.RBrace:
 			depth--
-		case lexer.Fn, lexer.Async, lexer.Struct, lexer.Enum, lexer.Interface, lexer.Extern, lexer.Const, lexer.Pub:
+		case lexer.Fn, lexer.Async, lexer.Struct, lexer.Enum, lexer.Interface, lexer.Extern, lexer.Const, lexer.Typedef, lexer.Pub:
 			if depth <= 0 {
 				return
 			}
@@ -287,6 +287,9 @@ func (p *parser) decl() ast.Decl {
 		case *ast.ConstDecl:
 			d.Pub = true
 			return d
+		case *ast.TypeAliasDecl:
+			d.Pub = true
+			return d
 		}
 		return nil
 	}
@@ -306,6 +309,8 @@ func (p *parser) decl() ast.Decl {
 		}
 	case lexer.Const:
 		return p.constDecl()
+	case lexer.Typedef:
+		return p.typeAlias()
 	case lexer.Struct:
 		return p.structDecl()
 	case lexer.Enum:
@@ -1354,6 +1359,8 @@ func (p *parser) stmt() ast.Stmt {
 		p.fail(t, "declare it at the top level of the file", "structs can't be declared inside functions")
 	case lexer.Enum:
 		p.fail(t, "declare it at the top level of the file", "enums can't be declared inside functions")
+	case lexer.Typedef:
+		p.fail(t, "declare it at the top level of the file", "typedefs can't be declared inside functions")
 	case lexer.Else:
 		p.fail(t, "", "'else' without a matching 'if'")
 	case lexer.Ident:
@@ -2215,6 +2222,21 @@ func (p *parser) patternAhead() bool {
 		return next.Kind == lexer.LParen && next.Pos.Offset == p.tok().End
 	}
 	return false
+}
+
+// Parses `typedef Name<T> = Type`.
+func (p *parser) typeAlias() *ast.TypeAliasDecl {
+	start := p.next().Pos
+	d := &ast.TypeAliasDecl{Name: p.ident("a name for the type")}
+	d.TypeParams = p.typeParams()
+	if !p.at(lexer.Assign) {
+		p.fail(p.tok(), fmt.Sprintf("write typedef %s = the type it names, e.g. typedef %s = [string: int]", d.Name.Name, d.Name.Name), "expected '=' after the type's name, found %s", describe(p.tok()))
+	}
+	p.next()
+	d.Type = p.typeExpr()
+	d.Span = p.span(start)
+	p.endStmt()
+	return d
 }
 
 // Parses `const name: type = value`.

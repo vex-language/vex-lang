@@ -50,6 +50,7 @@ const (
 	Match
 	Static
 	Const
+	Typedef
 	Guard
 	True
 	False
@@ -133,6 +134,7 @@ var keywords = map[string]Kind{
 	"struct":    Struct,
 	"static":    Static,
 	"const":     Const,
+	"typedef":   Typedef,
 	"enum":      Enum,
 	"interface": Interface,
 	"import":    Import,

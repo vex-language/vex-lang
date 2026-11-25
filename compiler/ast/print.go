@@ -303,6 +303,12 @@ func build(n Node) *tree {
 			label = "pub " + label
 		}
 		return leaf(label)
+	case *TypeAliasDecl:
+		label := "typedef " + n.Name.Name + typeParamsString(n.TypeParams) + " = " + TypeString(n.Type)
+		if n.Pub {
+			label = "pub " + label
+		}
+		return leaf(label)
 	case *ConstDecl:
 		label := "const " + n.Name.Name
 		if n.Type != nil {
