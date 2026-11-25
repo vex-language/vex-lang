@@ -659,7 +659,7 @@ for (name, score) in [("ann", 3), ("bob", 5)] {
 - Records are values. Two records are equal with `==` when their fields are, and the order of named fields doesn't matter: `(a: 1, b: 2) == (b: 2, a: 1)`.
 - The type is the shape: any `(int, string)` is the same type as any other, with no declaration.
 - Fields can't be changed; make a new record instead.
-- A pattern names every field of the record, using `_` for the ones it doesn't need. Patterns in `match` and nested patterns come later (V-137).
+- A pattern names every field of the record, using `_` for the ones it doesn't need. Patterns nest, and work in `match` and `if case` too (see [Patterns](#patterns)).
 - Records print like their values, with named fields in alphabetical order: `(3, color: Color.green, name: "vex")`.
 - Records work with generics (`fn swap<A, B>(p: (A, B)) -> (B, A)`), optionals, lists, `contains`, and isolates. They can't be map keys yet.
 
@@ -748,7 +748,7 @@ println(a.area(), b)                         // 12.56 Shape.rect(width: 2.0, hei
 - Enum values never change after they are created.
 - `==` and `!=` work on enums whose cases carry no values, like `Light`.
 
-**match** picks the first arm whose pattern fits and runs it. It works on enums, `int`, `bool` and `string`.
+**match** picks the first arm whose pattern fits and runs it. It works on any value: enums, numbers, `bool`, `string`, records, structs and lists.
 
 ```swift
 match shape {
@@ -766,10 +766,75 @@ let message = match code {             // a match can be a value
 }
 ```
 
-- A match must handle every case, or end with `_`. On `int` and `string` it always needs `_`.
-- Bindings follow the order of the case's values: `rect(w, h)`.
+- A match must handle every case, or end with `_`. On `int`, `float` and `string` it always needs `_`.
+- Bindings follow the order of the case's values, `rect(w, h)`, or name them: `rect(height: h)`.
 - Used as a value, every arm needs an expression of the same type; an arm that calls `panic(...)` is allowed too.
 - Used as a statement, an arm can be a block or a single statement like `return`, `break` or `count += 1`.
+
+## Patterns
+
+Patterns test a value's shape and take it apart in one step. They nest anywhere, and work in `match` arms, `if case`, `let`, `var` and `for`.
+
+```swift
+let grade = match score {
+    90..=100 => "A"                    // ranges, like in for loops
+    80..90 => "B"
+    > 100 => "bonus"                   // comparisons
+    _ => "C"
+}
+
+match code {
+    200 || 201 || 204 => "ok"          // alternatives
+    _ => "fail"
+}
+
+match p {
+    Point(x: 0, y: 0) => "origin"      // struct patterns name their fields
+    Point(x: 0, :y) => "on y at {y}"   // :y binds the field y
+    Point(:x, :y) when x == y => "diagonal"
+    _ => "elsewhere"
+}
+
+match xs {
+    [] => "empty"
+    [one] => "just {one}"
+    [first, ...rest] => "{first} then {rest.len} more"
+}
+
+match shape {
+    circle(Point(x: 0, y: 0), r) => "centred"
+    circle(radius: r) when r > 10 => "big"   // when adds a condition
+    _ => "other"
+}
+
+if shape case circle(r) when r > 1 {       // test one pattern
+    println("radius {r}")
+}
+
+let ((a, b), Point(:x, :y)) = (pair, point)
+for Point(:x, :y) in points {
+    println(x + y)
+}
+```
+
+| Pattern | Matches |
+|---|---|
+| `_` | anything |
+| `name` | anything, bound to `name`; an enum case such as `empty` when the value is that enum |
+| `0`, `-1.5`, `"yes"`, `true` | that value |
+| `1..=9`, `0..10` | an `int` or `float` in the range |
+| `> 100`, `<= 0` | an `int`, `float` or `string` that compares so |
+| `circle(r)`, `rect(height: h)` | that enum case, its values matching the inner patterns |
+| `Point(x: 0, :y)` | a struct whose named fields match; others are ignored |
+| `(a, b)`, `(:min, max: _)` | a record, every field given |
+| `[a, b]`, `[first, ...rest]`, `[..., last]` | a list of that length, or at least that long with `...` |
+| `a \|\| b` | either pattern; each binds the same names |
+
+- A match must cover every value, nested shapes included: the compiler names what's missing, such as `match doesn't handle '(_, false)'`. Arms with `when` don't count toward that.
+- An arm that earlier arms already cover is an error.
+- `let`, `var` and `for` patterns must match every value; use `match` or `if case` for ones that can fail.
+- Names bound by `match` and `if case` can't be changed; `var` patterns make changeable variables.
+- `...rest` copies the remaining elements into a new list.
 
 ## Errors
 

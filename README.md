@@ -397,7 +397,7 @@ Column(spacing: 12) {                          // children: [View]
 }
 ```
 
-**Enums and match.** Lowercase cases that can carry values, read with an exhaustive `match`.
+**Enums and match.** Lowercase cases that can carry values, read with an exhaustive `match` whose patterns nest, take guards, ranges and alternatives, and work on records, structs and lists too.
 
 ```swift
 enum Shape {
@@ -494,7 +494,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, builder blocks, properties, standard library | In progress: 27 of 49 tasks; next are patterns, constants and extensions |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, builder blocks, properties, standard library | In progress: 28 of 49 tasks; next are constants, extensions and type aliases |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |
