@@ -824,3 +824,41 @@ func TestAsync(t *testing.T) {
 		}
 	}
 }
+
+func TestRecords(t *testing.T) {
+	cases := []struct{ src, want string }{
+		{"let r = (1, 2)", "(let r (record 1 2))"},
+		{"let r = (1,)", "(let r (record 1))"},
+		{"let r = (1)", "(let r 1)"},
+		{"let r = (x: 1, y: 2)", "(let r (record (x: 1) (y: 2)))"},
+		{"let r = (1, name: \"a\")", `(let r (record 1 (name: "a")))`},
+		{"f(r.$1, r.x)", "(call f (. r $1) (. r x))"},
+		{"let (a, b) = f()", "(let (a, b) (call f))"},
+		{"var (min: lo, max: _) = f()", "(var (min: lo, max: _) (call f))"},
+		{"let (:min, :max) = f()", "(let (:min, :max) (call f))"},
+		{"for (k, v) in xs { g(k) }", "(for (k, v) xs (block (call g k)))"},
+		{"for i, (k, v) in xs { g(k) }", "(for i, (k, v) xs (block (call g k)))"},
+	}
+	for _, c := range cases {
+		got := body(t, c.src)
+		want := "(block " + c.want + ")"
+		if got != want {
+			t.Errorf("%s\n got: %s\nwant: %s", c.src, got, want)
+		}
+	}
+	for src, want := range map[string]string{
+		"fn f() -> (int, string) {}":        "(int, string)",
+		"fn f() -> ({int x, int y}) {}":     "({int x, int y})",
+		"fn f() -> (int, {string name}) {}": "(int, {string name})",
+		"fn f() -> (int,) {}":               "(int,)",
+		"fn f() -> (int) {}":                "int",
+	} {
+		f, errs := parse(t, src)
+		if errs != nil {
+			t.Fatalf("%s: %v", src, errs)
+		}
+		if got := ast.TypeString(f.Decls[0].(*ast.FuncDecl).Result); got != want {
+			t.Errorf("%s: got %s, want %s", src, got, want)
+		}
+	}
+}

@@ -69,6 +69,22 @@ func TypeString(t TypeExpr) string {
 		return t.typeString()
 	case *ListType:
 		return "[" + TypeString(t.Elem) + "]"
+	case *RecordType:
+		var parts []string
+		for _, p := range t.Positional {
+			parts = append(parts, TypeString(p))
+		}
+		if len(t.Named) > 0 {
+			named := make([]string, len(t.Named))
+			for i, f := range t.Named {
+				named[i] = TypeString(f.Type) + " " + f.Name.Name
+			}
+			parts = append(parts, "{"+strings.Join(named, ", ")+"}")
+		}
+		if len(t.Positional) == 1 && len(t.Named) == 0 {
+			return "(" + parts[0] + ",)"
+		}
+		return "(" + strings.Join(parts, ", ") + ")"
 	case *MapType:
 		return "[" + TypeString(t.Key) + ": " + TypeString(t.Value) + "]"
 	case *OptionalType:
@@ -301,7 +317,11 @@ func build(n Node) *tree {
 		if n.Mutable {
 			label = "var "
 		}
-		label += n.Name.Name
+		if n.Pattern != nil {
+			label += RecordPatternString(n.Pattern)
+		} else {
+			label += n.Name.Name
+		}
 		if n.Type != nil {
 			label += ": " + TypeString(n.Type)
 		}
@@ -327,9 +347,13 @@ func build(n Node) *tree {
 		}
 		return branch("while", buildExpr(n.Cond), build(n.Body))
 	case *ForStmt:
-		label := "for " + n.Elem.Name
+		elem := n.Elem.Name
+		if n.Pattern != nil {
+			elem = RecordPatternString(n.Pattern)
+		}
+		label := "for " + elem
 		if n.Index != nil {
-			label = "for " + n.Index.Name + ", " + n.Elem.Name
+			label = "for " + n.Index.Name + ", " + elem
 		}
 		return branch(label, buildExpr(n.Iter), build(n.Body))
 	case *ReturnStmt:
@@ -402,6 +426,16 @@ func buildExpr(e Expr) *tree {
 			label = "...?"
 		}
 		return branch(label, buildExpr(e.X))
+	case *RecordLit:
+		t := branch("record")
+		for _, a := range e.Fields {
+			if a.Name != nil {
+				t.kids = append(t.kids, branch(a.Name.Name+":", buildExpr(a.Value)))
+			} else {
+				t.kids = append(t.kids, buildExpr(a.Value))
+			}
+		}
+		return t
 	case *ListLit:
 		t := branch("list")
 		if e.Body != nil {
@@ -495,4 +529,23 @@ func interfacesString(ifaces []*NamedType) string {
 		s += sep + TypeString(id)
 	}
 	return s
+}
+
+// Returns a record pattern in source form, such as `(a, max: _)`.
+func RecordPatternString(p *RecordPattern) string {
+	parts := make([]string, len(p.Fields))
+	for i, f := range p.Fields {
+		switch {
+		case f.Name == nil:
+			parts[i] = f.Bind.Name
+		case f.Name.Name == f.Bind.Name:
+			parts[i] = ":" + f.Name.Name
+		default:
+			parts[i] = f.Name.Name + ": " + f.Bind.Name
+		}
+	}
+	if len(parts) == 1 && p.Fields[0].Name == nil {
+		return "(" + parts[0] + ",)"
+	}
+	return "(" + strings.Join(parts, ", ") + ")"
 }
