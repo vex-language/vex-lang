@@ -29,9 +29,41 @@ type Project struct {
 }
 
 var (
-	cLib   = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.+-]*$`)
-	cFlags = []string{"-D", "-U", "-I", "-L", "-O", "-f", "-W", "-m", "-std="}
+	cLib = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_.+-]*$`)
+
+	// The forms each allowed C compiler flag may take. None can load code
+	// into the compiler, pass options on to other tools, or write files.
+	cFlagForms = []*regexp.Regexp{
+		regexp.MustCompile(`^-D[A-Za-z_][A-Za-z0-9_]*(=.*)?$`),
+		regexp.MustCompile(`^-U[A-Za-z_][A-Za-z0-9_]*$`),
+		regexp.MustCompile(`^-O([0-3sz]|fast)$`),
+		regexp.MustCompile(`^-f(no-)?[a-z0-9][a-z0-9-]*$`),
+		regexp.MustCompile(`^-f(visibility=(default|hidden)|sanitize=[a-z,-]+|fp-contract=(on|off|fast))$`),
+		regexp.MustCompile(`^-W(no-)?[a-z0-9][a-z0-9=+-]*$`),
+		regexp.MustCompile(`^-m[a-z0-9][a-z0-9.=-]*$`),
+		regexp.MustCompile(`^-std=[a-z0-9+]+$`),
+	}
+
+	// Flags of an allowed form that still load code or write files.
+	cFlagsDenied = regexp.MustCompile(`^-f(no-)?(plugin|pass-plugin|load|crash|save|record|profile|coverage|dump|debug|modules-cache|diagnostics-|time-trace)`)
 )
+
+// Reports whether [flag] may be passed to the C compiler.
+func cFlagAllowed(flag string) bool {
+	if strings.HasPrefix(flag, "-I") || strings.HasPrefix(flag, "-L") {
+		dir := flag[2:]
+		return dir != "" && !path.IsAbs(dir) && !strings.Contains(dir, "\\") && !strings.HasPrefix(path.Clean(dir), "..")
+	}
+	if cFlagsDenied.MatchString(flag) {
+		return false
+	}
+	for _, form := range cFlagForms {
+		if form.MatchString(flag) {
+			return true
+		}
+	}
+	return false
+}
 
 // Parses a project file: `[section]` headers and `key = value` lines,
 // where a value is a string in quotes or a list of them, with `#`
@@ -125,12 +157,8 @@ func ParseProject(f *diag.File) (*Project, diag.List) {
 						fail(vcol, 1, `name the library without -l, e.g. "z" for libz`, "'%s' isn't a library name", item)
 					}
 				case "flags":
-					allowed := false
-					for _, p := range cFlags {
-						allowed = allowed || strings.HasPrefix(item, p) && len(item) > len(p)
-					}
-					if !allowed {
-						fail(vcol, 1, "allowed flags start with -D, -U, -I, -L, -O, -f, -W, -m or -std=", "flag '%s' isn't allowed", item)
+					if !cFlagAllowed(item) {
+						fail(vcol, 1, "allowed are -D, -U, -O, -std=, warning -W flags, -f and -m options, and -I or -L folders inside the project", "flag '%s' isn't allowed", item)
 					}
 				}
 			}
