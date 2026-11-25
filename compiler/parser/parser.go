@@ -1125,8 +1125,20 @@ func (p *parser) stmt() ast.Stmt {
 		return p.ifStmt()
 	case lexer.While:
 		p.next()
+		var bind *ast.Ident
+		if p.at(lexer.Let) || p.at(lexer.Var) {
+			if p.at(lexer.Var) {
+				p.errorAt(p.tok(), "write while let; copy it into a var inside the block", "'while var' isn't supported")
+			}
+			p.next()
+			bind = p.ident("a name after 'while let'")
+			if !p.at(lexer.Assign) {
+				p.fail(p.tok(), fmt.Sprintf("write while let %s = optionalValue { ... }", bind.Name), "expected '=' after 'while let %s', found %s", bind.Name, describe(p.tok()))
+			}
+			p.next()
+		}
 		cond := p.header("while")
-		return &ast.WhileStmt{Cond: cond, Body: p.block(), Span: p.span(t.Pos)}
+		return &ast.WhileStmt{Cond: cond, Body: p.block(), Bind: bind, Span: p.span(t.Pos)}
 	case lexer.For:
 		return p.forStmt()
 	case lexer.Guard:

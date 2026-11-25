@@ -2,6 +2,7 @@
 
 #include <errno.h>
 #include <inttypes.h>
+#include <pthread.h>
 #include <math.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -18,6 +19,9 @@
 #include <sys/stat.h>
 #include <sys/wait.h>
 #include <unistd.h>
+
+// Runtime state is per thread, so each isolate has its own heap and loop.
+#define VX_TLS _Thread_local
 
 // An immutable UTF-8 string. [ptr] is not NUL-terminated.
 typedef struct {
@@ -100,28 +104,65 @@ typedef struct {
     uint32_t mark;
 } vx_large;
 
-static vx_page **vx_pages;          // every page
-static size_t vx_pages_len, vx_pages_cap;
-static vx_page **vx_page_table;     // open-addressing map from page number to page
-static size_t vx_page_table_cap;
-static void *vx_free[2][VX_CLASSES]; // free objects by atomic flag and class
-static vx_large **vx_larges;        // every large object; sorted during a collection
-static size_t vx_larges_len, vx_larges_cap;
+typedef struct {
+    char *ptr;
+    size_t size;
+} vx_span;
 
-static uintptr_t vx_lo = UINTPTR_MAX, vx_hi; // bounds of all objects
-static size_t vx_heap_bytes;        // bytes in objects, live or not
-static size_t vx_gc_next = 4 << 20; // collect once vx_heap_bytes passes this
-static char *vx_stack_base;
+// The heap of one thread. It is a single thread-local struct, rather than
+// one variable per field, so that an allocation looks up thread-local
+// storage once.
+typedef struct {
+    void *free[2][VX_CLASSES]; // free objects by atomic flag and class
+    size_t heap_bytes;         // bytes in objects, live or not
+    size_t gc_next;            // collect once heap_bytes passes this
+    size_t gc_countdown;
+    size_t gc_total, gc_peak, gc_count;
+    uintptr_t lo, hi;          // bounds of all objects
+    vx_page **pages;           // every page
+    size_t pages_len, pages_cap;
+    vx_page **page_table;      // open-addressing map from page number to page
+    size_t page_table_cap;
+    vx_large **larges;         // every large object; sorted during a collection
+    size_t larges_len, larges_cap;
+    vx_span *gray;             // objects marked but not yet scanned
+    size_t gray_len, gray_cap;
+} vx_heap;
+
+static VX_TLS vx_heap vx_h = {.gc_next = 4 << 20, .lo = UINTPTR_MAX};
+
+#define vx_free vx_h.free
+#define vx_heap_bytes vx_h.heap_bytes
+#define vx_gc_next vx_h.gc_next
+#define vx_gc_countdown vx_h.gc_countdown
+#define vx_gc_total vx_h.gc_total
+#define vx_gc_peak vx_h.gc_peak
+#define vx_gc_count vx_h.gc_count
+#define vx_lo vx_h.lo
+#define vx_hi vx_h.hi
+#define vx_pages vx_h.pages
+#define vx_pages_len vx_h.pages_len
+#define vx_pages_cap vx_h.pages_cap
+#define vx_page_table vx_h.page_table
+#define vx_page_table_cap vx_h.page_table_cap
+#define vx_larges vx_h.larges
+#define vx_larges_len vx_h.larges_len
+#define vx_larges_cap vx_h.larges_cap
+#define vx_gray vx_h.gray
+#define vx_gray_len vx_h.gray_len
+#define vx_gray_cap vx_h.gray_cap
+
+static VX_TLS char *vx_stack_base;
 
 // The entries of the folder read by the last vx_fs_list_open, sorted. The
 // collector marks them, since only the stack is scanned otherwise.
-static char **vx_fs_entries;
-static int64_t vx_fs_entry_count;
+static VX_TLS char **vx_fs_entries;
+static VX_TLS int64_t vx_fs_entry_count;
 
 // Closures handed to C as callback contexts. They stay alive, since C
 // may keep them, until C passes the context to vex_release.
-static void **vx_kept;
-static size_t vx_kept_len, vx_kept_cap;
+static VX_TLS void **vx_kept;
+static VX_TLS size_t vx_kept_len, vx_kept_cap;
 
 // A task: async work running on its own stack. The program's own stack
 // is the main task. A task that isn't running keeps its registers on its
@@ -142,22 +183,13 @@ struct vx_task {
     size_t asan_size;
 };
 
-static vx_task vx_main_task;
-static vx_task *vx_cur = &vx_main_task;
-static vx_task **vx_tasks;          // every task that has started and not finished
-static size_t vx_tasks_len, vx_tasks_cap;
+static VX_TLS vx_task vx_main_task;
+static VX_TLS vx_task *vx_cur;
+static VX_TLS vx_task **vx_tasks;          // every task that has started and not finished
+static VX_TLS size_t vx_tasks_len, vx_tasks_cap;
 
-typedef struct {
-    char *ptr;
-    size_t size;
-} vx_span;
-
-static vx_span *vx_gray;            // objects marked but not yet scanned
-static size_t vx_gray_len, vx_gray_cap;
 
 static size_t vx_gc_stress;         // VEX_GC_STRESS=N: collect every N allocations
-static size_t vx_gc_countdown;
-static size_t vx_gc_count, vx_gc_total, vx_gc_peak;
 
 __attribute__((noreturn))
 static void vx_out_of_memory(void) {
@@ -438,16 +470,24 @@ static void vx_gc_report(void) {
         vx_gc_count, vx_gc_total / 1024, vx_gc_peak / 1024, vx_heap_bytes / 1024);
 }
 
-// Starts the collector; [base] is the top of the stack to scan.
-static void vx_gc_init(void *base) {
+// Starts the collector of the running thread; [base] is the top of the
+// stack to scan.
+static void vx_gc_thread_init(void *base) {
     vx_stack_base = base;
     vx_main_task.top = base;
+    vx_cur = &vx_main_task;
+    vx_gc_countdown = vx_gc_stress;
+}
+
+// Starts the collector; [base] is the top of the stack to scan.
+static void vx_gc_init(void *base) {
     for (int c = 0, i = 0; i <= VX_SMALL_MAX / 16; i++) {
         while (vx_class_size[c] < (uint32_t)i * 16) c++;
         vx_class_of[i] = (uint8_t)c;
     }
     const char *stress = getenv("VEX_GC_STRESS");
-    if (stress) vx_gc_stress = vx_gc_countdown = (size_t)strtoull(stress, NULL, 10);
+    if (stress) vx_gc_stress = (size_t)strtoull(stress, NULL, 10);
+    vx_gc_thread_init(base);
     const char *stats = getenv("VEX_GC_STATS");
     if (stats && *stats && strcmp(stats, "0") != 0) atexit(vx_gc_report);
 }
@@ -457,8 +497,8 @@ static void vx_gc_init(void *base) {
 // The structs being printed, so one that refers back to itself prints as
 // Name(...) instead of recursing forever. An open-addressing set: entries
 // are added and removed in stack order while printing nests.
-static const void **vx_repr_set;
-static size_t vx_repr_cap, vx_repr_count;
+static VX_TLS const void **vx_repr_set;
+static VX_TLS size_t vx_repr_cap, vx_repr_count;
 
 static bool vx_repr_enter(const void *p) {
     if ((vx_repr_count + 1) * 2 > vx_repr_cap) {
@@ -507,16 +547,15 @@ static void vx_repr_leave(const void *p) {
 
 // --- Startup ---
 
-static size_t vx_stack_limit;
-static char vx_signal_stack[64 * 1024];
+static VX_TLS size_t vx_stack_limit;
 
 // Turns a crash just below the stack into a readable error: it means the
 // program ran out of stack, almost always through endless recursion.
 static void vx_on_fault(int sig, siginfo_t *info, void *ctx) {
     (void)ctx;
     uintptr_t addr = (uintptr_t)info->si_addr, base = (uintptr_t)vx_stack_base;
-    bool task_guard = vx_cur->stack && addr >= (uintptr_t)vx_cur->stack && addr < (uintptr_t)vx_cur->stack + (size_t)getpagesize();
-    if (task_guard || (vx_cur == &vx_main_task && addr < base && base - addr <= vx_stack_limit + ((size_t)1 << 20))) {
+    bool task_guard = vx_cur && vx_cur->stack && addr >= (uintptr_t)vx_cur->stack && addr < (uintptr_t)vx_cur->stack + (size_t)getpagesize();
+    if (task_guard || ((!vx_cur || vx_cur == &vx_main_task) && addr < base && base - addr <= vx_stack_limit + ((size_t)1 << 20))) {
         fflush(stdout);
         static const char msg[] = "error: stack overflow: too many nested function calls, "
                                   "probably a function that calls itself without stopping\n";
@@ -528,12 +567,25 @@ static void vx_on_fault(int sig, siginfo_t *info, void *ctx) {
     signal(sig, SIG_DFL);
 }
 
+// Gives the running thread a stack for the fault handler, since the
+// faulting stack has no room left. Returns it, for freeing when the thread
+// ends, and stores the one it replaces in [old].
+static void *vx_signal_stack(stack_t *old) {
+    size_t n = 64 * 1024;
+    void *p = malloc(n);
+    stack_t ss = {.ss_sp = p, .ss_size = n};
+    if (!p || sigaltstack(&ss, old) != 0) {
+        free(p);
+        return NULL;
+    }
+    return p;
+}
+
 static void vx_catch_stack_overflow(void) {
     struct rlimit rl;
     vx_stack_limit = getrlimit(RLIMIT_STACK, &rl) == 0 && rl.rlim_cur != RLIM_INFINITY
         ? (size_t)rl.rlim_cur : (size_t)1 << 30;
-    stack_t ss = {.ss_sp = vx_signal_stack, .ss_size = sizeof(vx_signal_stack)};
-    if (sigaltstack(&ss, NULL) != 0) return;
+    if (!vx_signal_stack(NULL)) return;
     struct sigaction sa;
     memset(&sa, 0, sizeof(sa));
     sa.sa_sigaction = vx_on_fault;
@@ -544,9 +596,12 @@ static void vx_catch_stack_overflow(void) {
 }
 
 // Prepares the runtime; [base] is the top of the stack.
+static void vx_inbox_init(void);
+
 static void vx_init(void *base) {
     vx_gc_init(base);
     vx_catch_stack_overflow();
+    vx_inbox_init();
 }
 
 // --- Strings ---
@@ -1288,7 +1343,7 @@ static void vx_assert(bool cond, vx_str msg, int line) {
 // Helpers behind vex:fs and vex:os. Functions that can fail return NULL,
 // false or -1 and keep errno for vx_os_error.
 
-static int vx_errno;
+static VX_TLS int vx_errno;
 static int vx_argc;
 static char **vx_argv;
 
@@ -1551,8 +1606,8 @@ void __asan_unpoison_memory_region(const volatile void *addr, size_t size);
 #define VX_TASK_STACK ((size_t)256 << 10)
 
 // Stacks of finished tasks, kept for new ones.
-static char *vx_spare_stacks[64];
-static int vx_spare_len;
+static VX_TLS char *vx_spare_stacks[64];
+static VX_TLS int vx_spare_len;
 
 // Switches from the running task to [to], which runs until it switches
 // back. [ending] is set when the running task has finished.
@@ -1672,7 +1727,7 @@ static vx_future *vx_future_new(int64_t size) {
 }
 
 // Tasks ready to run, in order.
-static vx_task *vx_ready_head, *vx_ready_tail;
+static VX_TLS vx_task *vx_ready_head, *vx_ready_tail;
 
 static void vx_ready(vx_task *t) {
     t->next = NULL;
@@ -1738,9 +1793,9 @@ typedef struct {
     vx_future *future;
 } vx_timer;
 
-static vx_timer *vx_timers;
-static size_t vx_timers_len, vx_timers_cap;
-static uint64_t vx_timer_seq;
+static VX_TLS vx_timer *vx_timers;
+static VX_TLS size_t vx_timers_len, vx_timers_cap;
+static VX_TLS uint64_t vx_timer_seq;
 
 static bool vx_timer_before(const vx_timer *a, const vx_timer *b) {
     return a->at < b->at || (a->at == b->at && a->seq < b->seq);
@@ -1771,8 +1826,28 @@ static vx_timer vx_timer_pop(void) {
     return top;
 }
 
+// Futures waiting for a message from another isolate. They are kept
+// alive until it arrives.
+static VX_TLS vx_future **vx_remote;
+static VX_TLS size_t vx_remote_len, vx_remote_cap;
+
+static void vx_remote_add(vx_future *f) {
+    if (vx_remote_len == vx_remote_cap) vx_remote = vx_grow(vx_remote, &vx_remote_cap, sizeof(vx_future *));
+    vx_remote[vx_remote_len++] = f;
+}
+
+static void vx_remote_remove(vx_future *f) {
+    for (size_t i = 0; i < vx_remote_len; i++) {
+        if (vx_remote[i] == f) {
+            vx_remote[i] = vx_remote[--vx_remote_len];
+            return;
+        }
+    }
+}
+
 static void vx_async_mark(void) {
     if (vx_timers) vx_mark_range((const char *)vx_timers, (const char *)(vx_timers + vx_timers_len));
+    if (vx_remote) vx_mark_range((const char *)vx_remote, (const char *)(vx_remote + vx_remote_len));
 }
 
 // Returns a future that completes after [ms] milliseconds.
@@ -1782,6 +1857,8 @@ static vx_future *vx_sleep(int64_t ms) {
     return f;
 }
 
+static bool vx_drain(void);
+
 // Runs every task that is ready, and completes the timers that are due,
 // until nothing more can run now. Returns the milliseconds until the next
 // timer, or -1 when nothing is pending. Platform code with its own run
@@ -1789,6 +1866,7 @@ static vx_future *vx_sleep(int64_t ms) {
 static int64_t vx_poll(void) {
     if (vx_cur != &vx_main_task) return 0;
     for (;;) {
+        vx_drain();
         int64_t now = vx_time_ns();
         while (vx_timers_len > 0 && vx_timers[0].at <= now) vx_future_settle(vx_timer_pop().future, 1);
         if (!vx_ready_head) break;
@@ -1797,21 +1875,15 @@ static int64_t vx_poll(void) {
         if (!vx_ready_head) vx_ready_tail = NULL;
         vx_resume(t);
     }
-    if (vx_timers_len == 0) return -1;
+    // While only other isolates can wake it, ask to be polled again soon.
+    if (vx_timers_len == 0) return vx_remote_len > 0 ? 10 : -1;
     int64_t wait = vx_timers[0].at - vx_time_ns();
     return wait <= 0 ? 0 : (wait + 999999) / 1000000;
 }
 
 int64_t vex_poll(void) { return vx_poll(); }
 
-// Sleeps until the next timer is due, after vx_poll found nothing to run.
-static void vx_idle(void) {
-    int64_t wait = vx_timers[0].at - vx_time_ns();
-    if (wait > 0) {
-        struct timespec ts = {(time_t)(wait / 1000000000), (long)(wait % 1000000000)};
-        nanosleep(&ts, NULL);
-    }
-}
+static void vx_idle(void);
 
 // Runs tasks and timers until nothing is pending.
 static void vx_loop(void) {
@@ -1885,4 +1957,438 @@ static vx_future *vx_any(vx_list *futures, int64_t esz) {
         vx_go(vx_any_task, a);
     }
     return result;
+}
+
+// --- Isolates ---
+//
+// An isolate is a thread with its own heap, collector and event loop, so
+// none of them need locks. Values pass between isolates as messages: the
+// sender encodes them into bytes, and the receiver decodes them into its
+// own heap.
+
+// A message being encoded. Objects sent before in the same message are
+// written as back references, so sharing and cycles survive the copy.
+typedef struct {
+    char *buf;
+    size_t len, cap;
+    struct { const void *p; int64_t id; } *seen;
+    size_t seen_len, seen_cap;
+} vx_enc;
+
+static void vx_enc_put(vx_enc *e, const void *p, size_t n) {
+    if (e->len + n > e->cap) {
+        e->cap = e->cap * 2 > e->len + n ? e->cap * 2 : e->len + n + 64;
+        e->buf = realloc(e->buf, e->cap);
+        if (!e->buf) vx_out_of_memory();
+    }
+    memcpy(e->buf + e->len, p, n);
+    e->len += n;
+}
+
+static void vx_enc_i64(vx_enc *e, int64_t v) { vx_enc_put(e, &v, 8); }
+
+static void vx_enc_str(vx_enc *e, vx_str s) {
+    vx_enc_i64(e, s.len);
+    vx_enc_put(e, s.ptr, (size_t)s.len);
+}
+
+// Writes a reference to object [p] and returns true when it was sent
+// before; otherwise writes 0, remembers it, and returns false, so the
+// caller writes its contents.
+static bool vx_enc_ref(vx_enc *e, const void *p) {
+    if ((e->seen_len + 1) * 2 > e->seen_cap) {
+        size_t old_cap = e->seen_cap;
+        void *old = e->seen;
+        e->seen_cap = old_cap ? old_cap * 2 : 64;
+        e->seen = calloc(e->seen_cap, sizeof(*e->seen));
+        if (!e->seen) vx_out_of_memory();
+        for (size_t i = 0; i < old_cap; i++) {
+            const void *q = ((__typeof__(e->seen))old)[i].p;
+            if (!q) continue;
+            size_t j = (size_t)vx_mix((uint64_t)(uintptr_t)q) & (e->seen_cap - 1);
+            while (e->seen[j].p) j = (j + 1) & (e->seen_cap - 1);
+            e->seen[j] = ((__typeof__(e->seen))old)[i];
+        }
+        free(old);
+    }
+    size_t j = (size_t)vx_mix((uint64_t)(uintptr_t)p) & (e->seen_cap - 1);
+    for (; e->seen[j].p; j = (j + 1) & (e->seen_cap - 1)) {
+        if (e->seen[j].p == p) {
+            vx_enc_i64(e, e->seen[j].id);
+            return true;
+        }
+    }
+    e->seen[j].p = p;
+    e->seen[j].id = (int64_t)++e->seen_len;
+    vx_enc_i64(e, 0);
+    return false;
+}
+
+// Ends encoding and returns the message, which the caller frees.
+static char *vx_enc_done(vx_enc *e) {
+    free(e->seen);
+    return e->buf ? e->buf : calloc(1, 1);
+}
+
+// A message being decoded. [objs] lists the objects made so far, for back
+// references; it is in the collected heap, reachable from the stack.
+typedef struct {
+    const char *p;
+    void **objs;
+    int64_t len, cap;
+} vx_dec;
+
+static void vx_dec_get(vx_dec *d, void *out, size_t n) {
+    memcpy(out, d->p, n);
+    d->p += n;
+}
+
+static int64_t vx_dec_i64(vx_dec *d) {
+    int64_t v;
+    vx_dec_get(d, &v, 8);
+    return v;
+}
+
+static vx_str vx_dec_str(vx_dec *d) {
+    int64_t n = vx_dec_i64(d);
+    vx_str s = vx_str_new(d->p, n);
+    d->p += n;
+    return s;
+}
+
+// Returns the object a back reference names, or NULL when a new object
+// follows.
+static void *vx_dec_ref(vx_dec *d) {
+    int64_t id = vx_dec_i64(d);
+    return id ? d->objs[id - 1] : NULL;
+}
+
+// Records the new object [o], before its contents are decoded.
+static void vx_dec_obj(vx_dec *d, void *o) {
+    if (d->len == d->cap) {
+        int64_t cap = d->cap ? d->cap * 2 : 16;
+        void **objs = vx_alloc((size_t)cap * sizeof(void *));
+        if (d->len) memcpy(objs, d->objs, (size_t)d->len * sizeof(void *));
+        d->objs = objs;
+        d->cap = cap;
+    }
+    d->objs[d->len++] = o;
+}
+
+// A message to an isolate: what completes future [f]. [fill] decodes
+// [buf] into the future's value, or into its error when [failed]; with no
+// [buf] the value is all zero, which is nil for an optional.
+typedef struct vx_msg {
+    struct vx_msg *next;
+    vx_future *f;
+    char *buf;
+    void (*fill)(const char *, void *);
+    bool failed;
+} vx_msg;
+
+typedef struct {
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+    vx_msg *head, *tail;
+} vx_inbox;
+
+// The inbox of the running isolate.
+static VX_TLS vx_inbox *vx_self;
+
+static vx_inbox *vx_inbox_new(void) {
+    vx_inbox *in = calloc(1, sizeof(vx_inbox));
+    if (!in) vx_out_of_memory();
+    pthread_mutex_init(&in->mu, NULL);
+    pthread_cond_init(&in->cv, NULL);
+    return in;
+}
+
+static void vx_inbox_init(void) { vx_self = vx_inbox_new(); }
+
+static void vx_post(vx_inbox *to, vx_future *f, char *buf, void (*fill)(const char *, void *), bool failed) {
+    vx_msg *m = malloc(sizeof(vx_msg));
+    if (!m) vx_out_of_memory();
+    *m = (vx_msg){NULL, f, buf, fill, failed};
+    pthread_mutex_lock(&to->mu);
+    if (to->tail) {
+        to->tail->next = m;
+    } else {
+        to->head = m;
+    }
+    to->tail = m;
+    pthread_cond_signal(&to->cv);
+    pthread_mutex_unlock(&to->mu);
+}
+
+// Completes the futures of the messages that have arrived. Returns
+// whether there were any.
+static bool vx_drain(void) {
+    if (!vx_self) return false;
+    pthread_mutex_lock(&vx_self->mu);
+    vx_msg *m = vx_self->head;
+    vx_self->head = vx_self->tail = NULL;
+    pthread_mutex_unlock(&vx_self->mu);
+    bool any = m != NULL;
+    while (m) {
+        vx_msg *next = m->next;
+        if (m->failed) {
+            void *err = NULL;
+            m->fill(m->buf, &err);
+            vx_future_fail(m->f, err);
+        } else {
+            if (m->buf && m->fill) {
+                m->fill(m->buf, m->f->value);
+            } else if (m->f->size > 0) {
+                memset(m->f->value, 0, (size_t)m->f->size);
+            }
+            vx_future_settle(m->f, 1);
+        }
+        vx_remote_remove(m->f);
+        free(m->buf);
+        free(m);
+        m = next;
+    }
+    return any;
+}
+
+// Waits until the next timer is due or a message arrives, after vx_poll
+// found nothing to run.
+static void vx_idle(void) {
+    pthread_mutex_lock(&vx_self->mu);
+    if (!vx_self->head) {
+        if (vx_timers_len > 0) {
+            int64_t wait = vx_timers[0].at - vx_time_ns();
+            if (wait > 0) {
+                struct timespec ts;
+                clock_gettime(CLOCK_REALTIME, &ts);
+                int64_t ns = (int64_t)ts.tv_nsec + wait;
+                ts.tv_sec += (time_t)(ns / 1000000000);
+                ts.tv_nsec = (long)(ns % 1000000000);
+                pthread_cond_timedwait(&vx_self->cv, &vx_self->mu, &ts);
+            }
+        } else if (vx_remote_len > 0) {
+            pthread_cond_wait(&vx_self->cv, &vx_self->mu);
+        }
+    }
+    pthread_mutex_unlock(&vx_self->mu);
+}
+
+// Frees the heap of the running thread when its isolate ends.
+static void vx_heap_free(void) {
+    for (size_t i = 0; i < vx_pages_len; i++) {
+        free(vx_pages[i]->start);
+        free(vx_pages[i]);
+    }
+    for (size_t i = 0; i < vx_larges_len; i++) free(vx_larges[i]);
+    free(vx_pages);
+    free(vx_page_table);
+    free(vx_larges);
+    free(vx_gray);
+    free(vx_kept);
+    free(vx_tasks);
+    free(vx_timers);
+    free(vx_remote);
+    free(vx_repr_set);
+    for (int i = 0; i < vx_spare_len; i++) munmap(vx_spare_stacks[i], VX_TASK_STACK);
+}
+
+#define VX_ISOLATE_STACK ((size_t)8 << 20)
+
+// What a new isolate runs: [entry] decodes its work from [buf] and does
+// it, completing future [f] of isolate [parent] when there is one.
+typedef void (*vx_isolate_entry)(vx_dec *, vx_inbox *, vx_future *);
+
+typedef struct {
+    vx_isolate_entry entry;
+    char *buf;
+    vx_inbox *parent;
+    vx_future *f;
+} vx_start;
+
+__attribute__((noinline))
+static void vx_isolate_body(vx_start *s) {
+    vx_dec d = {s->buf, NULL, 0, 0};
+    s->entry(&d, s->parent, s->f);
+    vx_loop();
+}
+
+static void *vx_isolate_main(void *p) {
+    vx_start s = *(vx_start *)p;
+    free(p);
+    char base;
+    vx_gc_thread_init(&base);
+    vx_stack_limit = VX_ISOLATE_STACK;
+    stack_t old_alt;
+    void *alt = vx_signal_stack(&old_alt);
+    vx_self = vx_inbox_new();
+    vx_isolate_body(&s);
+    free(s.buf);
+    vx_heap_free();
+    pthread_mutex_destroy(&vx_self->mu);
+    pthread_cond_destroy(&vx_self->cv);
+    free(vx_self);
+    if (alt) {
+        // Sanitizers free the stack they installed when the thread ends,
+        // so theirs goes back first.
+        sigaltstack(&old_alt, NULL);
+        free(alt);
+    }
+    return NULL;
+}
+
+static void vx_isolate_start(vx_isolate_entry entry, vx_enc *e, vx_future *f) {
+    vx_start *s = malloc(sizeof(vx_start));
+    if (!s) vx_out_of_memory();
+    *s = (vx_start){entry, vx_enc_done(e), vx_self, f};
+    pthread_attr_t attr;
+    pthread_attr_init(&attr);
+    pthread_attr_setstacksize(&attr, VX_ISOLATE_STACK);
+    pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
+    pthread_t t;
+    if (pthread_create(&t, &attr, vx_isolate_main, s) != 0) {
+        fflush(stdout);
+        fputs("error: can't start another isolate: the system has no threads left\n", stderr);
+        exit(1);
+    }
+    pthread_attr_destroy(&attr);
+}
+
+// Starts an isolate for isolate.run, and returns the future of its result.
+static vx_future *vx_isolate_run(vx_isolate_entry entry, vx_enc *e, int64_t size) {
+    vx_future *f = vx_future_new(size);
+    vx_remote_add(f);
+    vx_isolate_start(entry, e, f);
+    return f;
+}
+
+// --- Channels ---
+//
+// A channel is shared by every isolate that has it, so it lives outside
+// the collected heaps. Messages wait in it encoded.
+
+typedef struct vx_queued {
+    struct vx_queued *next;
+    char *buf;
+} vx_queued;
+
+typedef struct vx_waiter {
+    struct vx_waiter *next;
+    vx_inbox *to;
+    vx_future *f;
+    void (*fill)(const char *, void *);
+} vx_waiter;
+
+typedef struct {
+    pthread_mutex_t mu;
+    pthread_cond_t cv;
+    vx_queued *head, *tail;
+    vx_waiter *waiters, *waiters_tail;
+    bool closed;
+} vx_chan;
+
+static vx_chan *vx_chan_new(void) {
+    vx_chan *c = calloc(1, sizeof(vx_chan));
+    if (!c) vx_out_of_memory();
+    pthread_mutex_init(&c->mu, NULL);
+    pthread_cond_init(&c->cv, NULL);
+    return c;
+}
+
+static void vx_chan_send(vx_chan *c, vx_enc *e, int line) {
+    char *buf = vx_enc_done(e);
+    pthread_mutex_lock(&c->mu);
+    if (c->closed) {
+        pthread_mutex_unlock(&c->mu);
+        free(buf);
+        vx_fail(line, "send on a closed channel");
+    }
+    vx_waiter *w = c->waiters;
+    if (w) {
+        c->waiters = w->next;
+        if (!c->waiters) c->waiters_tail = NULL;
+        vx_post(w->to, w->f, buf, w->fill, false);
+        free(w);
+    } else {
+        vx_queued *q = malloc(sizeof(vx_queued));
+        if (!q) vx_out_of_memory();
+        *q = (vx_queued){NULL, buf};
+        if (c->tail) {
+            c->tail->next = q;
+        } else {
+            c->head = q;
+        }
+        c->tail = q;
+        pthread_cond_signal(&c->cv);
+    }
+    pthread_mutex_unlock(&c->mu);
+}
+
+// Takes the oldest waiting message; the channel is locked.
+static char *vx_chan_take(vx_chan *c) {
+    vx_queued *q = c->head;
+    c->head = q->next;
+    if (!c->head) c->tail = NULL;
+    char *buf = q->buf;
+    free(q);
+    return buf;
+}
+
+// Returns a future of the next message as an optional of [size] bytes,
+// which [fill] decodes; it is nil once the channel is closed and empty.
+static vx_future *vx_chan_receive(vx_chan *c, void (*fill)(const char *, void *), int64_t size) {
+    vx_future *f = vx_future_new(size);
+    pthread_mutex_lock(&c->mu);
+    if (c->head) {
+        char *buf = vx_chan_take(c);
+        pthread_mutex_unlock(&c->mu);
+        fill(buf, f->value);
+        free(buf);
+        vx_future_settle(f, 1);
+    } else if (c->closed) {
+        pthread_mutex_unlock(&c->mu);
+        vx_future_settle(f, 1);
+    } else {
+        vx_waiter *w = malloc(sizeof(vx_waiter));
+        if (!w) vx_out_of_memory();
+        *w = (vx_waiter){NULL, vx_self, f, fill};
+        if (c->waiters_tail) {
+            c->waiters_tail->next = w;
+        } else {
+            c->waiters = w;
+        }
+        c->waiters_tail = w;
+        vx_remote_add(f);
+        pthread_mutex_unlock(&c->mu);
+    }
+    return f;
+}
+
+// Blocks the thread until a message arrives, and returns it, or NULL once
+// the channel is closed and empty.
+static char *vx_chan_receive_sync(vx_chan *c) {
+    pthread_mutex_lock(&c->mu);
+    while (!c->head && !c->closed) pthread_cond_wait(&c->cv, &c->mu);
+    char *buf = c->head ? vx_chan_take(c) : NULL;
+    pthread_mutex_unlock(&c->mu);
+    return buf;
+}
+
+static void vx_chan_close(vx_chan *c) {
+    pthread_mutex_lock(&c->mu);
+    if (!c->closed) {
+        c->closed = true;
+        for (vx_waiter *w = c->waiters, *next; w; w = next) {
+            next = w->next;
+            vx_post(w->to, w->f, NULL, NULL, false);
+            free(w);
+        }
+        c->waiters = c->waiters_tail = NULL;
+        pthread_cond_broadcast(&c->cv);
+    }
+    pthread_mutex_unlock(&c->mu);
+}
+
+static int64_t vx_cores(void) {
+    long n = sysconf(_SC_NPROCESSORS_ONLN);
+    return n > 0 ? n : 1;
 }

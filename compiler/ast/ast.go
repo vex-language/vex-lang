@@ -350,6 +350,10 @@ type WhileStmt struct {
 	Span
 	Cond Expr
 	Body *Block
+
+	// For `while let name = value`, the name bound each time [Cond], an
+	// optional, holds a value; the loop ends at nil.
+	Bind *Ident
 }
 
 // A `for` loop: `for x in xs`, `for i, x in xs` or `for i in 0..10`.

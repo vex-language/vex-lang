@@ -24,6 +24,11 @@ func (g *gen) collectOptionals() {
 			visit(t.Elem)
 		case *types.List:
 			visit(t.Elem)
+		case *types.Future:
+			visit(t.Elem)
+		case *types.Map:
+			visit(t.Key)
+			visit(t.Value)
 		case *types.FuncType:
 			for _, p := range t.Params {
 				visit(p)
@@ -157,4 +162,18 @@ func (g *gen) typeOf(e ast.Expr) types.Type {
 		return o
 	}
 	return g.info.Types[e]
+}
+
+// Generates `while let name = value { ... }`, which stops at nil.
+func (g *gen) whileLet(s *ast.WhileStmt) {
+	tmp := g.temp()
+	g.line("for (;;) {")
+	g.ind++
+	g.line("%s = %s;", decl(g.info.Types[s.Cond], tmp), g.expr(s.Cond))
+	g.line("if (!%s.has) break;", tmp)
+	v := g.info.Defs[s.Bind]
+	g.line("%s = %s.v;", decl(v.Type, g.declare(v)), tmp)
+	g.ind--
+	g.body(s.Body)
+	g.line("}")
 }

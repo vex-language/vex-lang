@@ -286,6 +286,13 @@ func (f *Future) String() string {
 	return "Future<" + f.Elem.String() + ">"
 }
 
+// A channel that carries values of [Elem] between isolates.
+type Channel struct {
+	Elem Type
+}
+
+func (c *Channel) String() string { return "Channel<" + c.Elem.String() + ">" }
+
 // An optional type: a value of [Elem], or nil.
 type Optional struct {
 	Elem Type
@@ -558,6 +565,9 @@ func Identical(a, b Type) bool {
 		return ok && Identical(a.Key, b.Key) && Identical(a.Value, b.Value)
 	case *Optional:
 		b, ok := b.(*Optional)
+		return ok && Identical(a.Elem, b.Elem)
+	case *Channel:
+		b, ok := b.(*Channel)
 		return ok && Identical(a.Elem, b.Elem)
 	case *Future:
 		b, ok := b.(*Future)

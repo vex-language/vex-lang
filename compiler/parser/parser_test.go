@@ -797,6 +797,7 @@ func TestAsync(t *testing.T) {
 		{"await sleep(1)", "(await (call sleep 1))"},
 		{"let x = await a.b().c", "(let x (await (. (call (. a b)) c)))"},
 		{"let x = -await f()", "(let x (- (await (call f))))"},
+		{"while let x = f() { g(x) }", "(while let x (call f) (block (call g x)))"},
 	}
 	for _, c := range cases {
 		got := body(t, c.src)

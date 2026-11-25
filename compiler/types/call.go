@@ -90,6 +90,9 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		return c.moduleCall(e, id, want)
 	}
 	name := id.Name
+	if name == "Channel" && c.lookupVar(name) == nil && c.structs[name] == nil && c.genStructs[name] == nil && c.funcs[name] == nil && c.enums[name] == nil {
+		return c.newChannel(e, want)
+	}
 	if len(e.TypeArgs) > 0 && c.genFuncs[name] == nil && c.genStructs[name] == nil && c.genIfaces[name] == nil {
 		c.errorAt(e.TypeArgs[0], "remove the <...>", "'%s' is not generic, so it takes no type arguments", name)
 	}
@@ -630,6 +633,19 @@ func builtinMember(recv Type, name string) *memberSig {
 		}
 		return nil
 	}
+	if ch, ok := recv.(*Channel); ok {
+		switch name {
+		case "send":
+			return &memberSig{[]slot{{name: "value", typ: ch.Elem}}, Void}
+		case "receive":
+			return &memberSig{nil, &Future{Elem: &Optional{Elem: ch.Elem}}}
+		case "receiveSync":
+			return &memberSig{nil, &Optional{Elem: ch.Elem}}
+		case "close":
+			return &memberSig{nil, Void}
+		}
+		return nil
+	}
 	if m, ok := recv.(*Map); ok {
 		switch name {
 		case "contains":
@@ -670,6 +686,9 @@ func builtinMemberNames(recv Type) []string {
 	}
 	if _, ok := recv.(*Map); ok {
 		return []string{"len", "keys", "values", "contains", "remove"}
+	}
+	if _, ok := recv.(*Channel); ok {
+		return []string{"send", "receive", "receiveSync", "close"}
 	}
 	if recv == String {
 		return []string{"len", "upper", "lower", "contains", "split", "replace", "trim", "trimStart", "trimEnd",
