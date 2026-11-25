@@ -644,6 +644,118 @@ static vx_list *vx_str_split(vx_str s, vx_str sep, int line) {
     return l;
 }
 
+static vx_str vx_str_replace(vx_str s, vx_str old, vx_str with, int line) {
+    if (old.len == 0) vx_fail(line, "replace needs text to look for, not an empty string");
+    int64_t at = vx_str_find(s, old, 0);
+    if (at < 0) return s;
+    int64_t n = 0, cap = s.len + 16;
+    char *buf = vx_alloc_atomic((size_t)cap + 1);
+    int64_t start = 0;
+    while (at >= 0) {
+        int64_t need = n + (at - start) + with.len + (s.len - at);
+        if (need > cap) {
+            cap = need * 2;
+            buf = vx_realloc(buf, (size_t)cap + 1);
+        }
+        memcpy(buf + n, s.ptr + start, (size_t)(at - start));
+        n += at - start;
+        if (with.len > 0) memcpy(buf + n, with.ptr, (size_t)with.len);
+        n += with.len;
+        start = at + old.len;
+        at = vx_str_find(s, old, start);
+    }
+    if (n + (s.len - start) > cap) buf = vx_realloc(buf, (size_t)(n + s.len - start) + 1);
+    memcpy(buf + n, s.ptr + start, (size_t)(s.len - start));
+    n += s.len - start;
+    buf[n] = 0;
+    return (vx_str){buf, n};
+}
+
+static inline bool vx_is_space(char c) { return c == ' ' || (c >= '\t' && c <= '\r'); }
+
+static vx_str vx_str_trim_start(vx_str s) {
+    int64_t i = 0;
+    while (i < s.len && vx_is_space(s.ptr[i])) i++;
+    return (vx_str){s.ptr + i, s.len - i};
+}
+
+static vx_str vx_str_trim_end(vx_str s) {
+    int64_t n = s.len;
+    while (n > 0 && vx_is_space(s.ptr[n - 1])) n--;
+    return (vx_str){s.ptr, n};
+}
+
+static vx_str vx_str_trim(vx_str s) { return vx_str_trim_end(vx_str_trim_start(s)); }
+
+static bool vx_str_starts_with(vx_str s, vx_str p) {
+    return p.len <= s.len && (p.len == 0 || memcmp(s.ptr, p.ptr, (size_t)p.len) == 0);
+}
+
+static bool vx_str_ends_with(vx_str s, vx_str p) {
+    return p.len <= s.len && (p.len == 0 || memcmp(s.ptr + s.len - p.len, p.ptr, (size_t)p.len) == 0);
+}
+
+// Returns the character index of [sub] in [s], or -1.
+static int64_t vx_str_index_of(vx_str s, vx_str sub) {
+    int64_t at = vx_str_find(s, sub, 0);
+    return at < 0 ? -1 : vx_str_len((vx_str){s.ptr, at});
+}
+
+// Returns the byte offset of character [i] in [s], or s.len when [i] is
+// the length.
+static int64_t vx_str_offset(vx_str s, int64_t i) {
+    int64_t b = 0;
+    for (; b < s.len; b++) {
+        if (((unsigned char)s.ptr[b] & 0xC0) != 0x80) {
+            if (i == 0) return b;
+            i--;
+        }
+    }
+    return b;
+}
+
+// Returns the characters of [s] from index [from] up to, not including,
+// [to].
+static vx_str vx_str_substring(vx_str s, int64_t from, int64_t to, int line) {
+    int64_t n = vx_str_len(s);
+    if (from < 0 || to > n || from > to) {
+        vx_fail(line, "substring(%" PRId64 ", %" PRId64 ") is out of range for a string of length %" PRId64, from, to, n);
+    }
+    int64_t a = vx_str_offset(s, from);
+    int64_t b = a + vx_str_offset((vx_str){s.ptr + a, s.len - a}, to - from);
+    return (vx_str){s.ptr + a, b - a};
+}
+
+static vx_list *vx_str_chars(vx_str s) {
+    vx_list *l = vx_list_new(sizeof(vx_str), 0, NULL);
+    int64_t i = 0;
+    while (i < s.len) {
+        int64_t j = i + 1;
+        while (j < s.len && ((unsigned char)s.ptr[j] & 0xC0) == 0x80) j++;
+        vx_str c = {s.ptr + i, j - i};
+        vx_list_push(l, &c);
+        i = j;
+    }
+    return l;
+}
+
+// Returns the lines of [s], without their line endings (\n or \r\n). A
+// final line ending doesn't start another line.
+static vx_list *vx_str_lines(vx_str s) {
+    vx_list *l = vx_list_new(sizeof(vx_str), 0, NULL);
+    int64_t start = 0;
+    while (start < s.len) {
+        int64_t end = start;
+        while (end < s.len && s.ptr[end] != '\n') end++;
+        int64_t n = end - start;
+        if (n > 0 && s.ptr[start + n - 1] == '\r') n--;
+        vx_str line = {s.ptr + start, n};
+        vx_list_push(l, &line);
+        start = end + 1;
+    }
+    return l;
+}
+
 // --- Maps ---
 
 // How map keys are hashed and compared.

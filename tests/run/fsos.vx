@@ -36,7 +36,7 @@ fn main() throws {
     println(try? fs.size(tmp + "/missing.txt"), try? fs.list(tmp + "/missing"))
     try fs.remove(tmp + "/a") catch e { println(e.message.contains("can't remove")) }
     try fs.makeDir(file + "/sub") catch e { println(e.message.contains("can't create")) }
-    let msg = try fs.read(tmp + "/x") catch e { strings.join(e.message.split(tmp), "TMP") }
+    let msg = try fs.read(tmp + "/x") catch e { e.message.replace(tmp, "TMP") }
     println(msg)
 
     println(os.args(), os.env("VEX_UNSET_VARIABLE_42"))

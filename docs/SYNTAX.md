@@ -562,6 +562,9 @@ let file = try open(path) catch e {
 | `list.len`, `.push(x)`, `.pop()`, `.contains(x)`, `.filter(f)`, `.map(f)` | List members |
 | `map.len`, `.keys`, `.values`, `.contains(k)`, `.remove(k)` | Map members |
 | `s.len`, `.upper()`, `.lower()`, `.contains(x)`, `.split(sep)` | String members. `len` counts Unicode code points, so an emoji with a modifier counts as more than one; `upper` and `lower` change only the letters A–Z for now |
+| `.replace(old, with)`, `.trim()`, `.trimStart()`, `.trimEnd()` | New strings: every `old` replaced; spaces, tabs and line endings removed from the ends |
+| `.startsWith(x)`, `.endsWith(x)`, `.indexOf(x)` | `indexOf` gives an `int?`: the index of the first match, or `nil` |
+| `.substring(from, to)`, `.chars()`, `.lines()` | The characters from `from` up to `to`; each character; each line without its line ending. Indexes count characters, as `len` does, and an index out of range stops the program |
 
 ## Types
 
