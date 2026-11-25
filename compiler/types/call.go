@@ -77,7 +77,7 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		return c.moduleCall(e, id, want)
 	}
 	name := id.Name
-	if len(e.TypeArgs) > 0 && c.genFuncs[name] == nil && c.genStructs[name] == nil {
+	if len(e.TypeArgs) > 0 && c.genFuncs[name] == nil && c.genStructs[name] == nil && c.genIfaces[name] == nil {
 		c.errorAt(e.TypeArgs[0], "remove the <...>", "'%s' is not generic, so it takes no type arguments", name)
 	}
 	if v := c.lookupVar(name); v != nil {
@@ -119,7 +119,7 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		}
 	}
 	if c.fn != nil && c.fn.Iface != nil && c.self != nil {
-		if m := c.fn.Iface.Method(name); m != nil {
+		if _, m := ifaceMethod(c.fn.Iface, name); m != nil {
 			c.info.Uses[id] = m
 			c.use(c.self)
 			return c.ifaceCall(e, m, nil)
@@ -150,6 +150,11 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 	if i := c.interfaces[name]; i != nil {
 		c.checkArgs(e)
 		c.errorAt(id, fmt.Sprintf("create a struct that implements it: struct Name: %s", i.Name), "%s is an interface, so it can't be created", i.Name)
+		return Invalid
+	}
+	if c.genIfaces[name] != nil {
+		c.checkArgs(e)
+		c.errorAt(id, fmt.Sprintf("create a struct that implements it: struct Name: %s<...>", name), "%s is an interface, so it can't be created", name)
 		return Invalid
 	}
 	if builtinFuncs[name] {

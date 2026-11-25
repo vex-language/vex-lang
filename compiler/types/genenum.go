@@ -85,7 +85,7 @@ func (c *checker) genericEnumInst(te *ast.NamedType, g *genericEnum, args []Type
 		if args[i] == Invalid {
 			return Invalid
 		}
-		if !c.meetsConstraints(p, args[i], te.Args[i], te.Name) {
+		if !c.meetsConstraints(p, args[i], te.Args[i], te.Name, bindOf(g.params, args)) {
 			return Invalid
 		}
 	}

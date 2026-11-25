@@ -39,6 +39,7 @@ type tables struct {
 	genFuncs   map[string]*genericFunc
 	genStructs map[string]*genericStruct
 	genEnums   map[string]*genericEnum
+	genIfaces  map[string]*genericIface
 }
 
 func newTables() tables {
@@ -50,6 +51,7 @@ func newTables() tables {
 		genFuncs:   map[string]*genericFunc{},
 		genStructs: map[string]*genericStruct{},
 		genEnums:   map[string]*genericEnum{},
+		genIfaces:  map[string]*genericIface{},
 	}
 }
 
@@ -142,6 +144,11 @@ func (m *Module) publicNames() []string {
 		}
 	}
 	for n, g := range m.genEnums {
+		if g.decl.Pub {
+			names = append(names, n)
+		}
+	}
+	for n, g := range m.genIfaces {
 		if g.decl.Pub {
 			names = append(names, n)
 		}
@@ -263,18 +270,29 @@ func (c *checker) methodPrivate(at ast.Node, m *Func) bool {
 	switch {
 	case m.Owner != nil:
 		mod, owner = m.Owner.Module, m.Owner.String()
-		for _, i := range m.Owner.Interfaces {
-			if m.Decl.Accessor == ast.Method && i.Method(m.Name) != nil {
-				return false
-			}
+		if requiredBy(m.Owner.Interfaces, m) {
+			return false
 		}
 	case m.Enum != nil:
 		mod, owner = m.Enum.Module, m.Enum.String()
+		if requiredBy(m.Enum.Interfaces, m) {
+			return false
+		}
 	default:
 		return false
 	}
 	kind := map[ast.Accessor]string{ast.Method: "method", ast.Getter: "getter", ast.Setter: "setter"}[m.Decl.Accessor]
 	return c.private(at, mod, false, fmt.Sprintf("%s '%s' of %s", kind, m.Name, owner))
+}
+
+// Reports whether one of [ifaces] requires [m], which makes it public.
+func requiredBy(ifaces []*Interface, m *Func) bool {
+	for _, i := range ifaces {
+		if memberOf(i.Methods, m.Name, m.Decl.Accessor) != nil {
+			return true
+		}
+	}
+	return false
 }
 
 // Reports when struct [s] of another module can't be created here because
@@ -328,6 +346,16 @@ func (c *checker) qualifiedType(te *ast.NamedType) Type {
 			return Invalid
 		}
 		return c.genericEnumInst(te, g, c.typeArgs(te))
+	}
+	if g := m.genIfaces[te.Name]; g != nil {
+		if c.private(te, m, g.decl.Pub, "interface '"+te.Name+"'") {
+			return Invalid
+		}
+		if len(te.Args) == 0 {
+			c.errorAt(te, fmt.Sprintf("write its type arguments, e.g. %s.%s<%s>", te.Module, te.Name, typeParamExample(c.ifaceParams(g))), "%s.%s is generic, so it needs type arguments", te.Module, te.Name)
+			return Invalid
+		}
+		return c.genericIfaceInst(te, g, c.typeArgs(te))
 	}
 	var t Type
 	pub := false
@@ -415,7 +443,7 @@ func (c *checker) moduleIdent(id *ast.Ident) Type {
 		return funcValue(f)
 	}
 	switch {
-	case m.structs[name] != nil && m.structs[name].Decl != nil, m.genStructs[name] != nil, m.genEnums[name] != nil, m.interfaces[name] != nil:
+	case m.structs[name] != nil && m.structs[name].Decl != nil, m.genStructs[name] != nil, m.genEnums[name] != nil, m.interfaces[name] != nil, m.genIfaces[name] != nil:
 		c.errorAt(id, "", "'%s.%s' is a type, not a value", id.Module, name)
 	case m.enums[name] != nil:
 		c.errorAt(id, caseHint("use one of its cases, e.g. "+id.Module+".", m.enums[name], true), "'%s.%s' is a type, not a value", id.Module, name)
@@ -443,11 +471,11 @@ func (c *checker) moduleRef(id *ast.Ident) (*Struct, *Enum) {
 // Returns the interface written as `mod.Name`, or nil after reporting why
 // not, unless [quiet].
 func (c *checker) qualifiedIface(te *ast.NamedType, quiet bool) *Interface {
+	var t Type
 	if quiet {
-		if m := c.imported(te.Module); m != nil {
-			return m.interfaces[te.Name]
-		}
-		return nil
+		c.scratch(false, func() { t = c.qualifiedType(te) })
+		i, _ := t.(*Interface)
+		return i
 	}
 	switch t := c.qualifiedType(te).(type) {
 	case *Interface:

@@ -166,6 +166,20 @@ func (c *checker) ident(id *ast.Ident) Type {
 			return Invalid
 		}
 	}
+	if c.self != nil {
+		var p *Property
+		switch t := c.self.Type.(type) {
+		case *Enum:
+			p = t.Property(id.Name)
+		case *Interface:
+			p = ifaceProperty(t, id.Name)
+		}
+		if p != nil {
+			c.info.Uses[id] = p
+			c.use(c.self)
+			return c.readProperty(id, id.Name, p)
+		}
+	}
 	if f := c.funcs[id.Name]; f != nil {
 		c.info.Uses[id] = f
 		return funcValue(f)
@@ -180,6 +194,10 @@ func (c *checker) ident(id *ast.Ident) Type {
 	}
 	if i := c.interfaces[id.Name]; i != nil {
 		c.errorAt(id, "", "'%s' is a type, not a value", i.Name)
+		return Invalid
+	}
+	if c.genIfaces[id.Name] != nil {
+		c.errorAt(id, "", "'%s' is a type, not a value", id.Name)
 		return Invalid
 	}
 	if en := c.enums[id.Name]; en != nil {
@@ -573,6 +591,11 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 	x := c.recv(e)
 	switch x := x.(type) {
 	case *Enum:
+		if p := x.Property(name); p != nil {
+			c.methodPrivate(e.Name, p.Get)
+			c.info.Members[e] = &Member{Property: p}
+			return p.Type()
+		}
 		if x.Method(name) != nil {
 			c.errorAt(e.Name, fmt.Sprintf("call it: %s()", name), "method '%s' must be called", name)
 		} else {
@@ -627,6 +650,12 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 	}
 	switch x.(type) {
 	case *Interface, *TypeParam:
+		if p := ifaceProperty(x, name); p != nil {
+			c.info.Members[e] = &Member{Property: p}
+			c.writing = writing
+			defer func() { c.writing = false }()
+			return c.readProperty(e.Name, name, p)
+		}
 		if _, m := ifaceMethod(x, name); m != nil {
 			c.errorAt(e.Name, fmt.Sprintf("call it: %s()", name), "method '%s' must be called", name)
 		} else {

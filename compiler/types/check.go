@@ -446,6 +446,10 @@ func (c *checker) ifaceTaken(id *ast.Ident) bool {
 		c.errorAt(id, "", "'%s' is already declared as an interface on line %d", id.Name, i.Decl.Pos().Line)
 		return true
 	}
+	if g := c.genIfaces[id.Name]; g != nil {
+		c.errorAt(id, "", "'%s' is already declared as an interface on line %d", id.Name, g.decl.Pos().Line)
+		return true
+	}
 	return false
 }
 
@@ -551,6 +555,10 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 		}
 		if g := c.genEnums[te.Name]; g != nil {
 			c.errorAt(te, fmt.Sprintf("write its type arguments, e.g. %s<%s>", te.Name, typeParamExample(g.params)), "%s is generic, so it needs type arguments", te.Name)
+			return Invalid
+		}
+		if g := c.genIfaces[te.Name]; g != nil {
+			c.errorAt(te, fmt.Sprintf("write its type arguments, e.g. %s<%s>", te.Name, typeParamExample(c.ifaceParams(g))), "%s is generic, so it needs type arguments", te.Name)
 			return Invalid
 		}
 		if s := c.structs[te.Name]; s != nil {
@@ -702,6 +710,9 @@ func (c *checker) genericType(te *ast.NamedType) Type {
 	if g := c.genEnums[te.Name]; g != nil {
 		return c.genericEnumInst(te, g, args)
 	}
+	if g := c.genIfaces[te.Name]; g != nil {
+		return c.genericIfaceInst(te, g, args)
+	}
 	g := c.genStructs[te.Name]
 	if g == nil {
 		if c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && builtinTypes[te.Name] == nil {
@@ -733,7 +744,7 @@ func (c *checker) genericInst(te *ast.NamedType, g *genericStruct, args []Type) 
 		if args[i] == Invalid {
 			return Invalid
 		}
-		if !c.meetsConstraints(p, args[i], te.Args[i], te.Name) {
+		if !c.meetsConstraints(p, args[i], te.Args[i], te.Name, bindOf(g.params, args)) {
 			return Invalid
 		}
 	}
