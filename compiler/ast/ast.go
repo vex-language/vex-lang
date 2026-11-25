@@ -53,7 +53,8 @@ type TypeExpr interface {
 // A parsed source file.
 type File struct {
 	Span
-	Decls []Decl
+	Imports []*Import
+	Decls   []Decl
 
 	// Problems that don't stop the program from building, such as a
 	// needless `;`.
@@ -64,6 +65,10 @@ type File struct {
 type Ident struct {
 	Span
 	Name string
+
+	// The imported module the name belongs to, as in `math.sqrt`; empty
+	// for a name of the current module or a local.
+	Module string
 }
 
 // --- Declarations ---
@@ -71,6 +76,7 @@ type Ident struct {
 // A function or method: `fn add(a: int, b: int) -> int { ... }`.
 type FuncDecl struct {
 	Span
+	Pub        bool
 	Name       *Ident
 	TypeParams []*TypeParam
 	Params     []*Param
@@ -101,11 +107,12 @@ type Param struct {
 // A struct with fields and methods.
 type StructDecl struct {
 	Span
+	Pub        bool
 	Name       *Ident
 	TypeParams []*TypeParam
 
 	// The interfaces the struct implements: `struct Circle: Shape`.
-	Interfaces []*Ident
+	Interfaces []*NamedType
 
 	Fields  []*Field
 	Methods []*FuncDecl
@@ -116,12 +123,26 @@ type StructDecl struct {
 type TypeParam struct {
 	Span
 	Name        *Ident
-	Constraints []*Ident
+	Constraints []*NamedType
+}
+
+// An import at the top of a file: `import "vex:math"` or
+// `import "models" as m`.
+type Import struct {
+	Span
+	Path string
+
+	// The position of the quoted path, for errors about it.
+	PathSpan Span
+
+	// The name the module is used by, when it is renamed with `as`.
+	As *Ident
 }
 
 // A struct field: `age: int = 18`.
 type Field struct {
 	Span
+	Pub     bool
 	Name    *Ident
 	Type    TypeExpr
 	Default Expr
@@ -131,6 +152,7 @@ type Field struct {
 // values.
 type EnumDecl struct {
 	Span
+	Pub     bool
 	Name    *Ident
 	Cases   []*EnumCase
 	Methods []*FuncDecl
@@ -140,6 +162,7 @@ type EnumDecl struct {
 // a body is a default that structs may leave out.
 type InterfaceDecl struct {
 	Span
+	Pub     bool
 	Name    *Ident
 	Methods []*FuncDecl
 }
@@ -163,7 +186,11 @@ func (*InterfaceDecl) declNode() {}
 // A type referred to by name: `int`, `User`.
 type NamedType struct {
 	Span
-	Name string
+
+	// The module a type comes from, as in `models.User`; empty for a type
+	// of the current module.
+	Module string
+	Name   string
 
 	// The type arguments of a generic struct: `Box<int>`.
 	Args []TypeExpr

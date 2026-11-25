@@ -283,6 +283,51 @@ struct Box<T>: Shape {
 	}
 }
 
+func TestModules(t *testing.T) {
+	src := `import "vex:math"
+import "models" as m
+
+pub struct User: shapes.Shape {
+    pub name: string
+    age: int = 0
+    home: m.Place
+    pub fn greet() -> string => "hi"
+    pub static fn guest() -> User => User(name: "guest")
+}
+pub enum Kind {
+    a
+    pub fn label() -> string => "k"
+}
+pub interface Named {
+    fn name() -> string
+}
+pub fn sort<T: m.Ordered>(xs: [m.Box<T>]) -> m.Box<int>? => nil
+fn main() {
+    let b = m.Box<int>(value: 1)
+    println(math.max(1, 2), m.Kind.a)
+}
+`
+	f, errs := parse(t, src)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	if len(f.Imports) != 2 || f.Imports[0].Path != "vex:math" || f.Imports[0].As != nil || f.Imports[1].As.Name != "m" {
+		t.Fatalf("imports: %+v", f.Imports)
+	}
+	want := []string{
+		`(pub struct User: shapes.Shape pub field name: string (field age: int 0) field home: m.Place (pub fn greet -> string (=> "hi")) (pub static fn guest -> User (=> (call User (name: "guest")))))`,
+		`(pub enum Kind case a (pub fn label -> string (=> "k")))`,
+		"(pub interface Named (fn name -> string))",
+		"(pub fn sort<T: m.Ordered> param xs: [m.Box<T>] -> m.Box<int>? (=> nil))",
+		"(fn main (block (let b (call<int> (. m Box) (value: 1))) (call println (call (. math max) 1 2) (. (. m Kind) a))))",
+	}
+	for i, d := range f.Decls {
+		if got := ast.Sexpr(d); got != want[i] {
+			t.Errorf("decl %d\n got: %s\nwant: %s", i, got, want[i])
+		}
+	}
+}
+
 func TestErrorHandling(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{"let t = try load(p)", "(let t (try (call load p)))"},
@@ -516,6 +561,14 @@ func TestErrors(t *testing.T) {
 		{"colon in a list", "fn main() {\n let m = [1, \"a\": 2]\n}", "2:17", "unexpected ':' in a list", "a list holds values, a map holds key: value pairs"},
 		{"interface field", "interface I {\n    x: int\n}", "2:5", "interfaces can't have fields", "add a method that returns it instead, e.g. fn name() -> string"},
 		{"interface static method", "interface I {\n    static fn x()\n}", "2:5", "interfaces can't have static methods", ""},
+		{"import after decl", "fn main() {}\nimport \"vex:math\"", "2:1", "imports go at the top of the file", "move it above the first declaration"},
+		{"import without path", "import math", "1:8", "expected the path of a module in quotes, found 'math'", `e.g. import "vex:math" or import "models"`},
+		{"empty import", "import \"\"", "1:8", "empty import path", `e.g. import "vex:math" or import "models"`},
+		{"import as nothing", "import \"m\" as", "1:14", "expected a name for the module after 'as', found end of file", ""},
+		{"pub twice", "pub pub fn f() {}", "1:5", "unexpected 'pub'", "one pub is enough"},
+		{"pub member twice", "struct S {\n    pub pub x: int\n}", "2:9", "unexpected 'pub'", "one pub is enough"},
+		{"pub case", "enum E {\n    pub a\n}", "2:9", "cases can't be marked pub", "remove pub: cases are public whenever their enum is"},
+		{"pub interface method", "interface I {\n    pub fn x()\n}", "2:5", "interface methods can't be marked pub", "remove pub: interface methods are public whenever the interface is"},
 		{"generic interface", "interface I<T> {\n}", "1:12", "interfaces can't be generic yet", ""},
 		{"interface extends", "interface I: J {\n}", "1:12", "interfaces can't extend other interfaces yet", "list the methods it needs instead"},
 		{"method without body", "struct S {\n    fn x()\n}", "2:11", "expected '{' or '=>' to start the body of x, found end of line", ""},

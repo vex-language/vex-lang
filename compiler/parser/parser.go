@@ -204,6 +204,13 @@ func (p *parser) parseFile() (file *ast.File) {
 		}
 		file.End = p.lastEnd
 	}()
+	for p.at(lexer.Semi) || p.at(lexer.Import) {
+		if p.at(lexer.Semi) {
+			p.next()
+			continue
+		}
+		p.guard(func() { file.Imports = append(file.Imports, p.importDecl()) }, p.syncDecl)
+	}
 	for !p.at(lexer.EOF) {
 		if p.at(lexer.Semi) {
 			p.next()
@@ -218,9 +225,53 @@ func (p *parser) parseFile() (file *ast.File) {
 	return file
 }
 
+// Parses `import "path"` or `import "path" as name`.
+func (p *parser) importDecl() *ast.Import {
+	start := p.next().Pos
+	t := p.tok()
+	if t.Kind != lexer.String {
+		p.fail(t, `e.g. import "vex:math" or import "models"`, "expected the path of a module in quotes, found %s", describe(t))
+	}
+	p.next()
+	im := &ast.Import{Path: t.Value, PathSpan: ast.Span{Start: t.Pos, End: t.End}}
+	if im.Path == "" {
+		p.fail(t, `e.g. import "vex:math" or import "models"`, "empty import path")
+	}
+	if p.at(lexer.As) {
+		p.next()
+		im.As = p.ident("a name for the module after 'as'")
+	}
+	im.Span = p.span(start)
+	p.endStmt()
+	return im
+}
+
 func (p *parser) decl() ast.Decl {
 	t := p.tok()
+	if t.Kind == lexer.Pub {
+		p.next()
+		if p.at(lexer.Pub) {
+			p.fail(p.tok(), "one pub is enough", "unexpected 'pub'")
+		}
+		switch d := p.decl().(type) {
+		case *ast.FuncDecl:
+			d.Pub = true
+			return d
+		case *ast.StructDecl:
+			d.Pub = true
+			return d
+		case *ast.EnumDecl:
+			d.Pub = true
+			return d
+		case *ast.InterfaceDecl:
+			d.Pub = true
+			return d
+		}
+		return nil
+	}
 	switch t.Kind {
+	case lexer.Import:
+		p.fail(t, "move it above the first declaration", "imports go at the top of the file")
 	case lexer.Fn:
 		return p.funcDecl(false)
 	case lexer.Struct:
@@ -236,6 +287,19 @@ func (p *parser) decl() ast.Decl {
 	}
 	p.fail(t, "code goes inside a function, e.g. fn main() { ... }", "expected 'fn', 'struct', 'enum' or 'interface', found %s", describe(t))
 	return nil
+}
+
+// Parses a name that may come from another module: `Shape` or
+// `shapes.Shape`.
+func (p *parser) qualName(what string) *ast.NamedType {
+	id := p.ident(what)
+	nt := &ast.NamedType{Name: id.Name}
+	if p.at(lexer.Dot) {
+		p.next()
+		nt.Module, nt.Name = id.Name, p.ident(what).Name
+	}
+	nt.Span = p.span(id.Start)
+	return nt
 }
 
 // Parses an identifier, naming [what] in the error if it is missing.
@@ -328,6 +392,8 @@ func (p *parser) interfaceDecl() *ast.InterfaceDecl {
 				d.Methods = append(d.Methods, p.funcDecl(false))
 			case lexer.Static:
 				p.fail(t, "", "interfaces can't have static methods")
+			case lexer.Pub:
+				p.fail(t, "remove pub: interface methods are public whenever the interface is", "interface methods can't be marked pub")
 			case lexer.Ident, lexer.Let, lexer.Var:
 				p.fail(t, "add a method that returns it instead, e.g. fn name() -> string", "interfaces can't have fields")
 			default:
@@ -347,10 +413,10 @@ func (p *parser) structDecl() *ast.StructDecl {
 	s.TypeParams = p.typeParams()
 	if p.at(lexer.Colon) {
 		p.next()
-		s.Interfaces = append(s.Interfaces, p.ident("an interface name"))
+		s.Interfaces = append(s.Interfaces, p.qualName("an interface name"))
 		for p.at(lexer.Comma) {
 			p.next()
-			s.Interfaces = append(s.Interfaces, p.ident("an interface name"))
+			s.Interfaces = append(s.Interfaces, p.qualName("an interface name"))
 		}
 	}
 	open := p.expect(lexer.LBrace)
@@ -395,19 +461,31 @@ func (p *parser) enumDecl() *ast.EnumDecl {
 
 // Parses one case or method inside an enum body.
 func (p *parser) enumMember(e *ast.EnumDecl) {
+	pub := false
+	if p.at(lexer.Pub) {
+		p.next()
+		pub = true
+	}
 	t := p.tok()
 	switch t.Kind {
 	case lexer.Fn:
-		e.Methods = append(e.Methods, p.funcDecl(false))
+		m := p.funcDecl(false)
+		m.Pub = pub
+		e.Methods = append(e.Methods, m)
 		return
 	case lexer.Static:
 		p.next()
 		if !p.at(lexer.Fn) {
 			p.fail(p.tok(), "", "expected 'fn' after 'static', found %s", describe(p.tok()))
 		}
-		e.Methods = append(e.Methods, p.funcDecl(true))
+		m := p.funcDecl(true)
+		m.Pub = pub
+		e.Methods = append(e.Methods, m)
 		return
 	case lexer.Ident:
+		if pub {
+			p.fail(t, "remove pub: cases are public whenever their enum is", "cases can't be marked pub")
+		}
 	default:
 		p.fail(t, "", "expected a case or method, found %s", describe(t))
 	}
@@ -538,18 +616,29 @@ func (p *parser) literalPattern() ast.Expr {
 
 // Parses one field or method inside a struct body.
 func (p *parser) member(s *ast.StructDecl) {
+	pub := false
+	if p.at(lexer.Pub) {
+		p.next()
+		pub = true
+	}
 	t := p.tok()
 	switch t.Kind {
 	case lexer.Fn:
-		s.Methods = append(s.Methods, p.funcDecl(false))
+		m := p.funcDecl(false)
+		m.Pub = pub
+		s.Methods = append(s.Methods, m)
 		return
 	case lexer.Static:
 		p.next()
 		if !p.at(lexer.Fn) {
 			p.fail(p.tok(), "", "expected 'fn' after 'static', found %s", describe(p.tok()))
 		}
-		s.Methods = append(s.Methods, p.funcDecl(true))
+		m := p.funcDecl(true)
+		m.Pub = pub
+		s.Methods = append(s.Methods, m)
 		return
+	case lexer.Pub:
+		p.fail(t, "one pub is enough", "unexpected 'pub'")
 	case lexer.Let, lexer.Var:
 		p.fail(t, "write fields as name: type", "fields don't use '%s'", t.Text)
 	case lexer.Ident:
@@ -561,7 +650,7 @@ func (p *parser) member(s *ast.StructDecl) {
 		p.fail(p.tok(), fmt.Sprintf("write it as %s: int", name.Name), "field '%s' needs a type", name.Name)
 	}
 	p.next()
-	f := &ast.Field{Name: name, Type: p.typeExpr()}
+	f := &ast.Field{Pub: pub, Name: name, Type: p.typeExpr()}
 	if p.at(lexer.Assign) {
 		p.next()
 		f.Default = p.expr()
@@ -611,6 +700,10 @@ func (p *parser) baseType() ast.TypeExpr {
 	case lexer.Ident:
 		p.next()
 		nt := &ast.NamedType{Name: t.Text}
+		if p.at(lexer.Dot) && p.peek(1).Kind == lexer.Ident {
+			p.next()
+			nt.Module, nt.Name = t.Text, p.next().Text
+		}
 		if p.at(lexer.Lt) {
 			nt.Args = p.typeArgs()
 		}
@@ -676,10 +769,10 @@ func (p *parser) typeParams() []*ast.TypeParam {
 		tp := &ast.TypeParam{Name: p.ident("a type parameter name")}
 		if p.at(lexer.Colon) {
 			p.next()
-			tp.Constraints = append(tp.Constraints, p.ident("a constraint such as Comparable"))
+			tp.Constraints = append(tp.Constraints, p.qualName("a constraint such as Comparable"))
 			for p.at(lexer.Amp) {
 				p.next()
-				tp.Constraints = append(tp.Constraints, p.ident("a constraint after '&'"))
+				tp.Constraints = append(tp.Constraints, p.qualName("a constraint after '&'"))
 			}
 		}
 		tp.Span = p.span(tp.Name.Start)
@@ -706,6 +799,19 @@ func (p *parser) typeArgs() []ast.TypeExpr {
 // followed by a call, as in `first<int>(xs)`, rather than a comparison.
 // Type arguments touch the name before them and the `(` after them, so
 // spaced comparisons like `a < b, c > (d)` are never mistaken for them.
+// Reports whether [x] can take type arguments: a name, or a name from a
+// module as in `models.Box`.
+func qualifiable(x ast.Expr) bool {
+	switch x := x.(type) {
+	case *ast.Ident:
+		return true
+	case *ast.MemberExpr:
+		_, ok := x.X.(*ast.Ident)
+		return ok
+	}
+	return false
+}
+
 func (p *parser) typeArgsAhead() bool {
 	if p.tok().Pos.Offset != p.lastEnd {
 		return false
@@ -1160,7 +1266,7 @@ func (p *parser) unary() ast.Expr {
 func (p *parser) postfix(x ast.Expr) ast.Expr {
 	for {
 		var typeArgs []ast.TypeExpr
-		if _, ok := x.(*ast.Ident); ok && p.at(lexer.Lt) && p.typeArgsAhead() {
+		if qualifiable(x) && p.at(lexer.Lt) && p.typeArgsAhead() {
 			typeArgs = p.typeArgs()
 		}
 		switch p.tok().Kind {

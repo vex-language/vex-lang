@@ -49,3 +49,43 @@ func clone(v reflect.Value, seen map[uintptr]reflect.Value) reflect.Value {
 	}
 	return v
 }
+
+var exprType = reflect.TypeFor[Expr]()
+
+// Replaces every expression inside [n] with what [f] returns for it,
+// innermost first.
+func Rewrite(n Node, f func(Expr) Expr) {
+	rewrite(reflect.ValueOf(n), f, map[uintptr]bool{})
+}
+
+func rewrite(v reflect.Value, f func(Expr) Expr, seen map[uintptr]bool) {
+	switch v.Kind() {
+	case reflect.Pointer:
+		if v.IsNil() || seen[v.Pointer()] {
+			return
+		}
+		seen[v.Pointer()] = true
+		rewrite(v.Elem(), f, seen)
+	case reflect.Interface:
+		if !v.IsNil() {
+			rewrite(v.Elem(), f, seen)
+		}
+	case reflect.Slice:
+		for i := range v.Len() {
+			replace(v.Index(i), f, seen)
+		}
+	case reflect.Struct:
+		for i := range v.NumField() {
+			if v.Field(i).CanSet() {
+				replace(v.Field(i), f, seen)
+			}
+		}
+	}
+}
+
+func replace(v reflect.Value, f func(Expr) Expr, seen map[uintptr]bool) {
+	rewrite(v, f, seen)
+	if v.Type() == exprType && !v.IsNil() {
+		v.Set(reflect.ValueOf(f(v.Interface().(Expr))))
+	}
+}
