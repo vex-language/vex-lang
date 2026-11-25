@@ -1,0 +1,18 @@
+import "vex:strings"
+import "../models"
+
+pub fn receipt(cart: models.Cart) -> string {
+    var lines = ["Receipt for {cart.owner}"]
+    for it in cart.list() {
+        lines.push(line(it))
+    }
+    return strings.join(lines, "\n")
+}
+
+fn line(it: models.Item) -> string {
+    let kind = match it.kind {
+        tool => "tool"
+        paper => "paper"
+    }
+    return "  " + strings.padRight(it.name, 10, ".") + strings.padLeft("{it.price}", 4) + " ({kind})"
+}

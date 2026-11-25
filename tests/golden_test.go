@@ -18,28 +18,34 @@ import (
 	"github.com/irshadio/vex-lang/compiler/cc"
 	"github.com/irshadio/vex-lang/compiler/codegen"
 	"github.com/irshadio/vex-lang/compiler/diag"
-	"github.com/irshadio/vex-lang/compiler/parser"
+	"github.com/irshadio/vex-lang/compiler/modules"
 	"github.com/irshadio/vex-lang/compiler/types"
 )
 
 var update = flag.Bool("update", false, "rewrite the .out files of the examples")
 
-// Parses and checks the file at [path], returning its C code.
+// Loads and checks the program at [path], a file or a project folder,
+// returning its C code.
 func compile(path string) (string, error) {
-	src, err := os.ReadFile(path)
+	prog, err := modules.Load(path)
 	if err != nil {
 		return "", err
 	}
-	f := diag.NewFile(filepath.Base(path), string(src))
-	tree, err := parser.Parse(f)
-	if err != nil {
-		return "", err
-	}
-	info, err := types.Check(f, tree)
+	info, err := types.CheckProgram(prog)
 	if err != nil {
 		return "", err
 	}
 	return codegen.Generate(info, filepath.Base(path)), nil
+}
+
+// Returns the project folders, those with a project file, matching [glob].
+func projects(glob string) []string {
+	files, _ := filepath.Glob(filepath.Join(glob, modules.ProjectFile))
+	var dirs []string
+	for _, f := range files {
+		dirs = append(dirs, filepath.Dir(f))
+	}
+	return dirs
 }
 
 var stressComment = regexp.MustCompile(`(?m)^// stress: (\d+)$`)
@@ -67,6 +73,8 @@ func TestExamples(t *testing.T) {
 	}
 	more, _ := filepath.Glob("run/*.vx")
 	paths = append(paths, more...)
+	paths = append(paths, projects("../examples/*")...)
+	paths = append(paths, projects("run/*")...)
 	for _, path := range paths {
 		name := strings.TrimSuffix(filepath.Base(path), ".vx")
 		base := strings.TrimSuffix(path, ".vx")
@@ -119,34 +127,58 @@ func TestExamples(t *testing.T) {
 // An expected error, written in the source as `// error: LINE:COL: message`.
 var expectRE = regexp.MustCompile(`(?m)^\s*// error: (\d+:\d+): (.*)$`)
 
-// Checks that each tests/errors/*.vx fails with exactly the errors listed in
-// its comments, in order.
+// Checks that each tests/errors/*.vx, and each project in tests/errors,
+// fails with exactly the errors listed in its comments, in order. In a
+// project, each error is listed in the file it is in.
 func TestErrors(t *testing.T) {
 	paths, _ := filepath.Glob("errors/*.vx")
+	paths = append(paths, projects("errors/*")...)
 	if len(paths) == 0 {
 		t.Fatal("no error tests found")
 	}
 	for _, path := range paths {
 		t.Run(strings.TrimSuffix(filepath.Base(path), ".vx"), func(t *testing.T) {
-			src, err := os.ReadFile(path)
-			if err != nil {
-				t.Fatal(err)
+			sources := []string{path}
+			project := !strings.HasSuffix(path, ".vx")
+			if project {
+				sources = nil
+				filepath.WalkDir(path, func(p string, d os.DirEntry, err error) error {
+					if err == nil && strings.HasSuffix(p, ".vx") {
+						sources = append(sources, p)
+					}
+					return nil
+				})
 			}
 			var want []string
-			for _, m := range expectRE.FindAllStringSubmatch(string(src), -1) {
-				want = append(want, m[1]+": "+m[2])
+			for _, p := range sources {
+				src, err := os.ReadFile(p)
+				if err != nil {
+					t.Fatal(err)
+				}
+				prefix := ""
+				if project {
+					prefix = filepath.ToSlash(strings.TrimPrefix(p, path+string(filepath.Separator))) + ":"
+				}
+				for _, m := range expectRE.FindAllStringSubmatch(string(src), -1) {
+					want = append(want, prefix+m[1]+": "+m[2])
+				}
 			}
 			if len(want) == 0 {
 				t.Fatal("no // error: comments in the file")
 			}
-			_, err = compile(path)
+			_, err := compile(path)
 			var list diag.List
 			if !errors.As(err, &list) {
 				t.Fatalf("expected errors, got %v", err)
 			}
+			list.Sort()
 			var got []string
 			for _, d := range list {
-				got = append(got, fmt.Sprintf("%s: %s", d.Pos, d.Message))
+				prefix := ""
+				if project && d.File != nil {
+					prefix = filepath.ToSlash(strings.TrimPrefix(d.File.Name, path+string(filepath.Separator))) + ":"
+				}
+				got = append(got, fmt.Sprintf("%s%s: %s", prefix, d.Pos, d.Message))
 			}
 			if strings.Join(got, "\n") != strings.Join(want, "\n") {
 				t.Errorf("errors differ\n--- got\n%s\n--- want\n%s", strings.Join(got, "\n"), strings.Join(want, "\n"))

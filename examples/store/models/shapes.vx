@@ -1,0 +1,23 @@
+pub interface Shape {
+    fn area() -> int
+}
+
+pub struct Square: Shape {
+    pub side: int
+
+    fn area() -> int => side * side
+}
+
+pub struct Rect: Shape {
+    pub w: int
+    pub h: int
+
+    fn area() -> int => w * h
+}
+
+pub struct Pair<A, B> {
+    pub first: A
+    pub second: B
+
+    pub fn describe() -> string => "{first}: {second}"
+}

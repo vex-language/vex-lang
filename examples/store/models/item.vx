@@ -1,0 +1,10 @@
+pub enum Kind {
+    tool
+    paper
+}
+
+pub struct Item {
+    pub name: string
+    pub price: int
+    pub kind: Kind
+}

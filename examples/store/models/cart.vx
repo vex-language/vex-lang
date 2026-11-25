@@ -1,0 +1,20 @@
+pub struct Cart {
+    pub owner: string
+
+    // Private: other modules go through the methods.
+    items: [Item] = []
+
+    pub fn add(item: Item) {
+        items.push(item)
+    }
+
+    pub fn list() -> [Item] => items
+
+    pub fn total() -> int {
+        var sum = 0
+        for it in items {
+            sum += it.price
+        }
+        return sum
+    }
+}

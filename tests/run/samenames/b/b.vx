@@ -1,0 +1,26 @@
+import "../a"
+
+pub struct User: a.Named {
+    pub name: string
+    pub fn hello() -> string => "b {name}"
+    fn label() -> string => "b user {name}"
+}
+
+pub enum Color {
+    red
+}
+
+pub struct Box<T> {
+    pub value: T
+}
+
+pub fn make() -> string => "b make"
+
+pub fn color(c: Color) -> string => "b red"
+
+pub fn pong(n: int) -> string {
+    if n == 0 {
+        return "b done"
+    }
+    return a.ping(n - 1)
+}
