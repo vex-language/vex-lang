@@ -1,0 +1,69 @@
+/// The program's surroundings: its arguments, environment and other
+/// programs.
+
+extern fn cArgCount() -> int as "vx_os_argc"
+extern fn cArg(i: int) -> string as "vx_os_arg"
+extern fn cGetEnv(name: string) -> string? as "getenv"
+extern fn cSetEnv(name: string, value: string) as "vx_os_set_env"
+extern fn cExit(code: int) as "vx_os_exit"
+extern fn cCwd() -> string? as "vx_os_cwd"
+extern fn cRun(command: string) -> int as "vx_os_run"
+extern fn cOutput(command: string) -> string? as "vx_os_output"
+extern fn cLastStatus() -> int as "vx_os_status_of_last"
+extern fn cError() -> string as "vx_os_error"
+
+/// Returns the arguments the program was started with, without the
+/// program's own name.
+pub fn args() -> [string] {
+    var out: [string] = []
+    for i in 1..cArgCount() {
+        out.push(cArg(i))
+    }
+    return out
+}
+
+/// Returns the environment variable [name], or nil if it isn't set.
+pub fn env(name: string) -> string? => cGetEnv(name)
+
+/// Sets the environment variable [name] to [value], for this program and
+/// the programs it starts.
+pub fn setEnv(name: string, value: string) {
+    cSetEnv(name, value)
+}
+
+/// Stops the program with exit status [code]; 0 means success.
+pub fn exit(code: int) {
+    cExit(code)
+}
+
+/// Returns the folder the program runs in.
+pub fn cwd() throws -> string {
+    guard let dir = cCwd() else {
+        throw Error("can't read the current folder: {cError()}")
+    }
+    return dir
+}
+
+/// Runs [command] with the shell, letting it print to the terminal, and
+/// returns its exit status. The command is passed to the shell as written,
+/// so never build it from text a user typed.
+pub fn run(command: string) throws -> int {
+    let status = cRun(command)
+    if status < 0 {
+        throw Error("can't run '{command}': {cError()}")
+    }
+    return status
+}
+
+/// Runs [command] with the shell and returns what it printed. Throws if it
+/// can't start or exits with a status other than 0.
+pub fn output(command: string) throws -> string {
+    guard let text = cOutput(command) else {
+        throw Error("can't run '{command}': {cError()}")
+    }
+    let status = cLastStatus()
+    if status != 0 {
+        throw Error("'{command}' failed with exit status {status}")
+    }
+    return text
+}

@@ -164,7 +164,9 @@ func Generate(info *types.Info, srcName string) string {
 	}
 	g.line("static const char *const vx_srcs[] = {%s};", strings.Join(names, ", "))
 	g.line("")
-	g.line("int main(void) {")
+	g.line("int main(int argc, char **argv) {")
+	g.line("    vx_argc = argc;")
+	g.line("    vx_argv = argv;")
 	g.line("    vx_init(__builtin_frame_address(0));")
 	g.line("    vx_files = vx_srcs;")
 	if main := mainFunc(info); main != nil && main.Throws != nil {

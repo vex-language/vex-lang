@@ -12,7 +12,10 @@
 #include <stdlib.h>
 #include <time.h>
 #include <string.h>
+#include <dirent.h>
 #include <sys/resource.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include <unistd.h>
 
 // An immutable UTF-8 string. [ptr] is not NUL-terminated.
@@ -108,6 +111,11 @@ static uintptr_t vx_lo = UINTPTR_MAX, vx_hi; // bounds of all objects
 static size_t vx_heap_bytes;        // bytes in objects, live or not
 static size_t vx_gc_next = 4 << 20; // collect once vx_heap_bytes passes this
 static char *vx_stack_base;
+
+// The entries of the folder read by the last vx_fs_list_open, sorted. The
+// collector marks them, since only the stack is scanned otherwise.
+static char **vx_fs_entries;
+static int64_t vx_fs_entry_count;
 
 typedef struct {
     char *ptr;
@@ -260,6 +268,7 @@ static void vx_collect(void) {
     if (vx_larges_len > 1) qsort(vx_larges, vx_larges_len, sizeof(vx_large *), vx_large_cmp);
 
     vx_mark_stack();
+    vx_mark_range((const char *)&vx_fs_entries, (const char *)(&vx_fs_entries + 1));
     while (vx_gray_len > 0) {
         vx_span s = vx_gray[--vx_gray_len];
         vx_mark_range(s.ptr, s.ptr + s.size);
@@ -1064,3 +1073,177 @@ static void vx_assert(bool cond, vx_str msg, int line) {
     if (msg.len == 0) vx_fail(line, "assertion failed");
     vx_fail(line, "assertion failed: %.*s", (int)msg.len, msg.ptr);
 }
+
+// --- Files and the system ---
+//
+// Helpers behind vex:fs and vex:os. Functions that can fail return NULL,
+// false or -1 and keep errno for vx_os_error.
+
+static int vx_errno;
+static int vx_argc;
+static char **vx_argv;
+
+static const char *vx_os_error(void) { return strerror(vx_errno); }
+
+static const char *vx_fs_read(const char *path) {
+    FILE *f = fopen(path, "rb");
+    if (!f) { vx_errno = errno; return NULL; }
+    size_t cap = 4096, len = 0;
+    char *buf = vx_alloc_atomic(cap);
+    size_t n;
+    while ((n = fread(buf + len, 1, cap - len - 1, f)) > 0) {
+        len += n;
+        if (cap - len < 2) {
+            buf = vx_realloc(buf, cap * 2);
+            cap *= 2;
+        }
+    }
+    bool failed = ferror(f);
+    if (failed) vx_errno = errno;
+    fclose(f);
+    if (failed) return NULL;
+    buf[len] = 0;
+    return buf;
+}
+
+static bool vx_fs_write(const char *path, const char *text, bool append) {
+    FILE *f = fopen(path, append ? "ab" : "wb");
+    if (!f) { vx_errno = errno; return false; }
+    size_t n = strlen(text);
+    bool ok = fwrite(text, 1, n, f) == n;
+    if (!ok) vx_errno = errno;
+    if (fclose(f) != 0 && ok) { vx_errno = errno; ok = false; }
+    return ok;
+}
+
+static bool vx_fs_exists(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0;
+}
+
+static bool vx_fs_is_dir(const char *path) {
+    struct stat st;
+    return stat(path, &st) == 0 && S_ISDIR(st.st_mode);
+}
+
+static int64_t vx_fs_size(const char *path) {
+    struct stat st;
+    if (stat(path, &st) != 0) { vx_errno = errno; return -1; }
+    return (int64_t)st.st_size;
+}
+
+static bool vx_fs_remove(const char *path) {
+    if (remove(path) != 0) { vx_errno = errno; return false; }
+    return true;
+}
+
+// Creates the folder [path] and any missing parents.
+static bool vx_fs_make_dir(const char *path) {
+    size_t n = strlen(path);
+    char *p = vx_alloc_atomic(n + 1);
+    memcpy(p, path, n + 1);
+    for (size_t i = 1; i <= n; i++) {
+        if (p[i] != '/' && p[i] != 0) continue;
+        char saved = p[i];
+        p[i] = 0;
+        if (mkdir(p, 0777) != 0 && errno != EEXIST) { vx_errno = errno; return false; }
+        p[i] = saved;
+    }
+    if (!vx_fs_is_dir(path)) { vx_errno = ENOTDIR; return false; }
+    return true;
+}
+
+static int vx_fs_cmp(const void *a, const void *b) {
+    return strcmp(*(char *const *)a, *(char *const *)b);
+}
+
+static int64_t vx_fs_list_open(const char *path) {
+    DIR *d = opendir(path);
+    if (!d) { vx_errno = errno; return -1; }
+    int64_t cap = 16, n = 0;
+    char **names = vx_alloc((size_t)cap * sizeof(char *));
+    struct dirent *e;
+    while ((e = readdir(d)) != NULL) {
+        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+        if (n == cap) {
+            names = vx_realloc(names, (size_t)cap * 2 * sizeof(char *));
+            cap *= 2;
+        }
+        size_t len = strlen(e->d_name);
+        names[n] = vx_alloc_atomic(len + 1);
+        memcpy(names[n], e->d_name, len + 1);
+        n++;
+    }
+    closedir(d);
+    qsort(names, (size_t)n, sizeof(char *), vx_fs_cmp);
+    vx_fs_entries = names;
+    vx_fs_entry_count = n;
+    return n;
+}
+
+static const char *vx_fs_list_name(int64_t i) {
+    return i >= 0 && i < vx_fs_entry_count ? vx_fs_entries[i] : NULL;
+}
+
+static int64_t vx_os_argc(void) { return vx_argc; }
+
+static const char *vx_os_arg(int64_t i) { return i >= 0 && i < vx_argc ? vx_argv[i] : NULL; }
+
+__attribute__((noreturn))
+static void vx_os_exit(int64_t code) {
+    fflush(stdout);
+    exit((int)code);
+}
+
+static const char *vx_os_cwd(void) {
+    char buf[4096];
+    if (!getcwd(buf, sizeof buf)) { vx_errno = errno; return NULL; }
+    size_t n = strlen(buf);
+    char *out = vx_alloc_atomic(n + 1);
+    memcpy(out, buf, n + 1);
+    return out;
+}
+
+static void vx_os_set_env(const char *name, const char *value) { setenv(name, value, 1); }
+
+// Returns the exit status of a finished child, or 128 + the signal that
+// stopped it.
+static int64_t vx_os_status(int status) {
+    if (WIFEXITED(status)) return WEXITSTATUS(status);
+    if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
+    return -1;
+}
+
+// Runs [cmd] with the shell; returns its exit status, or -1 if it couldn't
+// start.
+static int64_t vx_os_run(const char *cmd) {
+    fflush(stdout);
+    int status = system(cmd);
+    if (status == -1) { vx_errno = errno; return -1; }
+    return vx_os_status(status);
+}
+
+static int64_t vx_os_last_status;
+
+// Runs [cmd] with the shell and returns what it printed; its exit status
+// is left in vx_os_last_status.
+static const char *vx_os_output(const char *cmd) {
+    fflush(stdout);
+    FILE *p = popen(cmd, "r");
+    if (!p) { vx_errno = errno; return NULL; }
+    size_t cap = 4096, len = 0, n;
+    char *buf = vx_alloc_atomic(cap);
+    while ((n = fread(buf + len, 1, cap - len - 1, p)) > 0) {
+        len += n;
+        if (cap - len < 2) {
+            buf = vx_realloc(buf, cap * 2);
+            cap *= 2;
+        }
+    }
+    buf[len] = 0;
+    int status = pclose(p);
+    vx_os_last_status = status == -1 ? -1 : vx_os_status(status);
+    return buf;
+}
+
+static int64_t vx_os_status_of_last(void) { return vx_os_last_status; }

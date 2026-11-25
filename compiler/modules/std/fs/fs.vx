@@ -1,0 +1,79 @@
+/// Reading and writing files and folders.
+///
+/// Files are read and written as text. Functions that can fail throw an
+/// Error naming the path and the reason.
+
+extern fn cRead(path: string) -> string? as "vx_fs_read"
+extern fn cWrite(path: string, text: string, append: bool) -> bool as "vx_fs_write"
+extern fn cExists(path: string) -> bool as "vx_fs_exists"
+extern fn cIsDir(path: string) -> bool as "vx_fs_is_dir"
+extern fn cSize(path: string) -> int as "vx_fs_size"
+extern fn cRemove(path: string) -> bool as "vx_fs_remove"
+extern fn cMakeDir(path: string) -> bool as "vx_fs_make_dir"
+extern fn cListOpen(path: string) -> int as "vx_fs_list_open"
+extern fn cListName(i: int) -> string as "vx_fs_list_name"
+extern fn cError() -> string as "vx_os_error"
+
+/// Returns the contents of the file at [path].
+pub fn read(path: string) throws -> string {
+    guard let text = cRead(path) else {
+        throw Error("can't read {path}: {cError()}")
+    }
+    return text
+}
+
+/// Writes [text] to the file at [path], replacing what it held.
+pub fn write(path: string, text: string) throws {
+    if !cWrite(path, text, false) {
+        throw Error("can't write {path}: {cError()}")
+    }
+}
+
+/// Adds [text] to the end of the file at [path], creating it if needed.
+pub fn append(path: string, text: string) throws {
+    if !cWrite(path, text, true) {
+        throw Error("can't write {path}: {cError()}")
+    }
+}
+
+/// Reports whether a file or folder exists at [path].
+pub fn exists(path: string) -> bool => cExists(path)
+
+/// Reports whether [path] is a folder.
+pub fn isDir(path: string) -> bool => cIsDir(path)
+
+/// Returns the size of the file at [path] in bytes.
+pub fn size(path: string) throws -> int {
+    let n = cSize(path)
+    if n < 0 {
+        throw Error("can't read {path}: {cError()}")
+    }
+    return n
+}
+
+/// Removes the file or empty folder at [path].
+pub fn remove(path: string) throws {
+    if !cRemove(path) {
+        throw Error("can't remove {path}: {cError()}")
+    }
+}
+
+/// Creates the folder [path], and any missing folders above it.
+pub fn makeDir(path: string) throws {
+    if !cMakeDir(path) {
+        throw Error("can't create {path}: {cError()}")
+    }
+}
+
+/// Returns the names of the entries in the folder [path], sorted.
+pub fn list(path: string) throws -> [string] {
+    let n = cListOpen(path)
+    if n < 0 {
+        throw Error("can't list {path}: {cError()}")
+    }
+    var names: [string] = []
+    for i in 0..n {
+        names.push(cListName(i))
+    }
+    return names
+}
