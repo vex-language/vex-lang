@@ -1,0 +1,73 @@
+const maxUsers = 100
+const timeout: float = 2.5
+const ratio: float = 2
+pub const appName = "vex"
+const greeting = "hello from {appName}, max {maxUsers}"
+const limit = maxUsers * 2 + 1
+const enabled = !false && limit > 100
+const wrapped = 9223372036854775807 &+ 1
+const half = timeout / 2.0
+
+enum Light {
+    red, yellow, green
+
+    static const all = [Light.red, .yellow, .green]
+
+    fn next() -> Light => match self {
+        red => .green
+        green => .yellow
+        yellow => .red
+    }
+}
+
+struct Circle {
+    static const pi = 3.14159
+    static const unit = (radius: 1.0, label: "unit")
+    radius: float
+
+    fn area() -> float => pi * radius * radius
+}
+
+const origin = (x: 0, y: 0)
+const defaultLight = Light.red
+const primes = [2, 3, 5, 7]
+const codes = ["ok": 200, "missing": 404]
+const grid = [[1, 2], [3, 4]]
+const okCode = 200
+const note = "pi is {Circle.pi}"
+
+fn describe(code: int) -> string => match code {
+    okCode => "ok"
+    404 => "missing"
+    _ => "other"
+}
+
+fn isDefault(l: Light) -> bool => match l {
+    defaultLight => true
+    _ => false
+}
+
+fn main() {
+    println(maxUsers, timeout, ratio, appName, limit, enabled, wrapped, half)
+    println(greeting)
+    println(origin, origin.x, defaultLight, defaultLight.next())
+    println(primes, primes.len, primes[3], codes["missing"])
+    println(grid, grid[1][0])
+    println(Circle.pi, Circle.unit, Circle.unit.label, Circle(radius: 2.0).area())
+    println(Light.all, Light.all.len)
+    println(describe(200), describe(404), describe(1))
+    println(isDefault(.red), isDefault(.green))
+    println(note)
+    var mine = primes.copy()
+    mine.push(11)
+    println(mine, primes)
+    var m = codes.copy()
+    m["teapot"] = 418
+    println(m.len, codes.len)
+    let alias = primes
+    println(alias.contains(5))
+    for p in primes {
+        print("{p} ")
+    }
+    println()
+}

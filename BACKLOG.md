@@ -108,7 +108,7 @@ Goal: the language features real apps need before any UI work.
 ### Modern language features
 - [x] **V-136** Records in the Dart 3 style: `(int, string)`, `({int x, int y})`, `.$1` and named fields, value equality, and `let`/`var`/`for` destructuring (M)
 - [x] **V-137** Destructuring and richer patterns: `let (a, b) = pair`, struct and list patterns, guards in `match` arms, ranges, `if case` (L)
-- [ ] **V-138** Constants: top-level `const` values computed at compile time (S)
+- [x] **V-138** Constants: top-level `const` values computed at compile time (S)
 - [ ] **V-139** Extensions: add methods to existing types, built-in ones included (M)
 - [ ] **V-140** Type aliases for long types (S)
 - [ ] **V-141** Multi-line and raw strings (S)
@@ -261,3 +261,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | Isolates: each is a thread with its own heap, collector and loop, so the runtime's state is thread-local and needs no locks. The heap's fields share one thread-local struct, so an allocation looks up thread-local storage once; on macOS that keeps the cost to about 4% in allocation-heavy code. Values are copied as messages, keeping sharing and cycles, and the compiler rejects functions, futures, handles and interface values. Channels live outside the heaps and are shared; `isolate.run` follows Dart 3's `Isolate.run`. `while let` came with it, for receive loops (V-147) |
 | 2026-11-25 | Records follow Dart 3 exactly: `(int, string)`, named fields in braces as `({int x, int y})`, positional fields read as `$1`. They are C structs passed by value, typed by their shape, with equality generated per type. Simple `let`, `var` and `for` destructuring came with them; patterns in `match` stay in V-137 (V-136) |
 | 2026-11-25 | Patterns follow Dart 3 with Vex's own ranges: struct patterns `Point(x: 0, :y)`, list patterns with `...rest`, `when` guards, `\|\|` alternatives, comparisons, and `if value case pattern`. Ranges use `1..=9` as in loops. Coverage is checked over nested shapes with a usefulness algorithm, which also finds unreachable arms. Matching on `float` is now allowed (V-137) |
+| 2026-11-25 | Constants follow Dart: `const`, `static const`, `pub const`, usable as patterns. Int, bool and string constants are folded by the compiler, with overflow and division by zero as compile errors. Lists, maps and other values are built once before `main` on the main heap, kept as roots, and shared read-only with isolates. Const lists and maps are frozen: changes are compile errors when visible, otherwise runtime errors (a frozen list has a negative capacity, so `push` costs nothing extra). `.copy()` came with them (V-138) |

@@ -41,11 +41,13 @@ type tables struct {
 	genEnums   map[string]*genericEnum
 	genIfaces  map[string]*genericIface
 	handles    map[string]*Handle
+	consts     map[string]*Const
 }
 
 func newTables() tables {
 	return tables{
 		structs:    map[string]*Struct{},
+		consts:     map[string]*Const{},
 		enums:      map[string]*Enum{},
 		funcs:      map[string]*Func{},
 		interfaces: map[string]*Interface{},
@@ -450,6 +452,14 @@ func (c *checker) moduleCall(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 func (c *checker) moduleIdent(id *ast.Ident) Type {
 	m := c.imported(id.Module)
 	name := id.Name
+	if k := m.consts[name]; k != nil {
+		if c.private(id, m, k.Decl.Pub, "constant '"+name+"'") {
+			return Invalid
+		}
+		c.checkConst(k)
+		c.info.Uses[id] = k
+		return k.Type
+	}
 	if f := m.funcs[name]; f != nil {
 		if c.private(id, m, f.Decl.Pub, "function '"+name+"'") || c.asyncValue(id, f) {
 			return Invalid
@@ -530,6 +540,9 @@ func (c *checker) fileTable() {
 	c.info.FileOf = map[ast.Node]int{}
 	for n, u := range c.units {
 		c.info.FileOf[n] = index[u.file]
+	}
+	for _, k := range c.info.Consts {
+		c.info.FileOf[k.Decl] = index[k.unit.file]
 	}
 	for _, f := range c.info.Funcs {
 		for _, p := range f.Params {

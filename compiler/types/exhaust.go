@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/irshadio/vex-lang/compiler/ast"
@@ -39,6 +40,12 @@ func (c *checker) lower(p ast.Pattern, t Type) *spat {
 	case *ast.NamePattern:
 		if cs := c.info.PatternCases[p]; cs != nil {
 			return &spat{kind: sCtor, key: cs.Name, args: wilds(len(cs.Fields))}
+		}
+		if k, ok := c.info.Uses[p.Name].(*Const); ok {
+			if v, ok := k.Value.(bool); ok && t == Bool {
+				return &spat{kind: sCtor, key: strconv.FormatBool(v)}
+			}
+			return &spat{kind: sOpaque, key: "const " + k.String()}
 		}
 	case *ast.CasePattern:
 		if cs := c.info.PatternCases[p]; cs != nil {
@@ -345,6 +352,11 @@ func (e exhauster) useful(rows []patRow, q []*spat, ts []Type) bool {
 			return e.useful(rest, q[1:], ts[1:])
 		}
 		return e.useful(specializeRows(rows, k), q[1:], ts[1:])
+	}
+	if h.kind == sOpaque {
+		// A value the compiler can't see, such as a constant enum, may
+		// match any of the constructors.
+		return true
 	}
 	for _, k := range ks {
 		args, ok := specialize(h, k)

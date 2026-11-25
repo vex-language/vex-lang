@@ -30,6 +30,10 @@ type gen struct {
 	vals  map[*types.Var]string
 	boxes map[*types.Var]string
 
+	// Set while generating the values of constants, whose lists and maps
+	// are frozen.
+	constMode bool
+
 	// The temporaries pattern variables are stored in while their pattern
 	// is tested.
 	patTemps map[*types.Var]string
@@ -119,6 +123,7 @@ func Generate(info *types.Info, srcName string) string {
 			g.spawnWrapper(f)
 		}
 	}
+	consts := g.constsInit(info)
 
 	var out strings.Builder
 	g.b, g.ind = &out, 0
@@ -182,8 +187,10 @@ func Generate(info *types.Info, srcName string) string {
 	}
 	g.b.WriteString(g.codecDecls.String())
 	g.b.WriteString(g.codecDefs.String())
+	g.constsStruct(info)
 	g.b.WriteString(defs.String())
 	g.b.WriteString(g.lams.String())
+	g.b.WriteString(consts)
 	g.line("")
 	names := []string{cQuote(srcName)}
 	if len(info.Files) > 1 {
@@ -199,6 +206,9 @@ func Generate(info *types.Info, srcName string) string {
 	g.line("    vx_argv = argv;")
 	g.line("    vx_init(__builtin_frame_address(0));")
 	g.line("    vx_files = vx_srcs;")
+	if consts != "" {
+		g.line("    vx_consts_init();")
+	}
 	switch main := mainFunc(info); {
 	case main != nil && main.Async:
 		g.line("    vx_future *f = sp_fn_main();")
@@ -956,14 +966,14 @@ func (g *gen) assign(s *ast.AssignStmt) {
 			setup = append(setup,
 				fmt.Sprintf("vx_map *%s = %s;", m, g.expr(x.X)),
 				fmt.Sprintf("%s = %s;", decl(g.info.Types[x.Index], k), g.expr(x.Index)))
-			target = fmt.Sprintf("(*(%s*)vx_map_set(%s, &%s))", ctype(t), m, k)
+			target = fmt.Sprintf("(*(%s*)vx_map_set(vx_map_mut(%s, %d), &%s))", ctype(t), m, g.lineOf(x), k)
 			break
 		}
 		list, idx := g.temp(), g.temp()
 		setup = append(setup,
 			fmt.Sprintf("vx_list *%s = %s;", list, g.expr(x.X)),
 			fmt.Sprintf("int64_t %s = %s;", idx, g.expr(x.Index)))
-		target = fmt.Sprintf("(*(%s*)vx_list_at(%s, %s, %d))", ctype(t), list, idx, g.lineOf(x))
+		target = fmt.Sprintf("(*(%s*)vx_list_at(vx_list_mut(%s, %d), %s, %d))", ctype(t), list, g.lineOf(x), idx, g.lineOf(x))
 	case *ast.MemberExpr:
 		obj := g.temp()
 		setup = append(setup, fmt.Sprintf("%s = %s;", decl(g.info.Types[x.X], obj), g.expr(x.X)))
@@ -1320,6 +1330,8 @@ func (g *gen) value(e ast.Expr) string {
 		case *types.Func:
 			g.fnValues[u] = true
 			return "((vx_fn){(void *)fnv_" + funcName(u) + ", NULL})"
+		case *types.Const:
+			return g.constRef(u)
 		}
 	case *ast.TypeArgsExpr:
 		return g.expr(e.X)
@@ -1341,10 +1353,17 @@ func (g *gen) value(e ast.Expr) string {
 		}
 		elem := t.(*types.List).Elem
 		if len(e.Elems) == 0 {
+			if g.constMode {
+				return fmt.Sprintf("vx_list_freeze(vx_list_new(sizeof(%s), 0, NULL))", ctype(elem))
+			}
 			return fmt.Sprintf("vx_list_new(sizeof(%s), 0, NULL)", ctype(elem))
 		}
 		return g.ordered(e.Elems, func(cs []string) string {
-			return fmt.Sprintf("vx_list_new(sizeof(%s), %d, (%s[]){%s})", ctype(elem), len(cs), ctype(elem), strings.Join(cs, ", "))
+			l := fmt.Sprintf("vx_list_new(sizeof(%s), %d, (%s[]){%s})", ctype(elem), len(cs), ctype(elem), strings.Join(cs, ", "))
+			if g.constMode {
+				return "vx_list_freeze(" + l + ")"
+			}
+			return l
 		})
 	case *ast.UnaryExpr:
 		if _, lit := e.X.(*ast.IntLit); e.Op == lexer.Minus && t == types.Int && !lit {
@@ -1387,12 +1406,18 @@ func (g *gen) value(e ast.Expr) string {
 		if e.Body != nil {
 			return g.collection(e, e.Body, t)
 		}
+		if g.constMode {
+			return "vx_map_freeze(" + g.mapLit(e, t.(*types.Map)) + ")"
+		}
 		return g.mapLit(e, t.(*types.Map))
 	case *ast.MemberExpr:
 		if cs := g.info.CaseValues[e]; cs != nil {
 			return caseFunc(cs) + "()"
 		}
 		m := g.info.Members[e]
+		if m.Const != nil {
+			return g.constRef(m.Const)
+		}
 		x := g.expr(e.X)
 		if m.RecordField != "" {
 			return fmt.Sprintf("(%s).%s", x, recordField(m.RecordField))
@@ -1616,8 +1641,10 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 				return fmt.Sprintf("({ %s = %s; vx_map_find(%s, &%s) != NULL; })", decl(m.Key, k), cs[1], cs[0], k)
 			case "remove":
 				r, opt := g.temp(), ctype(g.info.Types[e])
-				return fmt.Sprintf("({ %s = %s; %s %s = {0}; %s.has = vx_map_remove(%s, &%s, &%s.v); %s; })",
-					decl(m.Key, k), cs[1], opt, r, r, cs[0], k, r, r)
+				return fmt.Sprintf("({ %s = %s; %s %s = {0}; %s.has = vx_map_remove(vx_map_mut(%s, %d), &%s, &%s.v); %s; })",
+					decl(m.Key, k), cs[1], opt, r, r, cs[0], line, k, r, r)
+			case "copy":
+				return "vx_map_copy(" + cs[0] + ")"
 			}
 		}
 		if l, ok := recv.(*types.List); ok {
@@ -1625,9 +1652,11 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 			switch c.Builtin {
 			case "push":
 				item := g.temp()
-				return fmt.Sprintf("({ %s = %s; vx_list_push(%s, &%s); })", decl(l.Elem, item), cs[1], cs[0], item)
+				return fmt.Sprintf("({ %s = %s; vx_list_push(vx_list_mut(%s, %d), &%s); })", decl(l.Elem, item), cs[1], cs[0], line, item)
 			case "pop":
-				return fmt.Sprintf("(*(%s*)vx_list_pop(%s, %d))", elem, cs[0], line)
+				return fmt.Sprintf("(*(%s*)vx_list_pop(vx_list_mut(%s, %d), %d))", elem, cs[0], line, line)
+			case "copy":
+				return "vx_list_copy(" + cs[0] + ")"
 			case "filter", "map":
 				list, f, i, x, out := g.temp(), g.temp(), g.temp(), g.temp(), g.temp()
 				ft := g.info.Types[c.Args[0]].(*types.FuncType)

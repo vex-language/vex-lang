@@ -19,7 +19,10 @@ fn make() -> string => "main make"
 
 fn loud<T: a.Named>(x: T) -> string => x.shout()
 
+const tags = ["main"]
+
 fn main() {
+    println(tags, a.tags, b.tags, a.size + b.size)
     println(User(name: "u").hello())
     println(a.User(name: "u").hello())
     println(b.User(name: "u").hello())

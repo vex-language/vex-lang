@@ -24,3 +24,7 @@ pub fn pong(n: int) -> string {
     }
     return a.ping(n - 1)
 }
+
+pub const tags = ["b"]
+pub const size = 2
+const hidden = 3

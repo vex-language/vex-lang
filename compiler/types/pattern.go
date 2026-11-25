@@ -188,6 +188,20 @@ func (c *checker) namePattern(p *ast.NamePattern, t Type, b *binder, arm, guarde
 			c.info.PatternCases[p] = cs
 			return
 		}
+	}
+	if c.lookupVar(name) == nil {
+		if k := c.constIdent(p.Name); k != nil {
+			switch {
+			case k.Type == Invalid || t == Invalid:
+			case !comparable(k.Type):
+				c.errorAt(p, "use a guard: x when x == ...", "constant '%s' can't be a pattern: %s values can't be compared with ==", k, k.Type)
+			case !Identical(k.Type, t):
+				c.mismatch(p, t, k.Type, "pattern")
+			}
+			return
+		}
+	}
+	if en, ok := t.(*Enum); ok {
 		if arm && !guarded {
 			c.errorAt(p.Name, didYouMean(name, enumNames(en)), "%s has no case '%s'", en.Name, name)
 			c.bindName(b, p.Name, Invalid)

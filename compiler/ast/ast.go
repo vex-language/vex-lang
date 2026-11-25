@@ -158,6 +158,7 @@ type StructDecl struct {
 
 	Fields  []*Field
 	Methods []*FuncDecl
+	Consts  []*ConstDecl
 }
 
 // A type parameter of a generic function or struct: `T` or
@@ -200,6 +201,17 @@ type EnumDecl struct {
 	Interfaces []*NamedType
 	Cases      []*EnumCase
 	Methods    []*FuncDecl
+	Consts     []*ConstDecl
+}
+
+// A constant: `const name: type = value` at the top level, or `static
+// const` inside a struct or enum. [Type] is nil when it is inferred.
+type ConstDecl struct {
+	Span
+	Pub   bool
+	Name  *Ident
+	Type  TypeExpr
+	Value Expr
 }
 
 // An interface: methods and properties that implementing structs and
@@ -229,6 +241,7 @@ func (*StructDecl) declNode()     {}
 func (*EnumDecl) declNode()       {}
 func (*InterfaceDecl) declNode()  {}
 func (*ExternTypeDecl) declNode() {}
+func (*ConstDecl) declNode()      {}
 
 // --- Types ---
 

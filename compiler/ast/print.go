@@ -303,6 +303,15 @@ func build(n Node) *tree {
 			label = "pub " + label
 		}
 		return leaf(label)
+	case *ConstDecl:
+		label := "const " + n.Name.Name
+		if n.Type != nil {
+			label += ": " + TypeString(n.Type)
+		}
+		if n.Pub {
+			label = "pub " + label
+		}
+		return branch(label, buildExpr(n.Value))
 	case *StructDecl:
 		label := "struct " + n.Name.Name + typeParamsString(n.TypeParams)
 		if n.Pub {
@@ -316,6 +325,9 @@ func build(n Node) *tree {
 				label = "pub " + label
 			}
 			t.kids = append(t.kids, branch(label, buildExpr(f.Default)))
+		}
+		for _, k := range n.Consts {
+			t.kids = append(t.kids, build(k))
 		}
 		for _, m := range n.Methods {
 			t.kids = append(t.kids, build(m))
@@ -346,6 +358,9 @@ func build(n Node) *tree {
 				ct.kids = append(ct.kids, leaf(f.Name.Name+": "+TypeString(f.Type)))
 			}
 			t.kids = append(t.kids, ct)
+		}
+		for _, k := range n.Consts {
+			t.kids = append(t.kids, build(k))
 		}
 		for _, m := range n.Methods {
 			t.kids = append(t.kids, build(m))

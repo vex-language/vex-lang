@@ -162,6 +162,10 @@ static VX_TLS int64_t vx_fs_entry_count;
 // Closures handed to C as callback contexts. They stay alive, since C
 // may keep them, until C passes the context to vex_release.
 static VX_TLS void **vx_kept;
+
+// The globals holding the program's constants, built by the main thread
+// before anything else runs and kept alive from then on.
+static const char *vx_roots_lo, *vx_roots_hi;
 static VX_TLS size_t vx_kept_len, vx_kept_cap;
 
 // A task: async work running on its own stack. The program's own stack
@@ -334,6 +338,7 @@ static void vx_collect(void) {
     vx_mark_stack();
     vx_mark_range((const char *)&vx_fs_entries, (const char *)(&vx_fs_entries + 1));
     if (vx_kept) vx_mark_range((const char *)vx_kept, (const char *)(vx_kept + vx_kept_len));
+    if (vx_roots_lo) vx_mark_range(vx_roots_lo, vx_roots_hi);
     // The stacks of the tasks that aren't running, the program's own
     // included, from their saved registers up.
     if (vx_cur != &vx_main_task) vx_mark_range(vx_main_task.sp, vx_main_task.top);
@@ -737,7 +742,8 @@ static void *vx_list_at(vx_list *l, int64_t i, int line) {
 }
 
 static void vx_list_push(vx_list *l, const void *item) {
-    if (l->len == l->cap) {
+    if (l->len >= l->cap) {
+        if (l->cap < 0) vx_fail(0, "can't change a constant list");
         l->cap *= 2;
         l->data = vx_realloc(l->data, (size_t)(l->cap * l->esz));
     }
@@ -747,6 +753,21 @@ static void vx_list_push(vx_list *l, const void *item) {
 
 // Removes the last element and returns a pointer to it, valid until the
 // next push.
+// Marks [l] as part of a constant: changing it is then an error. A frozen
+// list has a negative capacity.
+static vx_list *vx_list_freeze(vx_list *l) {
+    l->cap = -1;
+    return l;
+}
+
+// Returns [l], failing at [line] if it is part of a constant.
+static inline vx_list *vx_list_mut(vx_list *l, int line) {
+    if (__builtin_expect(l->cap < 0, 0)) vx_fail(line, "can't change a constant list; change a copy made with .copy()");
+    return l;
+}
+
+static vx_list *vx_list_copy(vx_list *l) { return vx_list_new(l->esz, l->len, l->data); }
+
 static void *vx_list_pop(vx_list *l, int line) {
     if (l->len == 0) vx_fail(line, "can't pop from an empty list");
     l->len--;
@@ -757,6 +778,7 @@ static void *vx_list_pop(vx_list *l, int line) {
 static void vx_list_append(vx_list *l, vx_list *src) {
     int64_t n = src->len;
     if (l->len + n > l->cap) {
+        if (l->cap < 0) vx_fail(0, "can't change a constant list");
         while (l->len + n > l->cap) l->cap *= 2;
         l->data = vx_realloc(l->data, (size_t)(l->cap * l->esz));
     }
@@ -912,6 +934,7 @@ typedef struct {
     uint64_t next_seq;
     uint64_t epoch;    // changes whenever compaction moves entries
     int32_t kind, vsz, ksz, esz, voff;
+    int32_t frozen;    // set for the maps of constants
     int32_t *index;    // -1 empty, -2 removed, otherwise an entry number
     char *entries;
 } vx_map;
@@ -1102,6 +1125,23 @@ static void vx_map_merge(vx_map *m, vx_map *src) {
         char *e = VX_MAP_ENTRY(src, i);
         if (VX_MAP_SEQ(e) != 0) memcpy(vx_map_set(m, e + VX_MAP_KEY), e + src->voff, (size_t)src->vsz);
     }
+}
+
+static vx_map *vx_map_freeze(vx_map *m) {
+    m->frozen = 1;
+    return m;
+}
+
+// Returns [m], failing at [line] if it is part of a constant.
+static inline vx_map *vx_map_mut(vx_map *m, int line) {
+    if (__builtin_expect(m->frozen, 0)) vx_fail(line, "can't change a constant map; change a copy made with .copy()");
+    return m;
+}
+
+static vx_map *vx_map_copy(vx_map *src) {
+    vx_map *m = vx_map_new(src->kind, src->ksz, src->vsz);
+    vx_map_merge(m, src);
+    return m;
 }
 
 // --- Conversions ---

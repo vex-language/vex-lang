@@ -184,6 +184,9 @@ func (c *checker) ident(id *ast.Ident) Type {
 			return c.readProperty(id, id.Name, p)
 		}
 	}
+	if k := c.constIdent(id); k != nil {
+		return k.Type
+	}
 	if f := c.funcs[id.Name]; f != nil {
 		if c.asyncValue(id, f) {
 			return Invalid
@@ -595,9 +598,15 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 	writing := c.writing
 	c.writing = false
 	if en := c.enumRef(e.X); en != nil {
+		if k := c.staticConst(e, nil, en); k != nil {
+			return k.Type
+		}
 		return c.caseValue(e, en, e.Name, en.Name+"."+name)
 	}
 	if s := c.structRef(e.X); s != nil {
+		if k := c.staticConst(e, s, nil); k != nil {
+			return k.Type
+		}
 		if s.Method(name) != nil {
 			c.errorAt(e.Name, fmt.Sprintf("call it: %s.%s()", s.Name, name), "method '%s' must be called", name)
 		} else {

@@ -37,3 +37,6 @@ pub fn ping(n: int) -> string {
     }
     return b.pong(n - 1)
 }
+
+pub const tags = ["a", "x"]
+pub const size = 1
