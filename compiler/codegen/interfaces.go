@@ -14,9 +14,9 @@ import (
 // interface's order. Calling an interface method is two loads and a call.
 
 func ifaceName(i *types.Interface) string {
-	id := modTag(i.Module) + i.Name
+	id := modTag(i.Module) + cid(i.Name)
 	if i.Args != nil {
-		id = modTag(i.Module) + i.Base + "__" + mangleList(i.Args)
+		id = modTag(i.Module) + cid(i.Base) + "__" + mangleList(i.Args)
 	}
 	return fmt.Sprintf("I%d%s", len(id), id)
 }

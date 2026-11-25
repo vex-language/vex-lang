@@ -1,0 +1,37 @@
+// Names that must stay apart in the generated code.
+
+fn id<T>(x: T) -> T => x
+fn id__int(x: int) -> int => x + 1
+
+struct Box<T> { v: T }
+struct Box__int { v: int }
+
+enum Opt<T> { some(v: T), none }
+enum Opt__int { some(v: int), none }
+
+const max__int = 7
+
+struct Pair {
+    a: int
+    fn get__int() -> int => a
+    fn get<T>(x: T) -> T => x
+}
+
+fn call<T>(f: T) -> T => f
+
+fn main() {
+    println(id(1), id__int(1), Box(v: 1).v, Box__int(v: 2).v)
+    let o: Opt<int> = .some(3)
+    let p: Opt__int = .some(4)
+    if o case some(n) { println(n) }
+    if p case some(n) { println(n) }
+    println(max__int, Pair(a: 5).get__int(), Pair(a: 0).get(6))
+
+    // Function types that differ only in throwing are distinct.
+    let plain = call(fn(x: int) -> int => x + 1)
+    let throwing = call(fn(x: int) throws -> int {
+        if x < 0 { throw Error("negative") }
+        return x * 2
+    })
+    println(plain(1), try throwing(2) catch { 0 }, try throwing(-1) catch { 0 })
+}

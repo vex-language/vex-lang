@@ -255,9 +255,9 @@ func structName(s *types.Struct) string { return "S_" + structIdent(s) }
 // generic instance spelled out, as in `Box__int`.
 func structIdent(s *types.Struct) string {
 	if s.Args == nil {
-		return modTag(s.Module) + s.Name
+		return modTag(s.Module) + cid(s.Name)
 	}
-	return modTag(s.Module) + s.Base + "__" + mangleList(s.Args)
+	return modTag(s.Module) + cid(s.Base) + "__" + mangleList(s.Args)
 }
 
 // Returns the prefix that keeps the C names of module [m] apart from those
@@ -304,22 +304,27 @@ func funcName(f *types.Func) string {
 		// Accessors share their property's name, so each kind has its own
 		// prefix.
 		prefix := map[ast.Accessor]string{ast.Method: "m", ast.Getter: "g", ast.Setter: "s", ast.Observer: "o"}[f.Decl.Accessor]
-		return fmt.Sprintf("%s%d%s_%s", prefix, len(owner), owner, f.Name) + typeArgsTag(f)
+		return fmt.Sprintf("%s%d%s_%s", prefix, len(owner), owner, cid(f.Name)) + typeArgsTag(f)
 	}
 	if f.Enum != nil {
 		id := enumIdent(f.Enum)
-		return fmt.Sprintf("m%d%s_%s", len(id), id, f.Name) + typeArgsTag(f)
+		return fmt.Sprintf("m%d%s_%s", len(id), id, cid(f.Name)) + typeArgsTag(f)
 	}
 	if f.TypeArgs != nil {
-		return "fn_" + modTag(f.Module) + f.Name + "__" + mangleList(f.TypeArgs)
+		return "fn_" + modTag(f.Module) + cid(f.Name) + "__" + mangleList(f.TypeArgs)
 	}
 	if f.Iface != nil {
 		id := strings.TrimPrefix(ifaceName(f.Iface), "I")
 		prefix := map[ast.Accessor]string{ast.Method: "i", ast.Getter: "ig", ast.Setter: "is"}[f.Decl.Accessor]
-		return prefix + id + "_" + f.Name
+		return prefix + id + "_" + cid(f.Name)
 	}
-	return "fn_" + modTag(f.Module) + f.Name
+	return "fn_" + modTag(f.Module) + cid(f.Name)
 }
+
+// Returns [name], a name from the program, for use inside a C name. Each
+// `_` becomes `_u`, so the result never holds `__`, which separates the
+// type arguments of generic instances: `id__int` stays apart from `id<int>`.
+func cid(name string) string { return strings.ReplaceAll(name, "_", "_u") }
 
 func ctype(t types.Type) string {
 	switch t := t.(type) {

@@ -13,15 +13,15 @@ func enumName(e *types.Enum) string { return "E_" + enumIdent(e) }
 // Returns a C-safe name for [e], tagged with its module.
 func enumIdent(e *types.Enum) string {
 	if e.Args == nil {
-		return modTag(e.Module) + e.Name
+		return modTag(e.Module) + cid(e.Name)
 	}
-	return modTag(e.Module) + e.Base + "__" + mangleList(e.Args)
+	return modTag(e.Module) + cid(e.Base) + "__" + mangleList(e.Args)
 }
 
 // Returns the name of the function creating values of [cs].
 func caseFunc(cs *types.Case) string {
 	id := enumIdent(cs.Enum)
-	return fmt.Sprintf("case%d%s_%s", len(id), id, cs.Name)
+	return fmt.Sprintf("case%d%s_%s", len(id), id, cid(cs.Name))
 }
 
 func caseSig(cs *types.Case) string {
