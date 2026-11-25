@@ -76,51 +76,44 @@ func (g *gen) caseConstructor(cs *types.Case) {
 	g.line("}")
 }
 
-// Returns the C condition under which arm [i] of [m] matches the subject
-// stored in [subject].
-func (g *gen) armCond(m *ast.MatchExpr, i int, subject string) string {
-	arm := g.info.Matches[m].Arms[i]
-	if arm.Case != nil {
-		return fmt.Sprintf("%s->tag == %d", subject, arm.Case.Index)
-	}
-	lit, ok := m.Arms[i].Pattern.(*ast.LiteralPattern)
-	if !ok {
-		return "1"
-	}
-	if g.info.Types[m.Subject] == types.String {
-		return fmt.Sprintf("vx_str_eq(%s, %s)", subject, g.expr(lit.Value))
-	}
-	return fmt.Sprintf("%s == %s", subject, g.expr(lit.Value))
-}
-
-// Returns the declarations of the names arm [i] binds, reading them from
-// [subject].
-func (g *gen) armBinds(m *ast.MatchExpr, i int, subject string) []string {
-	arm := g.info.Matches[m].Arms[i]
+// Returns the declarations of the temporaries of every arm of [m].
+func (g *gen) armTemps(m *ast.MatchExpr) []string {
 	var out []string
-	for j, v := range arm.Binds {
-		if v == nil {
-			continue
-		}
-		f := arm.Case.Fields[j]
-		out = append(out, fmt.Sprintf("%s = %s->u.c_%s.f_%s;", decl(v.Type, g.declare(v)), subject, arm.Case.Name, f.Name))
+	for _, a := range g.info.Matches[m].Arms {
+		out = append(out, g.patTempDecls(a.Vars)...)
 	}
 	return out
 }
 
 // Returns the opening of arm [i]: `if (...) {`, `} else if (...) {`, or
 // `} else {` for the last arm, which the checker guarantees matches
-// whatever the earlier arms didn't.
+// whatever the earlier arms didn't. The arm's bindings follow.
 func (g *gen) armHeader(m *ast.MatchExpr, i int, subject string) string {
-	switch {
-	case len(m.Arms) == 1:
-		return "{"
-	case i == len(m.Arms)-1:
-		return "} else {"
-	case i == 0:
-		return "if (" + g.armCond(m, i, subject) + ") {"
+	arm := m.Arms[i]
+	vars := g.info.Matches[m].Arms[i].Vars
+	c := g.patCond(arm.Pattern, subject)
+	var head string
+	if i == len(m.Arms)-1 {
+		head = "{"
+		if i > 0 {
+			head = "} else {"
+		}
+		if len(vars) > 0 && c != "1" {
+			head += " (void)(" + c + ");"
+		}
+	} else {
+		if arm.Guard != nil {
+			c = joinConds([]string{c, "(" + g.expr(arm.Guard) + ")"})
+		}
+		head = "if (" + c + ") {"
+		if i > 0 {
+			head = "} else " + head
+		}
 	}
-	return "} else if (" + g.armCond(m, i, subject) + ") {"
+	for _, b := range g.patBinds(vars) {
+		head += " " + b
+	}
+	return head
 }
 
 // Writes a match used as a statement.
@@ -129,12 +122,12 @@ func (g *gen) matchStmt(m *ast.MatchExpr) {
 	g.line("{")
 	g.ind++
 	g.line("%s = %s;", decl(g.info.Types[m.Subject], subject), g.expr(m.Subject))
+	for _, d := range g.armTemps(m) {
+		g.line("%s", d)
+	}
 	for i, arm := range m.Arms {
 		g.line("%s", g.armHeader(m, i, subject))
 		g.ind++
-		for _, b := range g.armBinds(m, i, subject) {
-			g.line("%s", b)
-		}
 		if arm.Block != nil {
 			g.block("", arm.Block)
 		} else {
@@ -156,11 +149,11 @@ func (g *gen) matchExpr(m *ast.MatchExpr) string {
 	if t != types.Void {
 		fmt.Fprintf(&b, "%s; ", decl(t, result))
 	}
+	for _, d := range g.armTemps(m) {
+		b.WriteString(d + " ")
+	}
 	for i, arm := range m.Arms {
 		b.WriteString(g.armHeader(m, i, subject) + " ")
-		for _, d := range g.armBinds(m, i, subject) {
-			b.WriteString(d + " ")
-		}
 		if t == types.Void || g.info.Matches[m].Arms[i].NoValue {
 			fmt.Fprintf(&b, "%s; ", g.expr(arm.Expr))
 		} else {

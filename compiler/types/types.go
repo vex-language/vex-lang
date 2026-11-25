@@ -526,9 +526,6 @@ type Try struct {
 
 // The checked meaning of a match.
 type Match struct {
-	// The enum matched on, or nil for int, bool and string subjects.
-	Enum *Enum
-
 	// One entry per arm, in order.
 	Arms []*MatchArm
 
@@ -539,12 +536,8 @@ type Match struct {
 
 // The checked meaning of one match arm.
 type MatchArm struct {
-	// The case the arm matches, or nil for `_` and literals.
-	Case *Case
-
-	// The variable bound to each of the case's values; nil entries are
-	// ignored with `_`.
-	Binds []*Var
+	// The variables the arm's pattern binds.
+	Vars []*Var
 
 	// Set when the arm's expression never finishes (it calls panic), so
 	// it doesn't take part in the match's type.
@@ -741,6 +734,19 @@ type Info struct {
 
 	// What each match does.
 	Matches map[*ast.MatchExpr]*Match
+
+	// The type of value each pattern tests.
+	PatternTypes map[ast.Pattern]Type
+
+	// Enum cases named by patterns such as `empty` or `circle(r)`.
+	PatternCases map[ast.Pattern]*Case
+
+	// Structs named by patterns such as `Point(:x, :y)`.
+	PatternStructs map[*ast.CasePattern]*Struct
+
+	// The variables bound by the pattern of each `let`, `for` and `if
+	// case`.
+	PatternVars map[ast.Pattern][]*Var
 
 	// Enums in source order.
 	Enums []*Enum

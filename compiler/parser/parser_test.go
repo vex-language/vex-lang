@@ -707,7 +707,7 @@ func TestErrors(t *testing.T) {
 		{"match brace", "fn main() {\n match x\n {}\n}", "2:9", "expected '{' after the match subject, found end of line", "put { on the same line as match"},
 		{"match arrow", "fn main() {\n match x { a -> 1 }\n}", "2:14", "expected '=>' after the pattern, found '->'", "write pattern => result"},
 		{"dotted pattern", "fn main() {\n match x { .a => 1 }\n}", "2:12", "patterns don't start with '.'", "write the case name without the dot"},
-		{"bad pattern", "fn main() {\n match x { [1] => 1 }\n}", "2:12", "expected a pattern, found '['", "for example circle(r), 0, \"yes\" or _"},
+		{"bad pattern", "fn main() {\n match x { + => 1 }\n}", "2:12", "expected a pattern, found '+'", "for example circle(r), (a, b), [first, ...rest], 0, \"yes\" or _"},
 		{"empty parens", "fn main() {\n f(())\n}", "2:5", "expected an expression inside ( )", ""},
 	}
 	for _, c := range cases {

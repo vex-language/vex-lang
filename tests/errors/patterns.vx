@@ -1,0 +1,82 @@
+struct Point {
+    x: int
+    y: int
+}
+
+enum Shape {
+    circle(radius: int)
+    rect(width: int, height: int)
+}
+
+fn main() {
+    let p = Point(x: 1, y: 2)
+    let s = Shape.circle(radius: 1)
+    let a = match p {
+        Point(x: 0, :y) => y
+    }
+    let b = match s {
+        circle(r) when r > 1 => r
+        rect(w, _) => w
+    }
+    let c = match (1, true) {
+        (_, true) => 1
+        (0, _) => 2
+    }
+    let d = match [1, 2] {
+        [] => 0
+        [x, ...] => x
+        [x, y] => y
+    }
+    let e = match 5 {
+        1..=9 => 1
+        5 => 2
+        _ => 3
+    }
+    let f = match p {
+        Point(z: 1) => 1
+        Point(1, 2) => 2
+        _ => 3
+    }
+    let g = match (1, 2) {
+        (x, 0) || (0, y) => 1
+        _ => 2
+    }
+    let h = match s {
+        circle(radius: r, radius: q) => r
+        _ => 0
+    }
+    let [one, two] = [1, 2]
+    let (n, n) = (1, 2)
+    let i = match 5 {
+        9..1 => 1
+        _ => 2
+    }
+    let j = match "a" {
+        "a"..="z" => 1
+        _ => 2
+    }
+    if s case rect(w, h) when w {
+        println(w)
+    }
+    let k = match s {
+        circle(r) => r
+        rect(w, _) => w
+        circle(_) => 0
+    }
+}
+
+// error: 14:13: match doesn't handle every Point value
+// error: 17:13: match doesn't handle 'circle'
+// error: 21:13: match doesn't handle '(_, false)'
+// error: 28:9: this arm is never reached: earlier arms match everything it does
+// error: 36:15: Point has no field 'z'
+// error: 37:15: a struct pattern names its fields
+// error: 41:19: this alternative doesn't bind 'x'
+// error: 41:23: 'y' isn't bound by the first alternative of ||
+// error: 45:27: field 'radius' is matched twice
+// error: 48:9: this pattern doesn't match every value: [] isn't handled
+// error: 49:13: 'n' is bound twice in this pattern
+// error: 51:9: the range 9..1 matches nothing
+// error: 55:9: a range matches int or float values, found string
+// error: 58:31: when condition must be bool, found int
+// error: 64:9: case 'circle' is already handled on line 62

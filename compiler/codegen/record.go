@@ -142,33 +142,6 @@ func (g *gen) recordLit(e *ast.RecordLit, r *types.Record) string {
 	})
 }
 
-// Writes the code declaring the variables of the pattern [p], taking apart
-// the record [x].
-func (g *gen) destructure(p *ast.RecordPattern, r *types.Record, x string) {
-	pos := 0
-	for _, f := range p.Fields {
-		name := ""
-		if f.Name == nil {
-			pos++
-			name = fmt.Sprintf("$%d", pos)
-		} else {
-			name = f.Name.Name
-		}
-		if f.Bind.Name == "_" {
-			continue
-		}
-		g.bindVar(g.info.Defs[f.Bind], x+"."+recordField(name))
-	}
-}
-
-// Generates `let (a, b) = value`.
-func (g *gen) letPattern(s *ast.LetStmt) {
-	r := g.info.Types[s.Value].(*types.Record)
-	tmp := g.temp()
-	g.line("%s = %s;", decl(r, tmp), g.expr(s.Value))
-	g.destructure(s.Pattern, r, tmp)
-}
-
 // Writes the function that shows a record: `(1, "a")` or `(x: 1, y: 2)`.
 func (g *gen) recordRepr(r *types.Record) {
 	g.line("    vx_str s = VX_LIT(\"(\");")

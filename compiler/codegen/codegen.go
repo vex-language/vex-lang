@@ -29,9 +29,13 @@ type gen struct {
 	// the method's `self`, if any.
 	vals  map[*types.Var]string
 	boxes map[*types.Var]string
-	used  map[string]bool
-	tmp   int
-	self  *types.Var
+
+	// The temporaries pattern variables are stored in while their pattern
+	// is tested.
+	patTemps map[*types.Var]string
+	used     map[string]bool
+	tmp      int
+	self     *types.Var
 
 	// Lists and structs that need a function to show their values.
 	reprs map[string]types.Type
@@ -850,15 +854,19 @@ func (g *gen) ifStmt(s *ast.IfStmt) {
 		g.ifLet(s)
 		return
 	}
+	if s.Case != nil {
+		g.ifCase(s)
+		return
+	}
 	g.line("if (%s) {", cond(g.expr(s.Cond)))
 	for {
 		g.body(s.Then)
 		switch e := s.Else.(type) {
 		case *ast.IfStmt:
-			if e.Bind != nil {
+			if e.Bind != nil || e.Case != nil {
 				g.line("} else {")
 				g.ind++
-				g.ifLet(e)
+				g.ifStmt(e)
 				g.ind--
 				g.line("}")
 				return
@@ -912,7 +920,7 @@ func (g *gen) forStmt(s *ast.ForStmt) {
 	}
 	g.line("%s = ((%s*)%s->data)[%s];", decl(elem.Type, g.declare(elem)), ctype(elem.Type), list, i)
 	if s.Pattern != nil {
-		g.destructure(s.Pattern, elem.Type.(*types.Record), g.varName(elem))
+		g.letBind(s.Pattern, g.varName(elem))
 	}
 	g.ind--
 	g.body(s.Body)

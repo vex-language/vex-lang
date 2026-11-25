@@ -94,23 +94,27 @@ func newChecker() *checker {
 	return &checker{
 		units: map[ast.Node]*unit{},
 		info: &Info{
-			Types:      map[ast.Expr]Type{},
-			Uses:       map[*ast.Ident]any{},
-			Defs:       map[*ast.Ident]*Var{},
-			Calls:      map[*ast.CallExpr]*Call{},
-			Members:    map[*ast.MemberExpr]*Member{},
-			Selves:     map[*ast.FuncDecl]*Var{},
-			Captures:   map[*ast.FuncLit][]*Var{},
-			CaseValues: map[ast.Expr]*Case{},
-			Wraps:      map[ast.Expr]*Optional{},
-			Elements:   map[*ast.ExprStmt]ast.Expr{},
-			Observers:  map[*ast.AssignStmt]*Func{},
-			Chains:     map[ast.Expr]bool{},
-			Matches:    map[*ast.MatchExpr]*Match{},
-			FuncOf:     map[*ast.FuncDecl]*Func{},
-			Throwing:   map[ast.Expr]Type{},
-			Spawns:     map[*ast.CallExpr]bool{},
-			Tries:      map[*ast.TryExpr]*Try{},
+			Types:          map[ast.Expr]Type{},
+			Uses:           map[*ast.Ident]any{},
+			Defs:           map[*ast.Ident]*Var{},
+			Calls:          map[*ast.CallExpr]*Call{},
+			Members:        map[*ast.MemberExpr]*Member{},
+			Selves:         map[*ast.FuncDecl]*Var{},
+			Captures:       map[*ast.FuncLit][]*Var{},
+			CaseValues:     map[ast.Expr]*Case{},
+			Wraps:          map[ast.Expr]*Optional{},
+			Elements:       map[*ast.ExprStmt]ast.Expr{},
+			Observers:      map[*ast.AssignStmt]*Func{},
+			Chains:         map[ast.Expr]bool{},
+			Matches:        map[*ast.MatchExpr]*Match{},
+			PatternTypes:   map[ast.Pattern]Type{},
+			PatternCases:   map[ast.Pattern]*Case{},
+			PatternStructs: map[*ast.CasePattern]*Struct{},
+			PatternVars:    map[ast.Pattern][]*Var{},
+			FuncOf:         map[*ast.FuncDecl]*Func{},
+			Throwing:       map[ast.Expr]Type{},
+			Spawns:         map[*ast.CallExpr]bool{},
+			Tries:          map[*ast.TryExpr]*Try{},
 		},
 	}
 }
@@ -904,7 +908,7 @@ func (c *checker) stmt(s ast.Stmt) {
 	case *ast.LetStmt:
 		if s.Pattern != nil {
 			t := c.expr(s.Value, nil)
-			c.destructure(s.Pattern, t, s.Mutable, LocalVar)
+			c.declPattern(s.Pattern, t, LocalVar, s.Mutable)
 			break
 		}
 		var want Type
@@ -944,6 +948,17 @@ func (c *checker) stmt(s ast.Stmt) {
 			elem := c.unwrapped(c.expr(s.Cond, nil), s.Cond, "if let")
 			c.push()
 			c.declare(s.Bind, elem, false, LocalVar)
+			c.stmt(s.Then)
+			c.pop()
+		} else if s.Case != nil {
+			t := c.expr(s.Cond, nil)
+			c.push()
+			b := newBinder(PatternVar, false)
+			c.pattern(s.Case, t, b, false, false)
+			c.info.PatternVars[s.Case] = b.order
+			if s.Guard != nil {
+				c.cond(s.Guard, "when")
+			}
 			c.stmt(s.Then)
 			c.pop()
 		} else {
@@ -1159,7 +1174,7 @@ func (c *checker) forLoop(s *ast.ForStmt, body func()) {
 	}
 	c.declare(s.Elem, elem, false, LoopVar)
 	if s.Pattern != nil {
-		c.destructure(s.Pattern, elem, false, LoopVar)
+		c.declPattern(s.Pattern, elem, LoopVar, false)
 	}
 	c.loops++
 	body()

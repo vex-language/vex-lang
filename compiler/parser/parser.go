@@ -686,6 +686,12 @@ func (p *parser) matchExpr() ast.Expr {
 			p.fail(open, "add a matching }", "unclosed match")
 		}
 		arm := &ast.MatchArm{Pattern: p.pattern()}
+		if p.at(lexer.Ident) && p.tok().Text == "when" {
+			p.next()
+			p.noTrailing = true
+			arm.Guard = p.expr()
+			p.noTrailing = false
+		}
 		if !p.at(lexer.FatArrow) {
 			p.fail(p.tok(), "write pattern => result", "expected '=>' after the pattern, found %s", describe(p.tok()))
 		}
@@ -715,8 +721,23 @@ func (p *parser) matchExpr() ast.Expr {
 	return m
 }
 
-// Parses a match pattern: `_`, a literal, or a case with optional bindings.
+// Parses a pattern, with `||` between alternatives.
 func (p *parser) pattern() ast.Pattern {
+	first := p.primaryPattern()
+	if !p.at(lexer.OrOr) {
+		return first
+	}
+	or := &ast.OrPattern{Alts: []ast.Pattern{first}}
+	for p.at(lexer.OrOr) {
+		p.next()
+		or.Alts = append(or.Alts, p.primaryPattern())
+	}
+	or.Span = p.span(first.Pos())
+	return or
+}
+
+// Parses a pattern without alternatives.
+func (p *parser) primaryPattern() ast.Pattern {
 	t := p.tok()
 	switch t.Kind {
 	case lexer.Ident:
@@ -724,36 +745,114 @@ func (p *parser) pattern() ast.Pattern {
 		if t.Text == "_" {
 			return &ast.WildcardPattern{Span: p.span(t.Pos)}
 		}
-		cp := &ast.CasePattern{Name: &ast.Ident{Span: ast.Span{Start: t.Pos, End: t.End}, Name: t.Text}}
-		if p.at(lexer.LParen) {
-			open := p.next()
-			cp.Binds = []*ast.Ident{}
-			p.list(open, lexer.RParen, func() { cp.Binds = append(cp.Binds, p.ident("a name to bind")) })
+		name := &ast.Ident{Span: ast.Span{Start: t.Pos, End: t.End}, Name: t.Text}
+		if !p.at(lexer.LParen) {
+			return &ast.NamePattern{Span: name.Span, Name: name}
 		}
+		open := p.next()
+		cp := &ast.CasePattern{Name: name, Args: []*ast.PatternField{}}
+		p.list(open, lexer.RParen, func() { cp.Args = append(cp.Args, p.patternField()) })
 		cp.Span = p.span(t.Pos)
 		return cp
+	case lexer.LParen:
+		open := p.next()
+		rp := &ast.RecordPattern{}
+		comma := false
+		p.skipNewlines()
+		for !p.at(lexer.RParen) {
+			rp.Fields = append(rp.Fields, p.patternField())
+			p.skipNewlines()
+			if !p.at(lexer.Comma) {
+				break
+			}
+			p.next()
+			p.skipNewlines()
+			comma = true
+		}
+		if len(rp.Fields) == 0 {
+			p.fail(open, "write the fields, e.g. (a, b)", "a record pattern needs at least one field")
+		}
+		p.expect(lexer.RParen)
+		if len(rp.Fields) == 1 && rp.Fields[0].Name == nil && !comma {
+			return rp.Fields[0].Pattern
+		}
+		rp.Span = p.span(open.Pos)
+		return rp
+	case lexer.LBracket:
+		open := p.next()
+		lp := &ast.ListPattern{Elems: []ast.Pattern{}}
+		p.list(open, lexer.RBracket, func() {
+			if p.at(lexer.Ellipsis) {
+				dots := p.next()
+				rest := &ast.RestPattern{}
+				if p.at(lexer.Ident) {
+					rest.Bind = p.ident("a name for the rest of the list")
+					if rest.Bind.Name == "_" {
+						rest.Bind = nil
+					}
+				}
+				rest.Span = p.span(dots.Pos)
+				lp.Elems = append(lp.Elems, rest)
+				return
+			}
+			lp.Elems = append(lp.Elems, p.pattern())
+		})
+		lp.Span = p.span(open.Pos)
+		return lp
+	case lexer.Lt, lexer.LtEq, lexer.Gt, lexer.GtEq:
+		p.next()
+		v := p.literalPattern()
+		return &ast.RelationalPattern{Span: p.span(t.Pos), Op: t.Kind, Value: v}
 	case lexer.Int, lexer.Float, lexer.String, lexer.True, lexer.False, lexer.Minus:
 		v := p.literalPattern()
+		if p.at(lexer.DotDot) || p.at(lexer.DotDotEq) {
+			inclusive := p.next().Kind == lexer.DotDotEq
+			hi := p.literalPattern()
+			return &ast.RangePattern{Span: p.span(t.Pos), Lo: v, Hi: hi, Inclusive: inclusive}
+		}
 		return &ast.LiteralPattern{Span: ast.Span{Start: t.Pos, End: v.EndOffset()}, Value: v}
 	case lexer.Dot:
 		p.fail(t, "write the case name without the dot", "patterns don't start with '.'")
 	}
-	p.fail(t, "for example circle(r), 0, \"yes\" or _", "expected a pattern, found %s", describe(t))
+	p.fail(t, "for example circle(r), (a, b), [first, ...rest], 0, \"yes\" or _", "expected a pattern, found %s", describe(t))
 	return nil
+}
+
+// Parses a field inside a case, struct or record pattern: `p`, `name: p`
+// or `:name`.
+func (p *parser) patternField() *ast.PatternField {
+	f := &ast.PatternField{}
+	switch {
+	case p.at(lexer.Colon):
+		p.next()
+		f.Name = p.ident("a field name after ':'")
+		f.Pattern = &ast.NamePattern{Span: f.Name.Span, Name: &ast.Ident{Span: f.Name.Span, Name: f.Name.Name}}
+	case p.at(lexer.Ident) && p.peek(1).Kind == lexer.Colon:
+		f.Name = p.ident("a field name")
+		p.next()
+		f.Pattern = p.pattern()
+	default:
+		f.Pattern = p.pattern()
+	}
+	return f
 }
 
 // Parses the value of a literal pattern.
 func (p *parser) literalPattern() ast.Expr {
 	t := p.tok()
-	if t.Kind == lexer.Minus {
+	switch t.Kind {
+	case lexer.Minus:
 		p.next()
 		if k := p.tok().Kind; k != lexer.Int && k != lexer.Float {
 			p.fail(p.tok(), "", "expected a number after '-' in a pattern, found %s", describe(p.tok()))
 		}
 		x := p.primary()
 		return &ast.UnaryExpr{Span: ast.Span{Start: t.Pos, End: x.EndOffset()}, Op: lexer.Minus, X: x}
+	case lexer.Int, lexer.Float, lexer.String, lexer.True, lexer.False:
+		return p.primary()
 	}
-	return p.primary()
+	p.fail(t, "patterns compare with literals such as 0, 1.5 or \"yes\"", "expected a literal, found %s", describe(t))
+	return nil
 }
 
 // Parses one field or method inside a struct body.
@@ -1188,10 +1287,10 @@ func (p *parser) stmt() ast.Stmt {
 func (p *parser) letStmt() *ast.LetStmt {
 	t := p.next()
 	s := &ast.LetStmt{Mutable: t.Kind == lexer.Var}
-	if p.at(lexer.LParen) {
-		s.Pattern = p.recordPattern()
+	if p.patternAhead() {
+		s.Pattern = p.pattern()
 		if !p.at(lexer.Assign) {
-			p.fail(p.tok(), fmt.Sprintf("write %s %s = record", t.Text, ast.RecordPatternString(s.Pattern)), "expected '=' after the pattern, found %s", describe(p.tok()))
+			p.fail(p.tok(), fmt.Sprintf("write %s %s = value", t.Text, ast.PatternString(s.Pattern)), "expected '=' after the pattern, found %s", describe(p.tok()))
 		}
 		p.next()
 		s.Value = p.expr()
@@ -1230,7 +1329,11 @@ func (p *parser) ifStmt() *ast.IfStmt {
 		}
 		p.next()
 	}
-	s.Cond = p.header("if")
+	if s.Bind == nil {
+		s.Cond, s.Case, s.Guard = p.caseHeader()
+	} else {
+		s.Cond = p.header("if")
+	}
 	s.Then = p.block()
 	if p.tok().IsAutoSemi() && p.peek(1).Kind == lexer.Else {
 		p.errorAt(p.peek(1), "write } else {", "'else' must be on the same line as the closing }")
@@ -1255,9 +1358,9 @@ func (p *parser) forStmt() *ast.ForStmt {
 	start := p.expect(lexer.For).Pos
 	s := &ast.ForStmt{}
 	loopVar := func() {
-		if p.at(lexer.LParen) {
-			s.Pattern = p.recordPattern()
-			s.Elem = &ast.Ident{Span: s.Pattern.Span, Name: "$elem"}
+		if p.patternAhead() {
+			s.Pattern = p.primaryPattern()
+			s.Elem = &ast.Ident{Span: ast.Span{Start: s.Pattern.Pos(), End: s.Pattern.EndOffset()}, Name: "$elem"}
 		} else {
 			s.Elem = p.ident("a loop variable")
 		}
@@ -1411,6 +1514,34 @@ func (p *parser) header(keyword string) ast.Expr {
 	defer func() { p.noTrailing = saved }()
 	first := p.p
 	cond := p.expr()
+	return p.headerRest(keyword, first, cond)
+}
+
+// Parses the header of an if: a condition, or `value case pattern` with
+// an optional `when` guard.
+func (p *parser) caseHeader() (ast.Expr, ast.Pattern, ast.Expr) {
+	saved := p.noTrailing
+	p.noTrailing = true
+	defer func() { p.noTrailing = saved }()
+	first := p.p
+	cond := p.expr()
+	if !p.at(lexer.Ident) || p.tok().Text != "case" {
+		return p.headerRest("if", first, cond), nil, nil
+	}
+	p.next()
+	pat := p.pattern()
+	var guard ast.Expr
+	if p.at(lexer.Ident) && p.tok().Text == "when" {
+		p.next()
+		guard = p.expr()
+	}
+	p.bodyStart("if")
+	return cond, pat, guard
+}
+
+// Finishes the header of [keyword] after its condition [cond], which
+// started at token [first].
+func (p *parser) headerRest(keyword string, first int, cond ast.Expr) ast.Expr {
 	p.checkParens(keyword, first, p.p-1)
 	if p.at(lexer.Assign) {
 		// Report the mistake but read it as `==` so the rest of the
@@ -1980,29 +2111,15 @@ func (p *parser) recordLit(open lexer.Token, fields ...*ast.Arg) ast.Expr {
 	return r
 }
 
-// Parses a record pattern: `(a, b)`, `(min: lo, max: _)` or `(:min, :max)`.
-func (p *parser) recordPattern() *ast.RecordPattern {
-	open := p.next()
-	pat := &ast.RecordPattern{}
-	p.list(open, lexer.RParen, func() {
-		f := &ast.PatternField{}
-		switch {
-		case p.at(lexer.Colon):
-			p.next()
-			f.Name = p.ident("a field name after ':'")
-			f.Bind = &ast.Ident{Span: f.Name.Span, Name: f.Name.Name}
-		case p.at(lexer.Ident) && p.peek(1).Kind == lexer.Colon:
-			f.Name = p.ident("a field name")
-			p.next()
-			f.Bind = p.ident("a variable name or _")
-		default:
-			f.Bind = p.ident("a variable name or _")
-		}
-		pat.Fields = append(pat.Fields, f)
-	})
-	if len(pat.Fields) == 0 {
-		p.fail(open, "write the names, e.g. let (a, b) = pair", "a record pattern needs at least one name")
+// Reports whether a pattern that takes a value apart comes next, after
+// `let`, `var` or `for`: `(a, b)`, `[x, y]` or `Point(:x, :y)`.
+func (p *parser) patternAhead() bool {
+	switch p.tok().Kind {
+	case lexer.LParen, lexer.LBracket:
+		return true
+	case lexer.Ident:
+		next := p.peek(1)
+		return next.Kind == lexer.LParen && next.Pos.Offset == p.tok().End
 	}
-	pat.Span = p.span(open.Pos)
-	return pat
+	return false
 }
