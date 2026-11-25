@@ -188,6 +188,8 @@ func TestErrors(t *testing.T) {
 		{"bad binary digit", "0b102", "1:1", `invalid number "0b102"`, ""},
 		{"leading zero", "010", "1:1", "numbers can't start with 0", "write 10, or 0o10 for octal"},
 		{"leading zeros with separator", "00_7", "1:1", "numbers can't start with 0", "write 7, or 0o7 for octal"},
+		{"leading zero before 9", "09", "1:1", "numbers can't start with 0", "write 9"},
+		{"zeros", "0_0", "1:1", "numbers can't start with 0", "write 0"},
 		{"trailing separator", "1_000_", "1:6", "misplaced digit separator in 1_000_", "put _ only between digits"},
 		{"double separator", "1__0", "1:2", "misplaced digit separator in 1__0", "put _ only between digits"},
 		{"separator before dot", "1_.5", "1:2", "misplaced digit separator in 1_.5", "put _ only between digits"},
