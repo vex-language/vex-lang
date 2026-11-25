@@ -56,8 +56,9 @@ type gen struct {
 	// Named functions used as values, which need a wrapper.
 	fnValues map[*types.Func]bool
 
-	// Optional types, which each need a C struct, by name.
+	// Optional and record types, which each need a C struct, by name.
 	opts map[string]*types.Optional
+	recs map[string]*types.Record
 
 	// While an optional chain is generated: C code standing for its
 	// receiver, and the chains being generated.
@@ -75,7 +76,7 @@ type gen struct {
 // the file name shown in runtime errors.
 func Generate(info *types.Info, srcName string) string {
 	g := &gen{info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{},
-		opts: map[string]*types.Optional{}, recvs: map[ast.Expr]string{}, chaining: map[ast.Expr]bool{},
+		opts: map[string]*types.Optional{}, recs: map[string]*types.Record{}, recvs: map[ast.Expr]string{}, chaining: map[ast.Expr]bool{},
 		builds: map[ast.Expr]string{}, litNames: map[*ast.FuncLit]string{}, codecs: map[string]bool{}}
 	g.collectOptionals()
 	for _, t := range info.Types {
@@ -127,9 +128,7 @@ func Generate(info *types.Info, srcName string) string {
 	for _, e := range info.Enums {
 		g.line("typedef struct %s %s;", enumName(e), enumName(e))
 	}
-	for _, name := range sortedKeys(g.opts) {
-		g.line("typedef struct { bool has; %s; } %s;", decl(g.opts[name].Elem, "v"), name)
-	}
+	g.valueTypedefs()
 	g.descType()
 	for _, s := range info.Structs {
 		g.line("struct %s {", structName(s))
@@ -144,6 +143,7 @@ func Generate(info *types.Info, srcName string) string {
 	for _, e := range info.Enums {
 		g.enumStruct(e)
 	}
+	g.recordEquals()
 	g.line("")
 	for _, s := range info.Structs {
 		g.line("static %s;", constructorSig(s))
@@ -319,6 +319,8 @@ func ctype(t types.Type) string {
 		return "vx_future *"
 	case *types.Channel:
 		return "vx_chan *"
+	case *types.Record:
+		return "rec_" + mangle(t)
 	case *types.Struct:
 		return structName(t) + " *"
 	case *types.FuncType:
@@ -395,6 +397,16 @@ func mangle(t types.Type) string {
 		return fmt.Sprintf("H%d%s", len(id), id)
 	case *types.Channel:
 		return "K_" + mangle(t.Elem)
+	case *types.Record:
+		var b strings.Builder
+		fmt.Fprintf(&b, "R%d_%d", len(t.Positional), len(t.Named))
+		for _, p := range t.Positional {
+			b.WriteString("_" + mangle(p))
+		}
+		for _, f := range t.Named {
+			fmt.Fprintf(&b, "_%d%s_%s", len(f.Name), f.Name, mangle(f.Type))
+		}
+		return b.String() + "_E"
 	case *types.Future:
 		if t.Throws != nil {
 			return "U2_" + mangle(t.Elem) + "_" + mangle(t.Throws)
@@ -583,6 +595,13 @@ func (g *gen) needRepr(t types.Type) {
 			g.reprs[mangle(t)] = t
 			g.needRepr(t.Elem)
 		}
+	case *types.Record:
+		if _, ok := g.reprs[mangle(t)]; !ok {
+			g.reprs[mangle(t)] = t
+			for _, f := range t.FieldTypes() {
+				g.needRepr(f)
+			}
+		}
 	case *types.Enum:
 		if _, ok := g.reprs[mangle(t)]; !ok {
 			g.reprs[mangle(t)] = t
@@ -608,7 +627,7 @@ func (g *gen) reprNames() []string {
 // strings quoted.
 func repr(t types.Type, x string) string {
 	switch t := t.(type) {
-	case *types.List, *types.Map, *types.Struct, *types.Enum, *types.Optional, *types.Interface:
+	case *types.List, *types.Map, *types.Struct, *types.Enum, *types.Optional, *types.Interface, *types.Record:
 		return fmt.Sprintf("repr_%s(%s)", mangle(t), x)
 	case *types.FuncType:
 		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
@@ -662,6 +681,8 @@ func (g *gen) repr(name string, t types.Type) {
 		g.line("    return vx_str_concat(s, VX_LIT(\"]\"));")
 	case *types.Interface:
 		g.line("    return (*(const vx_desc **)v)->repr(v);")
+	case *types.Record:
+		g.recordRepr(t)
 	case *types.Map:
 		g.line("    if (v->len == 0) return VX_LIT(\"[:]\");")
 		g.line("    vx_str s = VX_LIT(\"[\");")
@@ -763,16 +784,11 @@ func (g *gen) stmt(s ast.Stmt) {
 	case *ast.Block:
 		g.block("", s)
 	case *ast.LetStmt:
-		v := g.info.Defs[s.Name]
-		value := g.expr(s.Value)
-		if v.Boxed() {
-			name := g.declare(v)
-			g.line("%s = vx_alloc(sizeof(%s));", declPtr(v.Type, name), ctype(v.Type))
-			g.line("*%s = %s;", name, value)
-			g.vals[v], g.boxes[v] = "(*"+name+")", name
-		} else {
-			g.line("%s = %s;", decl(v.Type, g.declare(v)), value)
+		if s.Pattern != nil {
+			g.letPattern(s)
+			break
 		}
+		g.bindVar(g.info.Defs[s.Name], g.expr(s.Value))
 	case *ast.AssignStmt:
 		g.assign(s)
 	case *ast.GuardStmt:
@@ -895,6 +911,9 @@ func (g *gen) forStmt(s *ast.ForStmt) {
 		g.line("int64_t %s = %s;", g.declare(g.info.Defs[s.Index]), i)
 	}
 	g.line("%s = ((%s*)%s->data)[%s];", decl(elem.Type, g.declare(elem)), ctype(elem.Type), list, i)
+	if s.Pattern != nil {
+		g.destructure(s.Pattern, elem.Type.(*types.Record), g.varName(elem))
+	}
 	g.ind--
 	g.body(s.Body)
 	g.line("}")
@@ -1304,6 +1323,8 @@ func (g *gen) value(e ast.Expr) string {
 		return g.tryExpr(e)
 	case *ast.AwaitExpr:
 		return g.await(e)
+	case *ast.RecordLit:
+		return g.recordLit(e, t.(*types.Record))
 	case *ast.MatchExpr:
 		return g.matchExpr(e)
 	case *ast.ListLit:
@@ -1365,6 +1386,9 @@ func (g *gen) value(e ast.Expr) string {
 		}
 		m := g.info.Members[e]
 		x := g.expr(e.X)
+		if m.RecordField != "" {
+			return fmt.Sprintf("(%s).%s", x, recordField(m.RecordField))
+		}
 		if m.Property != nil {
 			return g.memberCall(m.Property.Get, g.info.Types[e.X], x)
 		}
@@ -1404,6 +1428,12 @@ func binop(k lexer.Kind, t types.Type, a, b string, line int) string {
 	}
 	if _, ok := t.(*types.Enum); ok {
 		return fmt.Sprintf("((%s)->tag %s (%s)->tag)", a, op(k), b)
+	}
+	if r, ok := t.(*types.Record); ok {
+		if k == lexer.NotEq {
+			return "(!" + equal(r, a, b) + ")"
+		}
+		return "(" + equal(r, a, b) + ")"
 	}
 	if t == types.Int {
 		switch k {
@@ -1616,6 +1646,9 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 				if _, ok := l.Elem.(*types.Enum); ok {
 					eq = fmt.Sprintf("%s->tag == %s->tag", item, v)
 				}
+				if r, ok := l.Elem.(*types.Record); ok {
+					eq = equal(r, item, v)
+				}
 				return fmt.Sprintf("({ vx_list *%s = %s; %s = %s; bool %s = false; "+
 					"for (int64_t %s = 0; %s < %s->len; %s++) if (%s) { %s = true; break; } %s; })",
 					list, cs[0], decl(l.Elem, v), cs[1], found, i, i, list, i, eq, found, found)
@@ -1666,4 +1699,17 @@ func cQuote(s string) string {
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+// Declares the local variable [v] with the C value [value], on the heap
+// when closures share it.
+func (g *gen) bindVar(v *types.Var, value string) {
+	if v.Boxed() {
+		name := g.declare(v)
+		g.line("%s = vx_alloc(sizeof(%s));", declPtr(v.Type, name), ctype(v.Type))
+		g.line("*%s = %s;", name, value)
+		g.vals[v], g.boxes[v] = "(*"+name+")", name
+		return
+	}
+	g.line("%s = %s;", decl(v.Type, g.declare(v)), value)
 }

@@ -43,6 +43,14 @@ func (g *gen) codec(t types.Type) string {
 		fmt.Fprintf(&rcv, "vx_map *o = vx_dec_ref(d); if (o) return o; int64_t n = vx_dec_i64(d); o = %s; vx_dec_obj(d, o); "+
 			"for (int64_t i = 0; i < n; i++) { %s = rcv_%s(d); %s = rcv_%s(d); *(%s *)vx_map_set(o, &k) = x; } return o;",
 			newMap(t), decl(t.Key, "k"), k, decl(t.Value, "x"), v, ctype(t.Value))
+	case *types.Record:
+		fmt.Fprintf(&rcv, "%s r;", ct)
+		for i, ft := range t.FieldTypes() {
+			c, f := g.codec(ft), recordFields(t)[i]
+			fmt.Fprintf(&snd, " snd_%s(e, v.%s);", c, f)
+			fmt.Fprintf(&rcv, " r.%s = rcv_%s(d);", f, c)
+		}
+		rcv.WriteString(" return r;")
 	case *types.Struct:
 		name := structName(t)
 		snd.WriteString("if (vx_enc_ref(e, v)) return;")
