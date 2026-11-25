@@ -94,7 +94,7 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-117** Interfaces: a struct declares which interfaces it implements (L)
 - [ ] **V-118** Builder blocks: several values in a trailing `{ }` become a list argument (M)
 - [ ] **V-119** Property setters: code that runs when a field is assigned (M)
-- [ ] **V-120** Integer overflow stops the program by default; explicit wrapping operators for hot code; benchmarked against Go (M)
+- [x] **V-120** Integer overflow stops the program by default; `&+` `&-` `&*` wrap; benchmarked against Go (M)
 
 ---
 
@@ -197,7 +197,7 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-24 | Harden before building more: every PR runs fuzzers, sanitizers and Linux/macOS CI |
 | 2026-11-24 | Warnings (which still build) for habits from C-style languages: `;` at line ends, parentheses around conditions |
 | 2026-11-24 | A loop over a list visits the items present when it started (like Go); removing items ends it early |
-| 2026-11-25 | Integer overflow will stop the program by default, with explicit wrapping operators for hot code (V-120) |
+| 2026-11-25 | Integer overflow stops the program by default; `&+`, `&-`, `&*` (and `&+=`, `&-=`, `&*=`) wrap around, as in Swift (V-120) |
 | 2026-11-25 | Two projects, like Dart and Flutter: the language in `vex-lang`, the UI framework in a separate `vex-ui` repo created once the language part is complete |
 | 2026-11-25 | No UI keywords in the compiler: `component` / `state` / `view` are dropped; the framework is built on interfaces, generics, builder blocks and property setters ([architecture](docs/design/architecture.md)) |
 | 2026-11-25 | Packages are public git repos with version tags, fetched directly by `vex get`; a website indexes them like pub.dev but stores no code ([packages](docs/design/packages.md)) |
