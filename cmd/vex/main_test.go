@@ -158,6 +158,12 @@ func TestRun(t *testing.T) {
 	if code, _, errOut := runCLI("run", path); code != exitError || !strings.Contains(errOut, "expected int, found string") {
 		t.Errorf("type error: code %d, stderr %q", code, errOut)
 	}
+	path = writeFile(t, "import \"vex:os\"\nfn main() {\n    println(os.args())\n    os.exit(3)\n}\n")
+	for _, args := range [][]string{{"run", path, "a", "b c"}, {"run", path, "--", "a", "b c"}} {
+		if code, out, errOut := runCLI(args...); code != 3 || out != "[\"a\", \"b c\"]\n" {
+			t.Errorf("%q: code %d, stdout %q, stderr %q", args, code, out, errOut)
+		}
+	}
 }
 
 func TestBuild(t *testing.T) {
@@ -183,7 +189,7 @@ func TestBuild(t *testing.T) {
 func TestEmitC(t *testing.T) {
 	path := writeFile(t, "fn main() {\n    println(\"hi\")\n}\n")
 	code, out, _ := runCLI("emit-c", path)
-	if code != exitOK || !strings.Contains(out, "static void fn_main(void)") || !strings.Contains(out, "int main(void)") {
+	if code != exitOK || !strings.Contains(out, "static void fn_main(void)") || !strings.Contains(out, "int main(int argc, char **argv)") {
 		t.Errorf("code %d, output:\n%s", code, out)
 	}
 }

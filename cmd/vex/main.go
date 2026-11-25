@@ -37,7 +37,7 @@ var commands []command
 
 func init() {
 	commands = []command{
-		{"run", "[file or folder]", "Compile and run a program", runRun},
+		{"run", "[file or folder] [-- args]", "Compile and run a program", runRun},
 		{"build", "[file or folder] [-o out]", "Build a native executable", runBuild},
 		{"emit-c", "[file or folder]", "Print the generated C code", runEmitC},
 		{"check", "[file or folder]", "Check a program for errors", runCheck},
