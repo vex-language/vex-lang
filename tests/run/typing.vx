@@ -1,0 +1,69 @@
+// Type checking that takes the expected type into account.
+
+interface Shape { fn name() -> string }
+struct Circle: Shape { fn name() -> string => "circle" }
+struct Square: Shape { fn name() -> string => "square" }
+
+struct Box<T> { v: T }
+
+struct Node {
+    f: fn() -> int
+    log: fn(string)
+    next: Node? = nil
+}
+
+enum Mode { a, b }
+
+fn first<T>(xs: [T]) -> T? {
+    if xs.len == 0 { return nil }
+    return xs[0]
+}
+
+fn a() throws -> int => 1
+fn b() throws -> int => 2
+fn fail() throws -> int { throw Error("no") }
+
+fn twice(x: int) -> int => x * 2
+fn hello() { println("hello") }
+fn apply(f: fn(int) throws -> int) throws -> int => try f(3)
+fn later() -> int => panic("not yet")
+
+fn main() throws {
+    // `T?` with an optional T is that optional.
+    let maybe: [int?] = [nil, 2]
+    let none: [string] = []
+    println(first(maybe), first([1]), first(none))
+
+    // Function-typed fields of records, and calls through `?.`.
+    let r = (1, fn(x: int) -> int => x + 1)
+    let k = (n: 1, f: fn() -> int => 3)
+    let n = Node(f: fn() -> int => 4, log: fn(s: string) { println("log {s}") }, next: Node(f: fn() -> int => 5, log: fn(s: string) { println("inner {s}") }))
+    println(r.$2(1), k.f(), n.next?.f(), n.next?.next?.f())
+    n.next?.log("hi")
+    n.next?.next?.log("never")
+
+    // The expected type decides the type arguments and record types.
+    var box: Box<Shape> = Box(v: Circle())
+    box.v = Square()
+    let pair: (Shape, int) = (Circle(), 1)
+    var shapes: [(Shape, {int n})] = [(Circle(), n: 1)]
+    shapes.push((Square(), n: 2))
+    let m = (Mode.a, 1)
+    println(box.v.name(), pair.$1.name(), shapes[1].$1.name(), m == (.a, 1), m != (.b, 1))
+
+    // `try` covers arithmetic, but not `??`.
+    let sum = try a() + b() catch e { 0 }
+    let failed = try a() * b() + fail() catch e { -1 }
+    println(sum, failed, try? fail() ?? 7, 10 - try a() * 2)
+
+    // A function that doesn't throw can be used as one that does.
+    let g: fn(int) throws -> int = twice
+    var hs: [fn() throws] = [hello]
+    hs.push(hello)
+    for h in hs { try h() }
+    println(try apply(twice), try g(5))
+
+    // panic can be the whole body of a function with a result.
+    let never = fn(x: int) -> int => panic("never {x}")
+    println("done")
+}
