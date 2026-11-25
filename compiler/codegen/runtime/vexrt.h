@@ -682,12 +682,23 @@ static int vx_str_cmp(vx_str a, vx_str b) {
     return a.len < b.len ? -1 : a.len > b.len;
 }
 
+// Returns the byte length of the character starting at byte [i] of [s]. A
+// byte that doesn't begin a valid UTF-8 sequence is a character of its
+// own, so every way of counting characters agrees.
+static inline int64_t vx_utf8_width(vx_str s, int64_t i) {
+    unsigned char c = (unsigned char)s.ptr[i];
+    int64_t n = c < 0x80 ? 1 : c >= 0xC2 && c < 0xE0 ? 2 : c >= 0xE0 && c < 0xF0 ? 3 : c >= 0xF0 && c < 0xF5 ? 4 : 1;
+    if (n == 1 || i + n > s.len) return 1;
+    for (int64_t k = 1; k < n; k++) {
+        if (((unsigned char)s.ptr[i + k] & 0xC0) != 0x80) return 1;
+    }
+    return n;
+}
+
 // Returns the number of characters (code points) in [s].
 static int64_t vx_str_len(vx_str s) {
     int64_t n = 0;
-    for (int64_t i = 0; i < s.len; i++) {
-        if (((unsigned char)s.ptr[i] & 0xC0) != 0x80) n++;
-    }
+    for (int64_t i = 0; i < s.len; i += vx_utf8_width(s, i)) n++;
     return n;
 }
 
@@ -863,13 +874,11 @@ static int64_t vx_str_index_of(vx_str s, vx_str sub) {
 // the length.
 static int64_t vx_str_offset(vx_str s, int64_t i) {
     int64_t b = 0;
-    for (; b < s.len; b++) {
-        if (((unsigned char)s.ptr[b] & 0xC0) != 0x80) {
-            if (i == 0) return b;
-            i--;
-        }
+    for (; b < s.len; b += vx_utf8_width(s, b)) {
+        if (i == 0) return b;
+        i--;
     }
-    return b;
+    return s.len;
 }
 
 // Returns the characters of [s] from index [from] up to, not including,
@@ -888,8 +897,7 @@ static vx_list *vx_str_chars(vx_str s) {
     vx_list *l = vx_list_new(sizeof(vx_str), 0, NULL);
     int64_t i = 0;
     while (i < s.len) {
-        int64_t j = i + 1;
-        while (j < s.len && ((unsigned char)s.ptr[j] & 0xC0) == 0x80) j++;
+        int64_t j = i + vx_utf8_width(s, i);
         vx_str c = {s.ptr + i, j - i};
         vx_list_push(l, &c);
         i = j;

@@ -78,6 +78,10 @@ func TestPrograms(t *testing.T) {
     let zs = xs.filter(fn(x: int) -> bool { xs.push(x); return x > 1 })
     println(ys, zs, xs.len)
 }`, "", "[10, 20] [2, 2] 8\n"},
+		{"invalid UTF-8", `fn main() {
+    let s = input()
+    println(s.len, s.chars().len, s.indexOf("b"), s.chars()[3], s.substring(2, 4))
+}`, "\x80\x80ab\xe2\x82\n", "6 6 3 b ab\n"},
 		{"printing cycles", `struct Node {
     name: string
     next: Node? = nil
