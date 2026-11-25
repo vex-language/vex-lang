@@ -7,3 +7,7 @@ pub extern fn nanos() -> int as "vx_time_ns"
 
 /// Returns the seconds since 1970-01-01 UTC.
 pub extern fn unix() -> int as "vx_time_unix"
+
+/// Returns a future that completes after [ms] milliseconds. `await sleep(500)`
+/// pauses the async function it is in, while other tasks keep running.
+pub extern fn sleep(ms: int) -> Future<void> as "vx_sleep"

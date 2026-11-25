@@ -52,7 +52,7 @@ func (g *gen) args(e *ast.CallExpr, cs []string) string {
 
 // Wraps the call [code], which throws [thrown], so that an error jumps to
 // the handler of the enclosing try, converted to the type the try holds.
-func (g *gen) throwingCall(e *ast.CallExpr, code string, thrown types.Type) string {
+func (g *gen) throwingCall(e ast.Expr, code string, thrown types.Type) string {
 	tr := g.tries[len(g.tries)-1]
 	fail := fmt.Sprintf("if (__builtin_expect(%s != NULL, 0)) { ", tr.err)
 	if en, ok := thrown.(*types.Enum); ok && tr.target == types.Type(g.info.Error) {

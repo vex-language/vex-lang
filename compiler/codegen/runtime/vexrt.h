@@ -13,6 +13,7 @@
 #include <time.h>
 #include <string.h>
 #include <dirent.h>
+#include <sys/mman.h>
 #include <sys/resource.h>
 #include <sys/stat.h>
 #include <sys/wait.h>
@@ -121,6 +122,30 @@ static int64_t vx_fs_entry_count;
 // may keep them, until C passes the context to vex_release.
 static void **vx_kept;
 static size_t vx_kept_len, vx_kept_cap;
+
+// A task: async work running on its own stack. The program's own stack
+// is the main task. A task that isn't running keeps its registers on its
+// stack, below [sp].
+typedef struct vx_task vx_task;
+struct vx_task {
+    void *sp;
+    char *stack;              // the mapping, starting with a guard page
+    size_t size;
+    char *top;                // where the stack starts; it grows down
+    vx_task *caller;          // the task that resumed it, which it returns to
+    vx_task *next;            // in the ready queue or a future's waiters
+    void (*entry)(void *);
+    void *arg;
+    bool done;
+    void *asan_fake;
+    const void *asan_bottom;
+    size_t asan_size;
+};
+
+static vx_task vx_main_task;
+static vx_task *vx_cur = &vx_main_task;
+static vx_task **vx_tasks;          // every task that has started and not finished
+static size_t vx_tasks_len, vx_tasks_cap;
 
 typedef struct {
     char *ptr;
@@ -267,6 +292,8 @@ static void vx_mark_stack(void) {
     vx_mark_range(lo, vx_stack_base);
 }
 
+static void vx_async_mark(void);
+
 static void vx_collect(void) {
     if (!vx_stack_base) return;
     vx_gc_count++;
@@ -275,6 +302,13 @@ static void vx_collect(void) {
     vx_mark_stack();
     vx_mark_range((const char *)&vx_fs_entries, (const char *)(&vx_fs_entries + 1));
     if (vx_kept) vx_mark_range((const char *)vx_kept, (const char *)(vx_kept + vx_kept_len));
+    // The stacks of the tasks that aren't running, the program's own
+    // included, from their saved registers up.
+    if (vx_cur != &vx_main_task) vx_mark_range(vx_main_task.sp, vx_main_task.top);
+    for (size_t i = 0; i < vx_tasks_len; i++) {
+        if (vx_tasks[i] != vx_cur) vx_mark_range(vx_tasks[i]->sp, vx_tasks[i]->top);
+    }
+    vx_async_mark();
     while (vx_gray_len > 0) {
         vx_span s = vx_gray[--vx_gray_len];
         vx_mark_range(s.ptr, s.ptr + s.size);
@@ -407,6 +441,7 @@ static void vx_gc_report(void) {
 // Starts the collector; [base] is the top of the stack to scan.
 static void vx_gc_init(void *base) {
     vx_stack_base = base;
+    vx_main_task.top = base;
     for (int c = 0, i = 0; i <= VX_SMALL_MAX / 16; i++) {
         while (vx_class_size[c] < (uint32_t)i * 16) c++;
         vx_class_of[i] = (uint8_t)c;
@@ -480,7 +515,8 @@ static char vx_signal_stack[64 * 1024];
 static void vx_on_fault(int sig, siginfo_t *info, void *ctx) {
     (void)ctx;
     uintptr_t addr = (uintptr_t)info->si_addr, base = (uintptr_t)vx_stack_base;
-    if (addr < base && base - addr <= vx_stack_limit + ((size_t)1 << 20)) {
+    bool task_guard = vx_cur->stack && addr >= (uintptr_t)vx_cur->stack && addr < (uintptr_t)vx_cur->stack + (size_t)getpagesize();
+    if (task_guard || (vx_cur == &vx_main_task && addr < base && base - addr <= vx_stack_limit + ((size_t)1 << 20))) {
         fflush(stdout);
         static const char msg[] = "error: stack overflow: too many nested function calls, "
                                   "probably a function that calls itself without stopping\n";
@@ -1420,3 +1456,433 @@ static const char *vx_os_output(const char *cmd) {
 }
 
 static int64_t vx_os_status_of_last(void) { return vx_os_last_status; }
+
+// --- Async ---
+
+// Switches from the running stack to [to], saving the callee-saved
+// registers on the running stack and its stack pointer in [save]. A task
+// starts in vx_task_boot, with the task in a callee-saved register.
+void vx_ctx_switch(void **save, void *to);
+void vx_task_main(vx_task *t);
+
+#if defined(__aarch64__)
+__asm__(
+    ".text\n"
+    ".p2align 2\n"
+    ".globl " VX_SYM("vx_ctx_switch") "\n"
+    VX_SYM("vx_ctx_switch") ":\n"
+    "    sub sp, sp, #160\n"
+    "    stp x19, x20, [sp, #0]\n"
+    "    stp x21, x22, [sp, #16]\n"
+    "    stp x23, x24, [sp, #32]\n"
+    "    stp x25, x26, [sp, #48]\n"
+    "    stp x27, x28, [sp, #64]\n"
+    "    stp x29, x30, [sp, #80]\n"
+    "    stp d8, d9, [sp, #96]\n"
+    "    stp d10, d11, [sp, #112]\n"
+    "    stp d12, d13, [sp, #128]\n"
+    "    stp d14, d15, [sp, #144]\n"
+    "    mov x2, sp\n"
+    "    str x2, [x0]\n"
+    "    mov sp, x1\n"
+    "    ldp x19, x20, [sp, #0]\n"
+    "    ldp x21, x22, [sp, #16]\n"
+    "    ldp x23, x24, [sp, #32]\n"
+    "    ldp x25, x26, [sp, #48]\n"
+    "    ldp x27, x28, [sp, #64]\n"
+    "    ldp x29, x30, [sp, #80]\n"
+    "    ldp d8, d9, [sp, #96]\n"
+    "    ldp d10, d11, [sp, #112]\n"
+    "    ldp d12, d13, [sp, #128]\n"
+    "    ldp d14, d15, [sp, #144]\n"
+    "    add sp, sp, #160\n"
+    "    ret\n"
+    ".p2align 2\n"
+    VX_SYM("vx_task_boot") ":\n"
+    "    mov x0, x19\n"
+    "    bl " VX_SYM("vx_task_main") "\n"
+    "    brk #0\n");
+#define VX_FRAME 160
+#define VX_FRAME_TASK 0   // x19
+#define VX_FRAME_RET 88   // x30
+#elif defined(__x86_64__)
+__asm__(
+    ".text\n"
+    ".globl " VX_SYM("vx_ctx_switch") "\n"
+    VX_SYM("vx_ctx_switch") ":\n"
+    "    pushq %rbp\n"
+    "    pushq %rbx\n"
+    "    pushq %r12\n"
+    "    pushq %r13\n"
+    "    pushq %r14\n"
+    "    pushq %r15\n"
+    "    movq %rsp, (%rdi)\n"
+    "    movq %rsi, %rsp\n"
+    "    popq %r15\n"
+    "    popq %r14\n"
+    "    popq %r13\n"
+    "    popq %r12\n"
+    "    popq %rbx\n"
+    "    popq %rbp\n"
+    "    ret\n"
+    VX_SYM("vx_task_boot") ":\n"
+    "    movq %r12, %rdi\n"
+    "    call " VX_SYM("vx_task_main") "\n"
+    "    ud2\n");
+#define VX_FRAME 56       // six registers and the return address
+#define VX_FRAME_TASK 24  // r12
+#define VX_FRAME_RET 48
+#else
+#error "async functions need an arm64 or x86-64 CPU"
+#endif
+
+void vx_task_boot(void);
+
+#ifndef __has_feature
+#define __has_feature(x) 0
+#endif
+#if defined(__SANITIZE_ADDRESS__) || __has_feature(address_sanitizer)
+#define VX_ASAN 1
+void __sanitizer_start_switch_fiber(void **fake_stack_save, const void *bottom, size_t size);
+void __sanitizer_finish_switch_fiber(void *fake_stack_save, const void **bottom_old, size_t *size_old);
+void __asan_unpoison_memory_region(const volatile void *addr, size_t size);
+#endif
+
+#define VX_TASK_STACK ((size_t)256 << 10)
+
+// Stacks of finished tasks, kept for new ones.
+static char *vx_spare_stacks[64];
+static int vx_spare_len;
+
+// Switches from the running task to [to], which runs until it switches
+// back. [ending] is set when the running task has finished.
+static void vx_switch(vx_task *to, bool ending) {
+    vx_task *from = vx_cur;
+    vx_cur = to;
+    vx_stack_base = to->top;
+#ifdef VX_ASAN
+    __sanitizer_start_switch_fiber(ending ? NULL : &from->asan_fake, to->asan_bottom, to->asan_size);
+#else
+    (void)ending;
+#endif
+    vx_ctx_switch(&from->sp, to->sp);
+#ifdef VX_ASAN
+    __sanitizer_finish_switch_fiber(from->asan_fake, NULL, NULL);
+#endif
+}
+
+static void vx_task_free(vx_task *t) {
+    for (size_t i = 0; i < vx_tasks_len; i++) {
+        if (vx_tasks[i] == t) {
+            vx_tasks[i] = vx_tasks[--vx_tasks_len];
+            break;
+        }
+    }
+    if (vx_spare_len < 64) {
+#ifdef VX_ASAN
+        // Frames that ended without returning leave their redzones behind.
+        __asan_unpoison_memory_region(t->asan_bottom, t->asan_size);
+#endif
+        vx_spare_stacks[vx_spare_len++] = t->stack;
+    } else {
+        munmap(t->stack, t->size);
+    }
+    free(t);
+}
+
+// Runs task [t] until it waits or finishes, then returns.
+static void vx_resume(vx_task *t) {
+    vx_task *self = vx_cur;
+    t->caller = self;
+    vx_switch(t, false);
+    vx_cur = self;
+    vx_stack_base = self->top;
+    if (t->done) vx_task_free(t);
+}
+
+// Returns from the running task to the one that resumed it, until it is
+// resumed again.
+static void vx_suspend(void) {
+    vx_switch(vx_cur->caller, false);
+}
+
+void vx_task_main(vx_task *t) {
+#ifdef VX_ASAN
+    const void *bottom;
+    size_t size;
+    __sanitizer_finish_switch_fiber(NULL, &bottom, &size);
+    // The first task started tells the bounds of the program's own stack.
+    if (vx_main_task.asan_size == 0 && t->caller == &vx_main_task) {
+        vx_main_task.asan_bottom = bottom;
+        vx_main_task.asan_size = size;
+    }
+#endif
+    t->entry(t->arg);
+    t->done = true;
+    vx_switch(t->caller, true);
+    __builtin_unreachable();
+}
+
+// Starts a task that runs [entry] with [arg], and runs it until it first
+// waits.
+static void vx_go(void (*entry)(void *), void *arg) {
+    vx_task *t = calloc(1, sizeof(vx_task));
+    if (!t) vx_out_of_memory();
+    t->size = VX_TASK_STACK;
+    if (vx_spare_len > 0) {
+        t->stack = vx_spare_stacks[--vx_spare_len];
+    } else {
+        t->stack = mmap(NULL, t->size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+        if (t->stack == MAP_FAILED) vx_out_of_memory();
+        mprotect(t->stack, (size_t)getpagesize(), PROT_NONE);
+    }
+    t->top = (char *)(((uintptr_t)(t->stack + t->size)) & ~(uintptr_t)15);
+    t->asan_bottom = t->stack + getpagesize();
+    t->asan_size = t->size - (size_t)getpagesize();
+    t->entry = entry;
+    t->arg = arg;
+#if defined(__x86_64__)
+    char *sp = t->top - 16 - VX_FRAME;   // 8 mod 16, so vx_task_boot calls with an aligned stack
+#else
+    char *sp = t->top - VX_FRAME;
+#endif
+    memset(sp, 0, VX_FRAME);
+    *(void **)(sp + VX_FRAME_TASK) = t;
+    *(void **)(sp + VX_FRAME_RET) = (void *)vx_task_boot;
+    t->sp = sp;
+    if (vx_tasks_len == vx_tasks_cap) vx_tasks = vx_grow(vx_tasks, &vx_tasks_cap, sizeof(vx_task *));
+    vx_tasks[vx_tasks_len++] = t;
+    vx_resume(t);
+}
+
+// A future: the result of async work, filled in once it is done. The
+// value of [size] bytes follows the header.
+typedef struct {
+    int32_t state;            // 0 while pending, 1 when done, 2 when it failed
+    vx_task *waiters;
+    void *err;
+    int64_t size;
+    _Alignas(16) char value[];
+} vx_future;
+
+static vx_future *vx_future_new(int64_t size) {
+    vx_future *f = vx_alloc(sizeof(vx_future) + (size_t)size);
+    f->size = size;
+    return f;
+}
+
+// Tasks ready to run, in order.
+static vx_task *vx_ready_head, *vx_ready_tail;
+
+static void vx_ready(vx_task *t) {
+    t->next = NULL;
+    if (vx_ready_tail) {
+        vx_ready_tail->next = t;
+    } else {
+        vx_ready_head = t;
+    }
+    vx_ready_tail = t;
+}
+
+static void vx_future_settle(vx_future *f, int32_t state) {
+    f->state = state;
+    vx_task *w = f->waiters;
+    f->waiters = NULL;
+    // Waiters run in the order they started waiting.
+    vx_task *rev = NULL;
+    while (w) {
+        vx_task *n = w->next;
+        w->next = rev;
+        rev = w;
+        w = n;
+    }
+    while (rev) {
+        vx_task *n = rev->next;
+        vx_ready(rev);
+        rev = n;
+    }
+}
+
+// Completes [f] with the [f->size] bytes at [value].
+static void vx_future_done(vx_future *f, const void *value) {
+    if (f->size > 0) memcpy(f->value, value, (size_t)f->size);
+    vx_future_settle(f, 1);
+}
+
+static void vx_future_fail(vx_future *f, void *err) {
+    f->err = err;
+    vx_future_settle(f, 2);
+}
+
+// Waits until [f] is settled, letting other tasks run meanwhile, and
+// returns its error, or NULL when it is done.
+static void *vx_await(vx_future *f) {
+    while (f->state == 0) {
+        if (vx_cur == &vx_main_task) {
+            fflush(stdout);
+            fputs("error: await outside a task\n", stderr);
+            exit(1);
+        }
+        vx_cur->next = f->waiters;
+        f->waiters = vx_cur;
+        vx_suspend();
+    }
+    return f->state == 2 ? f->err : NULL;
+}
+
+// Timers waiting to complete their futures: a min-heap on when each is
+// due, with those due together in the order they were set.
+typedef struct {
+    int64_t at;
+    uint64_t seq;
+    vx_future *future;
+} vx_timer;
+
+static vx_timer *vx_timers;
+static size_t vx_timers_len, vx_timers_cap;
+static uint64_t vx_timer_seq;
+
+static bool vx_timer_before(const vx_timer *a, const vx_timer *b) {
+    return a->at < b->at || (a->at == b->at && a->seq < b->seq);
+}
+
+static void vx_timer_push(vx_timer t) {
+    if (vx_timers_len == vx_timers_cap) vx_timers = vx_grow(vx_timers, &vx_timers_cap, sizeof(vx_timer));
+    size_t i = vx_timers_len++;
+    while (i > 0 && vx_timer_before(&t, &vx_timers[(i - 1) / 2])) {
+        vx_timers[i] = vx_timers[(i - 1) / 2];
+        i = (i - 1) / 2;
+    }
+    vx_timers[i] = t;
+}
+
+static vx_timer vx_timer_pop(void) {
+    vx_timer top = vx_timers[0], last = vx_timers[--vx_timers_len];
+    size_t i = 0, n = vx_timers_len;
+    for (;;) {
+        size_t c = 2 * i + 1;
+        if (c >= n) break;
+        if (c + 1 < n && vx_timer_before(&vx_timers[c + 1], &vx_timers[c])) c++;
+        if (!vx_timer_before(&vx_timers[c], &last)) break;
+        vx_timers[i] = vx_timers[c];
+        i = c;
+    }
+    if (n > 0) vx_timers[i] = last;
+    return top;
+}
+
+static void vx_async_mark(void) {
+    if (vx_timers) vx_mark_range((const char *)vx_timers, (const char *)(vx_timers + vx_timers_len));
+}
+
+// Returns a future that completes after [ms] milliseconds.
+static vx_future *vx_sleep(int64_t ms) {
+    vx_future *f = vx_future_new(0);
+    vx_timer_push((vx_timer){vx_time_ns() + (ms > 0 ? ms : 0) * 1000000, vx_timer_seq++, f});
+    return f;
+}
+
+// Runs every task that is ready, and completes the timers that are due,
+// until nothing more can run now. Returns the milliseconds until the next
+// timer, or -1 when nothing is pending. Platform code with its own run
+// loop calls it as vex_poll.
+static int64_t vx_poll(void) {
+    if (vx_cur != &vx_main_task) return 0;
+    for (;;) {
+        int64_t now = vx_time_ns();
+        while (vx_timers_len > 0 && vx_timers[0].at <= now) vx_future_settle(vx_timer_pop().future, 1);
+        if (!vx_ready_head) break;
+        vx_task *t = vx_ready_head;
+        vx_ready_head = t->next;
+        if (!vx_ready_head) vx_ready_tail = NULL;
+        vx_resume(t);
+    }
+    if (vx_timers_len == 0) return -1;
+    int64_t wait = vx_timers[0].at - vx_time_ns();
+    return wait <= 0 ? 0 : (wait + 999999) / 1000000;
+}
+
+int64_t vex_poll(void) { return vx_poll(); }
+
+// Sleeps until the next timer is due, after vx_poll found nothing to run.
+static void vx_idle(void) {
+    int64_t wait = vx_timers[0].at - vx_time_ns();
+    if (wait > 0) {
+        struct timespec ts = {(time_t)(wait / 1000000000), (long)(wait % 1000000000)};
+        nanosleep(&ts, NULL);
+    }
+}
+
+// Runs tasks and timers until nothing is pending.
+static void vx_loop(void) {
+    while (vx_poll() >= 0) vx_idle();
+}
+
+// Runs tasks and timers until [f] is settled, for `run` in code that isn't
+// async, and returns its error, or NULL.
+static void *vx_run(vx_future *f, int line) {
+    if (vx_cur != &vx_main_task) vx_fail(line, "run can't be used inside async code; use await");
+    while (f->state == 0) {
+        if (vx_poll() < 0 && f->state == 0) vx_fail(line, "run: the future can never complete, since nothing is left to run");
+        if (f->state == 0) vx_idle();
+    }
+    return f->state == 2 ? f->err : NULL;
+}
+
+// The work of `all`: waits for each future in turn and collects their
+// values, failing at the first error.
+typedef struct {
+    vx_future *result;
+    vx_list *futures;
+    int64_t esz;
+} vx_all_arg;
+
+static void vx_all_task(void *p) {
+    vx_all_arg *a = p;
+    vx_list *values = a->esz > 0 ? vx_list_new(a->esz, 0, NULL) : NULL;
+    for (int64_t i = 0; i < a->futures->len; i++) {
+        vx_future *f = ((vx_future **)a->futures->data)[i];
+        void *err = vx_await(f);
+        if (err) {
+            vx_future_fail(a->result, err);
+            return;
+        }
+        if (values) vx_list_push(values, f->value);
+    }
+    vx_future_done(a->result, &values);
+}
+
+static vx_future *vx_all(vx_list *futures, int64_t esz) {
+    vx_all_arg *a = vx_alloc(sizeof(vx_all_arg));
+    *a = (vx_all_arg){vx_future_new(esz > 0 ? (int64_t)sizeof(vx_list *) : 0), futures, esz};
+    vx_go(vx_all_task, a);
+    return a->result;
+}
+
+// The work of `any` for one of its futures: settles the shared result with
+// that future's outcome, unless another settled it first.
+typedef struct {
+    vx_future *result;
+    vx_future *future;
+} vx_any_arg;
+
+static void vx_any_task(void *p) {
+    vx_any_arg *a = p;
+    void *err = vx_await(a->future);
+    if (a->result->state != 0) return;
+    if (err) {
+        vx_future_fail(a->result, err);
+    } else {
+        vx_future_done(a->result, a->future->value);
+    }
+}
+
+static vx_future *vx_any(vx_list *futures, int64_t esz) {
+    vx_future *result = vx_future_new(esz);
+    for (int64_t i = 0; i < futures->len && result->state == 0; i++) {
+        vx_any_arg *a = vx_alloc(sizeof(vx_any_arg));
+        *a = (vx_any_arg){result, ((vx_future **)futures->data)[i]};
+        vx_go(vx_any_task, a);
+    }
+    return result;
+}
