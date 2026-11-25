@@ -60,6 +60,7 @@ func TestTokens(t *testing.T) {
 		{"operators", "+ - * / % ! && || = += -= *= /= %= == != < <= > >= -> => . .. ..= ? ?. ??",
 			"+ - * / % ! && || = += -= *= /= %= == != < <= > >= -> => . .. ..= ? ?. ?? EOF"},
 		{"wrapping operators", "&+ &- &* &+= &-= &*= a&&-b", "&+ &- &* &+= &-= &*= id:a && - id:b NL EOF"},
+		{"ampersand", "T: A & B", "id:T : id:A & id:B NL EOF"},
 		{"punctuation", "( ) { } [ ] , : ;", "( ) { } [ ] , : ; EOF"},
 		{"integers", "0 42 1_000_000 0xFF 0b1010 0o17", "int:0 int:42 int:1000000 int:0xFF int:0b1010 int:0o17 NL EOF"},
 		{"floats", "3.14 1e9 2.5e-3 1E+2 0.5", "float:3.14 float:1e9 float:2.5e-3 float:1E+2 float:0.5 NL EOF"},
@@ -176,7 +177,6 @@ func TestErrors(t *testing.T) {
 		{"code point too large", `"\u{110000}"`, "1:2", "invalid unicode code point U+110000", ""},
 		{"interpolation across lines", "\"a {x\n}\"", "1:1", "unterminated string interpolation", `close it with } and "`},
 		{"interpolation at end of file", `"a {x`, "1:1", "unterminated string interpolation", `close it with } and "`},
-		{"single ampersand", "a & b", "1:3", `unexpected character '&'`, "use && for logical and"},
 		{"single pipe", "a | b", "1:3", `unexpected character '|'`, "use || for logical or"},
 		{"single quotes", "'hi'", "1:1", "single quotes are not used for strings", `strings use double quotes: "text"`},
 		{"lone single quote", "it's", "1:3", "unexpected character '", `strings use double quotes: "text"`},
@@ -207,7 +207,7 @@ func TestErrors(t *testing.T) {
 }
 
 func TestReportsSeveralErrors(t *testing.T) {
-	_, errs := lex(t, "a & b\nc | d\n# e")
+	_, errs := lex(t, "a $ b\nc | d\n# e")
 	if len(errs) != 3 {
 		t.Fatalf("got %d errors, want 3: %v", len(errs), errs)
 	}

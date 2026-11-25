@@ -82,6 +82,7 @@ const (
 	Not
 	AndAnd
 	OrOr
+	Amp
 
 	Assign
 	PlusAssign
@@ -151,6 +152,7 @@ var operators = []struct {
 	{"&+", AmpPlus},
 	{"&-", AmpMinus},
 	{"&*", AmpStar},
+	{"&", Amp},
 	{"+=", PlusAssign},
 	{"-=", MinusAssign},
 	{"*=", StarAssign},
