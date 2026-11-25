@@ -77,8 +77,8 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-102** Errors: `throws` / `throws(E)`, `throw`, `try`, `catch`, `try?` (L)
 - [x] **V-103** Closures / lambdas, needed for UI event handlers (L)
 - [x] **V-104** Generics for functions and structs (XL)
-- [ ] **V-105** Modules: a folder is a module; `import "vex:math"`, `import "package:ui"`, `import "models"`; `vex.toml` (L)
-- [ ] **V-121** Package manager: `vex get` from public git repos, `vex.lock` with hashes ([design](docs/design/packages.md)) (L)
+- [x] **V-105** Modules: a folder is a module; `import "vex:math"`, `import "models"`, `as`; `pub` visibility; `package.toml`; first `vex:math` and `vex:strings` (L)
+- [ ] **V-121** Package manager: `vex get` from public git repos, `package.lock` with hashes ([design](docs/design/packages.md)) (L)
 - [ ] **V-122** `vex doc`: API docs from `///` comments (M)
 - [x] **V-106** Maps `[string: int]` (M)
 - [x] **V-107** Memory management: tracing GC, stage 1 mark and sweep ([design](docs/design/memory.md)) (XL)
@@ -97,6 +97,8 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-123** Stack traces: runtime errors list the chain of calls with their lines (M)
 - [ ] **V-124** Benchmark suite in the repo (`bench/`): Vex programs with Go equivalents and a script that compares them (M)
 - [ ] **V-125** Generics, next steps: methods with their own type parameters, generic enums such as `Result<T>`, generic functions as values (M)
+- [ ] **V-127** Standard library: native functions behind `vex:` modules (`sqrt`, `sin`, time, files) and more modules (M)
+- [ ] **V-128** Modules, next steps: warn about unused imports, `pub` names whose types are private, and errors sorted with the root module first (S)
 - [ ] **V-126** Interfaces, next steps: generic interfaces such as `Comparable<T>`, interfaces that extend others, enums that implement interfaces (M)
 - [x] **V-120** Integer overflow stops the program by default; `&+` `&-` `&*` wrap; benchmarked against Go (M)
 
@@ -210,4 +212,7 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-25 | Maps: `[K: V]` types and `["a": 1]` / `[:]` literals; `m[k]` gives an optional; loops follow insertion order; keys are int, string, bool or simple enums; values can't be optional (V-106) |
 | 2026-11-25 | Generics: `<T>` type parameters on functions and structs, inferred from arguments or the expected type, or written as `f<int>(...)` touching the name; constraints `<T: Comparable & Hashable>` from built-in Equatable, Comparable and Hashable (interfaces join them in V-117); compiled by specialising each use, checked once generically (V-104) |
 | 2026-11-25 | Interfaces: `interface I { fn m() }`, methods with a body are defaults; structs opt in with `struct S: I, J` and are checked there; `[I]`, `I` and `I?` hold any implementing struct, called through a per-struct method table (thunks keep each call type-exact); interfaces also work as generic constraints `<T: I>` (V-117) |
-| 2026-11-25 | Imports name packages, as in Dart: `vex:name` for the standard library, `package:name` for dependencies, a relative folder for the project's own code; a folder is one module; `vex.toml` maps each package name to a git URL and version, so no domain is needed ([packages](docs/design/packages.md)) |
+| 2026-11-25 | Imports name packages, as in Dart: `vex:name` for the standard library, `package:name` for dependencies, a relative folder for the project's own code; a folder is one module; `package.toml` maps each package name to a git URL and version, so no domain is needed ([packages](docs/design/packages.md)) |
+| 2026-11-25 | The project file is `package.toml`, with `package.lock` beside it, matching `package:` imports (replaces `vex.toml`) |
+| 2026-11-25 | Modules: a folder is a module; names are private unless marked `pub` and are used as `module.name`, with `as` to rename; imports belong to each file; modules may import each other; C names of other modules get a tag starting with a digit, so they can't collide |
+| 2026-11-25 | `vex:math` leaves out float functions such as `sqrt` until standard library modules can call native code: Newton's method in Vex can't round the last digit correctly |
