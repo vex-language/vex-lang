@@ -41,6 +41,9 @@ type gen struct {
 	lams     strings.Builder
 	nlams    int
 
+	// The C variable each collection being built adds its elements to.
+	builds map[ast.Expr]string
+
 	// Named functions used as values, which need a wrapper.
 	fnValues map[*types.Func]bool
 
@@ -63,7 +66,8 @@ type gen struct {
 // the file name shown in runtime errors.
 func Generate(info *types.Info, srcName string) string {
 	g := &gen{info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{},
-		opts: map[string]*types.Optional{}, recvs: map[ast.Expr]string{}, chaining: map[ast.Expr]bool{}}
+		opts: map[string]*types.Optional{}, recvs: map[ast.Expr]string{}, chaining: map[ast.Expr]bool{},
+		builds: map[ast.Expr]string{}}
 	g.collectOptionals()
 	for _, t := range info.Types {
 		g.needRepr(t)
@@ -706,6 +710,10 @@ func (g *gen) stmt(s ast.Stmt) {
 		v := g.info.Defs[s.Bind]
 		g.line("%s = %s.v;", decl(v.Type, g.declare(v)), tmp)
 	case *ast.ExprStmt:
+		if lit, ok := g.info.Elements[s]; ok {
+			g.element(s.X, lit)
+			break
+		}
 		if m, ok := s.X.(*ast.MatchExpr); ok && g.info.Matches[m].Stmt {
 			g.matchStmt(m)
 			break
@@ -1027,12 +1035,18 @@ func hasCall(e ast.Expr) bool {
 	case *ast.MemberExpr:
 		return hasCall(e.X)
 	case *ast.ListLit:
+		if e.Body != nil {
+			return true
+		}
 		for _, x := range e.Elems {
 			if hasCall(x) {
 				return true
 			}
 		}
 	case *ast.MapLit:
+		if e.Body != nil {
+			return true
+		}
 		for i, k := range e.Keys {
 			if hasCall(k) || hasCall(e.Values[i]) {
 				return true
@@ -1160,6 +1174,9 @@ func (g *gen) value(e ast.Expr) string {
 	case *ast.MatchExpr:
 		return g.matchExpr(e)
 	case *ast.ListLit:
+		if e.Body != nil {
+			return g.collection(e, e.Body, t)
+		}
 		elem := t.(*types.List).Elem
 		if len(e.Elems) == 0 {
 			return fmt.Sprintf("vx_list_new(sizeof(%s), 0, NULL)", ctype(elem))
@@ -1205,6 +1222,9 @@ func (g *gen) value(e ast.Expr) string {
 			return fmt.Sprintf("(*(%s*)vx_list_at(%s, %s, %d))", ctype(t), cs[0], cs[1], g.lineOf(e))
 		})
 	case *ast.MapLit:
+		if e.Body != nil {
+			return g.collection(e, e.Body, t)
+		}
 		return g.mapLit(e, t.(*types.Map))
 	case *ast.MemberExpr:
 		if cs := g.info.CaseValues[e]; cs != nil {
