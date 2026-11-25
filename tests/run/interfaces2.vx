@@ -1,0 +1,155 @@
+// Generic interfaces, interfaces that extend others, enums that implement
+// interfaces, and properties in interfaces.
+
+interface Drawable {
+    fn draw() -> string
+}
+
+interface Named {
+    get name -> string
+    fn greet() -> string => "I am {name}"
+}
+
+interface Shape: Drawable, Named {
+    fn area() -> float
+    fn describe() -> string => "{name} with area {area()}: {draw()}"
+}
+
+interface Sized {
+    get size -> int
+}
+
+interface Resizable: Sized {
+    set size(value: int)
+}
+
+interface Store<T> {
+    fn get(key: string) -> T?
+    fn put(key: string, value: T)
+    fn getOr(key: string, fallback: T) -> T => get(key) ?? fallback
+}
+
+interface Ordered<T> {
+    fn compare(other: T) -> int
+}
+
+struct Square: Shape {
+    side: float
+    get name -> string => "square"
+    fn draw() -> string => "[]"
+    fn area() -> float => side * side
+}
+
+enum Suit: Drawable, Named {
+    hearts
+    spades
+    fn draw() -> string => match self {
+        hearts => "H"
+        spades => "S"
+    }
+    get name -> string => match self {
+        hearts => "hearts"
+        spades => "spades"
+    }
+}
+
+struct Block: Resizable {
+    size: int {
+        didSet { println("size", oldValue, "->", size) }
+    }
+}
+
+struct Text: Resizable {
+    value: string
+    get size -> int => value.len
+    set size(value: int) { self.value = "{value}" }
+}
+
+struct Cache: Store<int> {
+    items: [string: int] = [:]
+    fn get(key: string) -> int? => items[key]
+    fn put(key: string, value: int) { items[key] = value }
+}
+
+struct Money: Ordered<Money> {
+    cents: int
+    fn compare(other: Money) -> int => cents - other.cents
+}
+
+fn largest<T: Ordered<T>>(xs: [T]) -> T? {
+    var best: T? = nil
+    for x in xs {
+        if let b = best {
+            if x.compare(b) > 0 {
+                best = x
+            }
+        } else {
+            best = x
+        }
+    }
+    return best
+}
+
+fn fill<S: Store<int>>(s: S) {
+    s.put("a", 1)
+    s.put("b", 2)
+}
+
+fn grow(xs: [Resizable]) {
+    for x in xs {
+        x.size += 1
+        println(x.size)
+    }
+}
+
+struct MapStore<T>: Store<T> {
+    items: [string: T] = [:]
+    fn get(key: string) -> T? => items[key]
+    fn put(key: string, value: T) { items[key] = value }
+}
+
+enum Tree<T>: Sized {
+    leaf
+    node(left: Tree<T>, value: T, right: Tree<T>)
+    get size -> int => match self {
+        leaf => 0
+        node(l, _, r) => l.size + 1 + r.size
+    }
+}
+
+fn total<T: Sized>(xs: [T]) -> int {
+    var n = 0
+    for x in xs {
+        n += x.size
+    }
+    return n
+}
+
+fn main() {
+    let shapes: [Drawable] = [Square(side: 2), Suit.hearts]
+    for s in shapes {
+        println(s.draw())
+    }
+    let sq: Shape = Square(side: 3)
+    println(sq.describe(), sq.greet(), sq.name)
+    let d: Drawable = sq
+    println(d.draw(), d)
+    let names: [Named] = [Suit.spades, Square(side: 1)]
+    println(names.map(fn(n: Named) -> string => n.greet()))
+    grow([Block(size: 1), Text(value: "ab")])
+    let c = Cache()
+    fill(c)
+    let st: Store<int> = c
+    println(st.get("b"), c.items)
+    println(largest([Money(cents: 5), Money(cents: 9), Money(cents: 2)])?.cents)
+    println(Suit.hearts.name, Suit.spades)
+
+    // Generic implementers and defaults of generic interfaces.
+    let s = MapStore<string>()
+    s.put("k", "v")
+    let gs: Store<string> = s
+    println(gs.getOr("k", "-"), gs.getOr("z", "-"), s.getOr("z", "!"))
+    let t = Tree.node(left: .leaf, value: 1, right: Tree.node(left: .leaf, value: 2, right: .leaf))
+    let sized: [Sized] = [t, Block(size: 5), Text(value: "abc")]
+    println(t.size, total([Block(size: 1), Block(size: 2)]), sized.map(fn(x: Sized) -> int => x.size))
+}
