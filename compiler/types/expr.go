@@ -117,6 +117,8 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		return c.match(e, want, false)
 	case *ast.TryExpr:
 		return c.tryExpr(e, want, false)
+	case *ast.AwaitExpr:
+		return c.awaitExpr(e, want)
 	}
 	return Invalid
 }
@@ -181,6 +183,9 @@ func (c *checker) ident(id *ast.Ident) Type {
 		}
 	}
 	if f := c.funcs[id.Name]; f != nil {
+		if c.asyncValue(id, f) {
+			return Invalid
+		}
 		c.info.Uses[id] = f
 		return funcValue(f)
 	}

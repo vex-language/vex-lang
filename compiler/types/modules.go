@@ -448,7 +448,7 @@ func (c *checker) moduleIdent(id *ast.Ident) Type {
 	m := c.imported(id.Module)
 	name := id.Name
 	if f := m.funcs[name]; f != nil {
-		if c.private(id, m, f.Decl.Pub, "function '"+name+"'") {
+		if c.private(id, m, f.Decl.Pub, "function '"+name+"'") || c.asyncValue(id, f) {
 			return Invalid
 		}
 		c.info.Uses[id] = f

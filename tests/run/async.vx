@@ -1,0 +1,54 @@
+import "vex:time"
+
+enum NetError {
+    notFound
+}
+
+async fn fetch(url: string, ms: int) throws(NetError) -> string {
+    await time.sleep(ms)
+    if url == "bad" {
+        throw .notFound
+    }
+    return "page of {url}"
+}
+
+async fn count(name: string, n: int) -> int {
+    var total = 0
+    for i in 0..n {
+        await time.sleep(5)
+        println(name, i)
+        total += i
+    }
+    return total
+}
+
+struct Bank {
+    balance: int
+    async fn deposit(x: int) -> int {
+        await time.sleep(1)
+        balance += x
+        return balance
+    }
+}
+
+async fn main() throws {
+    println("start")
+    let page = try await fetch("a.com", 10)
+    println(page)
+    let a = count("a", 3)
+    let b = count("b", 2)
+    let totals = await all([a, b])
+    println(totals)
+    let first = try await any([fetch("slow", 50), fetch("fast", 5)])
+    println(first)
+    let r = try? await fetch("bad", 1)
+    println(r)
+    let failing = try? await all([fetch("x", 1), fetch("bad", 2)])
+    println(failing)
+    let bank = Bank(balance: 10)
+    println(await bank.deposit(5), await bank.deposit(1))
+    let f = bank.deposit(100)
+    println(f, await f)
+    await all([time.sleep(1), time.sleep(2)])
+    println("done")
+}

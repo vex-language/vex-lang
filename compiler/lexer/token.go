@@ -57,6 +57,8 @@ const (
 	Throws
 	Try
 	Catch
+	Async
+	Await
 	keywordsEnd
 
 	LParen
@@ -142,6 +144,8 @@ var keywords = map[string]Kind{
 	"throws":    Throws,
 	"try":       Try,
 	"catch":     Catch,
+	"async":     Async,
+	"await":     Await,
 	"true":      True,
 	"false":     False,
 }

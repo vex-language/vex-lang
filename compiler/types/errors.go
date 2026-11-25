@@ -70,9 +70,15 @@ func (c *checker) checkThrows(e *ast.CallExpr) {
 	if thrown == nil {
 		return
 	}
+	c.noteThrows(e, thrown, fmt.Sprintf("%s can throw, so the call needs try", name))
+}
+
+// Records that [e] throws [thrown], which a try around it must handle,
+// reporting [msg] when there is none.
+func (c *checker) noteThrows(e ast.Expr, thrown Type, msg string) {
 	c.info.Throwing[e] = thrown
 	if len(c.tries) == 0 {
-		c.errorAt(e, "write try before it to pass the error up, try ... catch to handle it, or try? to get nil", "%s can throw, so the call needs try", name)
+		c.errorAt(e, "write try before it to pass the error up, try ... catch to handle it, or try? to get nil", "%s", msg)
 		return
 	}
 	ctx := c.tries[len(c.tries)-1]

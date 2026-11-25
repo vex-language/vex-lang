@@ -74,6 +74,10 @@ type checker struct {
 	// The closures enclosing the current expression, innermost last.
 	lits []*litCtx
 
+	// The call an await is about to check, which runs instead of starting
+	// a task.
+	awaited *ast.CallExpr
+
 	// The try expressions whose calls are being checked, innermost last.
 	tries []*tryCtx
 }
@@ -104,7 +108,8 @@ func newChecker() *checker {
 			Chains:     map[ast.Expr]bool{},
 			Matches:    map[*ast.MatchExpr]*Match{},
 			FuncOf:     map[*ast.FuncDecl]*Func{},
-			Throwing:   map[*ast.CallExpr]Type{},
+			Throwing:   map[ast.Expr]Type{},
+			Spawns:     map[*ast.CallExpr]bool{},
 			Tries:      map[*ast.TryExpr]*Try{},
 		},
 	}
@@ -493,6 +498,7 @@ func (c *checker) signature(f *Func) {
 		}
 		seen[param.Name] = true
 	}
+	f.Async = f.Decl.Async
 	f.Result = Void
 	if f.Decl.Result != nil {
 		f.Result, f.CResult = c.nativeType(f.Decl.Result, native)
@@ -538,6 +544,10 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 		}
 		if t := builtinTypes[te.Name]; t != nil {
 			return t
+		}
+		if te.Name == "Future" && c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && c.handles[te.Name] == nil {
+			c.errorAt(te, "write its value type, e.g. Future<int>, or Future<int, Error> when it can fail", "Future needs a type argument")
+			return Invalid
 		}
 		if g := c.genStructs[te.Name]; g != nil {
 			c.errorAt(te, fmt.Sprintf("write its type arguments, e.g. %s<%s>", te.Name, typeParamExample(g.params)), "%s is generic, so it needs type arguments", te.Name)
@@ -703,6 +713,9 @@ func (c *checker) bodies() {
 
 // Returns the type written as `Name<Args>`.
 func (c *checker) genericType(te *ast.NamedType) Type {
+	if te.Name == "Future" && c.genStructs[te.Name] == nil && c.genEnums[te.Name] == nil && c.genIfaces[te.Name] == nil {
+		return c.futureType(te)
+	}
 	args := c.typeArgs(te)
 	if g := c.genEnums[te.Name]; g != nil {
 		return c.genericEnumInst(te, g, args)
@@ -902,7 +915,9 @@ func (c *checker) stmt(s ast.Stmt) {
 			break
 		}
 		c.expr(s.X, nil)
-		if _, ok := s.X.(*ast.CallExpr); !ok {
+		switch s.X.(type) {
+		case *ast.CallExpr, *ast.AwaitExpr:
+		default:
 			c.errorAt(s.X, "store it with let, or remove it", "this value isn't used")
 		}
 	case *ast.IfStmt:

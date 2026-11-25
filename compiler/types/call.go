@@ -27,7 +27,20 @@ type memberSig struct {
 }
 
 func (c *checker) call(e *ast.CallExpr, want Type) Type {
+	awaited := c.awaited == e
+	c.awaited = nil
+	if f, ok := want.(*Future); ok && !awaited {
+		want = f.Elem
+	}
 	t := c.callTarget(e, want)
+	if call := c.info.Calls[e]; call != nil && call.Func != nil && call.Func.Async && !awaited {
+		// Without await, an async call starts a task and gives its future.
+		c.info.Spawns[e] = true
+		if t == Invalid {
+			return Invalid
+		}
+		return &Future{Elem: t, Throws: call.Func.Throws}
+	}
 	c.checkThrows(e)
 	return t
 }
@@ -161,6 +174,9 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		c.checkArgs(e)
 		c.errorAt(id, fmt.Sprintf("create a struct that implements it: struct Name: %s<...>", name), "%s is an interface, so it can't be created", name)
 		return Invalid
+	}
+	if asyncBuiltins[name] && c.funcs[name] == nil && c.genFuncs[name] == nil {
+		return c.asyncBuiltin(e, name, want)
 	}
 	if builtinFuncs[name] {
 		return c.callBuiltin(e, name)

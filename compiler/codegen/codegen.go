@@ -101,6 +101,9 @@ func Generate(info *types.Info, srcName string) string {
 		if g.fnValues[f] {
 			g.fnValueWrapper(f)
 		}
+		if f.Async {
+			g.spawnWrapper(f)
+		}
 	}
 
 	var out strings.Builder
@@ -149,6 +152,9 @@ func Generate(info *types.Info, srcName string) string {
 	}
 	for _, f := range info.Funcs {
 		g.line("static %s;", g.signature(f, false))
+		if f.Async {
+			g.line("static %s;", spawnSig(f))
+		}
 	}
 	g.b.WriteString(g.lamDecls.String())
 	for _, s := range info.Structs {
@@ -178,12 +184,23 @@ func Generate(info *types.Info, srcName string) string {
 	g.line("    vx_argv = argv;")
 	g.line("    vx_init(__builtin_frame_address(0));")
 	g.line("    vx_files = vx_srcs;")
-	if main := mainFunc(info); main != nil && main.Throws != nil {
+	switch main := mainFunc(info); {
+	case main != nil && main.Async:
+		g.line("    vx_future *f = sp_fn_main();")
+		g.line("    vx_loop();")
+		if main.Throws != nil {
+			g.line("    if (f->state == 2) vx_uncaught(%s);", errorMessage(info, main.Throws, "f->err"))
+		} else {
+			g.line("    (void)f;")
+		}
+	case main != nil && main.Throws != nil:
 		g.line("    void *err = NULL;")
 		g.line("    fn_main(&err);")
 		g.line("    if (err) vx_uncaught(%s);", errorMessage(info, main.Throws, "err"))
-	} else {
+		g.line("    vx_loop();")
+	default:
 		g.line("    fn_main();")
+		g.line("    vx_loop();")
 	}
 	g.line("    return 0;")
 	g.line("}")
@@ -287,6 +304,8 @@ func ctype(t types.Type) string {
 		return "vx_map *"
 	case *types.Interface, *types.Handle:
 		return "void *"
+	case *types.Future:
+		return "vx_future *"
 	case *types.Struct:
 		return structName(t) + " *"
 	case *types.FuncType:
@@ -361,6 +380,11 @@ func mangle(t types.Type) string {
 	case *types.Handle:
 		id := modTag(t.Module) + t.Name
 		return fmt.Sprintf("H%d%s", len(id), id)
+	case *types.Future:
+		if t.Throws != nil {
+			return "U2_" + mangle(t.Elem) + "_" + mangle(t.Throws)
+		}
+		return "U1_" + mangle(t.Elem)
 	case *types.FuncType:
 		parts := []string{fmt.Sprintf("F%d", len(t.Params))}
 		for _, p := range t.Params {
@@ -575,6 +599,8 @@ func repr(t types.Type, x string) string {
 		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
 	case *types.Handle:
 		return "vx_handle_str(" + cQuote(t.CName) + ", " + x + ")"
+	case *types.Future:
+		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
 	}
 	switch t {
 	case types.Int:
@@ -1105,7 +1131,7 @@ func (g *gen) fnValueWrapper(f *types.Func) {
 // to other calls matters.
 func hasCall(e ast.Expr) bool {
 	switch e := e.(type) {
-	case *ast.CallExpr, *ast.TryExpr:
+	case *ast.CallExpr, *ast.TryExpr, *ast.AwaitExpr:
 		return true
 	case *ast.UnaryExpr:
 		return hasCall(e.X)
@@ -1256,6 +1282,8 @@ func (g *gen) value(e ast.Expr) string {
 		return caseFunc(g.info.CaseValues[e]) + "()"
 	case *ast.TryExpr:
 		return g.tryExpr(e)
+	case *ast.AwaitExpr:
+		return g.await(e)
 	case *ast.MatchExpr:
 		return g.matchExpr(e)
 	case *ast.ListLit:
@@ -1425,7 +1453,7 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 	switch c.Kind {
 	case types.FuncCall, types.StaticCall:
 		return g.orderedBy(c.Args, rank, func(cs []string) string {
-			return funcName(c.Func) + "(" + g.args(e, cs) + ")"
+			return g.callee(e, c.Func) + "(" + g.args(e, cs) + ")"
 		})
 	case types.ConstructorCall:
 		return g.orderedBy(c.Args, rank, func(cs []string) string {
@@ -1438,15 +1466,19 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 	case types.MethodCall:
 		if c.Recv == nil {
 			return g.orderedBy(c.Args, rank, func(cs []string) string {
-				return funcName(c.Func) + "(" + g.args(e, append([]string{g.selfRef()}, cs...)) + ")"
+				return g.callee(e, c.Func) + "(" + g.args(e, append([]string{g.selfRef()}, cs...)) + ")"
 			})
 		}
 		return g.orderedBy(append([]ast.Expr{c.Recv}, c.Args...), append([]int{-1}, rank...), func(cs []string) string {
-			return funcName(c.Func) + "(" + g.args(e, cs) + ")"
+			return g.callee(e, c.Func) + "(" + g.args(e, cs) + ")"
 		})
 	case types.InterfaceCall:
 		return g.ifaceCall(e, c, rank)
 	case types.BuiltinCall:
+		switch c.Builtin {
+		case "all", "any", "run":
+			return g.asyncBuiltin(e, c)
+		}
 		return g.builtin(c, line)
 	case types.MemberBuiltinCall:
 		return g.memberBuiltin(e, c, line)

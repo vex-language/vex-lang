@@ -271,6 +271,21 @@ type Handle struct {
 // Returns the type's name.
 func (h *Handle) String() string { return qualified(h.Module, h.Name) }
 
+// The future result of async work: a value of [Elem] once it is done, or
+// the error it throws, of type [Throws] (nil when it can't fail).
+type Future struct {
+	Elem   Type
+	Throws Type
+}
+
+// Returns the type as written: `Future<int>` or `Future<int, Error>`.
+func (f *Future) String() string {
+	if f.Throws != nil {
+		return "Future<" + f.Elem.String() + ", " + f.Throws.String() + ">"
+	}
+	return "Future<" + f.Elem.String() + ">"
+}
+
 // An optional type: a value of [Elem], or nil.
 type Optional struct {
 	Elem Type
@@ -410,6 +425,9 @@ type Func struct {
 	// defaults, are compiled; they receive `self` as the interface.
 	Iface *Interface
 
+	// Set for `async fn`.
+	Async bool
+
 	// For extern and export functions, the C types of the parameters and
 	// the result where they differ from the usual ones: a sized number
 	// such as `int32_t` for an `int32` in the signature, or "".
@@ -541,6 +559,9 @@ func Identical(a, b Type) bool {
 	case *Optional:
 		b, ok := b.(*Optional)
 		return ok && Identical(a.Elem, b.Elem)
+	case *Future:
+		b, ok := b.(*Future)
+		return ok && Identical(a.Elem, b.Elem) && (a.Throws == nil) == (b.Throws == nil) && (a.Throws == nil || Identical(a.Throws, b.Throws))
 	case *FuncType:
 		b, ok := b.(*FuncType)
 		if !ok || len(a.Params) != len(b.Params) || !Identical(a.Result, b.Result) {
@@ -702,8 +723,13 @@ type Info struct {
 	// The built-in Error struct, with its one field `message`.
 	Error *Struct
 
-	// Calls of functions that can throw, with what each throws.
-	Throwing map[*ast.CallExpr]Type
+	// Calls of functions that can throw, and awaits of futures that can
+	// fail, with what each throws.
+	Throwing map[ast.Expr]Type
+
+	// Calls of async functions that aren't awaited, which start the call
+	// as a task and give its future.
+	Spawns map[*ast.CallExpr]bool
 
 	// How each try handles errors.
 	Tries map[*ast.TryExpr]*Try

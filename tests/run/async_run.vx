@@ -1,0 +1,24 @@
+import "vex:time"
+
+async fn tick(name: string, n: int) -> int {
+    for i in 0..n {
+        await time.sleep(2)
+        println(name, i)
+    }
+    return n * 10
+}
+
+async fn fails() throws -> int {
+    await time.sleep(1)
+    throw Error(message: "boom")
+}
+
+fn main() {
+    println("sync main")
+    let bg = tick("background", 2)
+    println(run(tick("run", 2)))
+    let v = try? run(fails())
+    println(v, bg)
+    tick("after main", 2)
+    println("main returns")
+}
