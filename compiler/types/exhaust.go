@@ -322,7 +322,7 @@ func (e exhauster) missing(rows []patRow, ts []Type) []string {
 
 // Reports whether some value matched by [q] isn't matched by any row.
 func (e exhauster) useful(rows []patRow, q []*spat, ts []Type) bool {
-	if len(ts) == 0 {
+	if len(ts) == 0 || len(rows) == 0 {
 		return len(rows) == 0
 	}
 	h := q[0]
@@ -340,6 +340,12 @@ func (e exhauster) useful(rows []patRow, q []*spat, ts []Type) bool {
 		col = append(col, r.pats[0])
 	}
 	ks := ctors(ts[0], col)
+	// A wildcard over rows that all start with wildcards needs only the
+	// rest of the columns. Expanding it into each constructor would never
+	// end for a type that contains itself.
+	if ks != nil && h.kind == sWild && allWild(rows) {
+		ks = nil
+	}
 	if ks == nil {
 		k := ctor{key: h.key}
 		if h.kind == sWild {
@@ -369,6 +375,16 @@ func (e exhauster) useful(rows []patRow, q []*spat, ts []Type) bool {
 		}
 	}
 	return false
+}
+
+// Reports whether every row starts with a wildcard.
+func allWild(rows []patRow) bool {
+	for _, r := range rows {
+		if r.pats[0].kind != sWild {
+			return false
+		}
+	}
+	return true
 }
 
 // Shows a value built by [k] from [args], for messages.

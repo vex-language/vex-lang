@@ -1,0 +1,20 @@
+// Patterns over an enum that contains itself.
+enum Tree {
+    node(left: Tree, right: Tree)
+    leaf(v: int)
+    empty
+    fn size() -> int => match self {
+        node(_, _) => 1
+        leaf(_) => 1
+    }
+}
+fn depth(t: Tree) -> int => match t {
+    node(node(_, _), _) => 2
+    node(_, _) => 1
+    _ => 0
+    leaf(_) => 9
+}
+fn main() {}
+
+// error: 6:25: match doesn't handle 'empty'
+// error: 15:5: this arm is never reached: _ on line 14 matches everything
