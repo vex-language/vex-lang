@@ -210,64 +210,6 @@ func (c *checker) recordValue(x ast.Expr, t Type) Type {
 	return t
 }
 
-// Declares the variables of the pattern [p], which takes apart a value of
-// type [t].
-func (c *checker) destructure(p *ast.RecordPattern, t Type, mutable bool, kind VarKind) {
-	declare := func(f *ast.PatternField, ft Type) {
-		if f.Bind.Name != "_" {
-			c.declare(f.Bind, ft, mutable, kind)
-		}
-	}
-	invalid := func() {
-		for _, f := range p.Fields {
-			declare(f, Invalid)
-		}
-	}
-	r, ok := t.(*Record)
-	if !ok {
-		if t != Invalid {
-			c.errorAt(p, "", "only records can be taken apart, found %s", t)
-		}
-		invalid()
-		return
-	}
-	pos := 0
-	seen := map[string]bool{}
-	for _, f := range p.Fields {
-		if f.Name == nil {
-			pos++
-			continue
-		}
-		seen[f.Name.Name] = true
-	}
-	var missing []string
-	for _, nf := range r.Named {
-		if !seen[nf.Name] {
-			missing = append(missing, nf.Name)
-		}
-	}
-	if pos != len(r.Positional) || len(missing) > 0 {
-		hint := "name every field: let " + patternFor(r) + " = ..."
-		c.errorAt(p, hint, "the pattern must match every field of %s", r)
-		invalid()
-		return
-	}
-	pos = 0
-	for _, f := range p.Fields {
-		if f.Name == nil {
-			declare(f, r.Positional[pos])
-			pos++
-			continue
-		}
-		ft := r.Field(f.Name.Name)
-		if ft == nil {
-			c.errorAt(f.Name, didYouMean(f.Name.Name, r.FieldNames()), "%s has no field '%s'", r, f.Name.Name)
-			ft = Invalid
-		}
-		declare(f, ft)
-	}
-}
-
 // Returns a pattern matching every field of [r], for hints.
 func patternFor(r *Record) string {
 	var parts []string

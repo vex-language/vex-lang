@@ -219,53 +219,53 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 	subject := c.expr(m.Subject, nil)
 	info := &Match{Stmt: stmt}
 	c.info.Matches[m] = info
-	en, _ := subject.(*Enum)
-	info.Enum = en
-	switch {
-	case en != nil, subject == Int, subject == Bool, subject == String, subject == Invalid:
-	case subject == Float:
-		c.errorAt(m.Subject, "compare with if ... else instead", "can't match on float values")
-		subject = Invalid
-	default:
-		c.errorAt(m.Subject, "use if ... else instead", "can't match on a value of type %s", subject)
-		subject = Invalid
-	}
 
 	var result Type
 	if !stmt && want != Void {
 		result = want
 	}
-	covered := map[*Case]int{}
-	literals := map[string]int{}
+	var rows []patRow
+	sound := subject != Invalid
+	seen := map[string]int{}
 	wildcard := 0
 	for _, arm := range m.Arms {
 		a := &MatchArm{}
 		info.Arms = append(info.Arms, a)
-		if wildcard > 0 {
-			c.errorAt(arm.Pattern, "remove it, or move _ to the end",
-				"this arm is never reached: _ on line %d matches everything", wildcard)
-		}
 		c.push()
-		switch p := arm.Pattern.(type) {
-		case *ast.WildcardPattern:
-			if wildcard == 0 {
-				wildcard = p.Pos().Line
+		before := len(c.errs)
+		b := newBinder(PatternVar, false)
+		c.pattern(arm.Pattern, subject, b, true, arm.Guard != nil)
+		a.Vars = b.order
+		if arm.Guard != nil {
+			c.cond(arm.Guard, "when")
+		}
+		if len(c.errs) > before {
+			sound = false
+		} else if subject != Invalid {
+			sp := c.lower(arm.Pattern, subject)
+			key := simpleKey(arm.Pattern, c.info)
+			if !c.exhaust().useful(rows, []*spat{sp}, []Type{subject}) {
+				switch {
+				case wildcard > 0:
+					c.errorAt(arm.Pattern, "remove it, or move _ to the end",
+						"this arm is never reached: _ on line %d matches everything", wildcard)
+				case key != "" && seen[key] > 0 && strings.HasPrefix(key, "case "):
+					c.errorAt(arm.Pattern, "remove one of the arms", "case '%s' is already handled on line %d", key[5:], seen[key])
+				case key != "" && seen[key] > 0:
+					c.errorAt(arm.Pattern, "remove one of the arms", "%s is already handled on line %d", key, seen[key])
+				default:
+					c.errorAt(arm.Pattern, "remove it, or move it above the arms that cover it",
+						"this arm is never reached: earlier arms match everything it does")
+				}
 			}
-		case *ast.CasePattern:
-			c.casePattern(p, a, en, subject, covered)
-		case *ast.LiteralPattern:
-			t := c.expr(p.Value, subject)
-			key := ast.Sexpr(p.Value)
-			switch {
-			case en != nil:
-				c.errorAt(p, caseHint("match its cases, e.g. ", en, false), "a literal can't match a %s value", en.Name)
-			case subject == Invalid:
-			case !Identical(t, subject):
-				c.mismatch(p, subject, t, "pattern")
-			case literals[key] > 0:
-				c.errorAt(p, "remove one of the arms", "%s is already handled on line %d", key, literals[key])
-			default:
-				literals[key] = p.Pos().Line
+			if arm.Guard == nil {
+				rows = append(rows, patRow{[]*spat{sp}})
+				if _, ok := arm.Pattern.(*ast.WildcardPattern); ok && wildcard == 0 {
+					wildcard = arm.Pattern.Pos().Line
+				}
+				if key != "" && seen[key] == 0 {
+					seen[key] = arm.Pattern.Pos().Line
+				}
 			}
 		}
 
@@ -293,8 +293,8 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 		c.pop()
 	}
 
-	if wildcard == 0 && subject != Invalid {
-		c.checkExhaustive(m, en, subject, covered, literals)
+	if sound {
+		c.checkExhaustive(m, subject, rows)
 	}
 	if stmt {
 		return Void
@@ -308,82 +308,69 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 	return result
 }
 
-// Checks a case pattern such as `circle(r)` and declares its bindings.
-func (c *checker) casePattern(p *ast.CasePattern, a *MatchArm, en *Enum, subject Type, covered map[*Case]int) {
-	if !c.bindCase(p, a, en, subject, covered) {
-		for _, b := range p.Binds {
-			if b.Name != "_" {
-				c.declare(b, Invalid, false, PatternVar)
+// Returns a key naming what a simple arm pattern matches, `case circle`
+// or a literal, for messages about repeated arms; "" for other patterns.
+func simpleKey(p ast.Pattern, info *Info) string {
+	switch p := p.(type) {
+	case *ast.NamePattern:
+		if cs := info.PatternCases[p]; cs != nil {
+			return "case " + cs.Name
+		}
+	case *ast.CasePattern:
+		cs := info.PatternCases[p]
+		if cs == nil {
+			return ""
+		}
+		for _, a := range p.Args {
+			switch a.Pattern.(type) {
+			case *ast.WildcardPattern, *ast.NamePattern:
+				if info.PatternCases[a.Pattern] != nil {
+					return ""
+				}
+			default:
+				return ""
 			}
 		}
+		return "case " + cs.Name
+	case *ast.LiteralPattern:
+		return ast.PatternString(p)
 	}
+	return ""
 }
 
-// Checks [p] and declares its bindings, reporting whether they were
-// declared.
-func (c *checker) bindCase(p *ast.CasePattern, a *MatchArm, en *Enum, subject Type, covered map[*Case]int) bool {
-	if en == nil {
-		if subject != Invalid {
-			c.errorAt(p.Name, "match literal values such as 1 or \"yes\", or _",
-				"'%s' isn't a case: the match is on %s", p.Name.Name, subject)
-		}
-		return false
-	}
-	cs := en.Case(p.Name.Name)
-	if cs == nil {
-		c.errorAt(p.Name, didYouMean(p.Name.Name, enumNames(en)), "%s has no case '%s'", en.Name, p.Name.Name)
-		return false
-	}
-	a.Case = cs
-	if line := covered[cs]; line > 0 {
-		c.errorAt(p, "remove one of the arms", "case '%s' is already handled on line %d", cs.Name, line)
-	} else {
-		covered[cs] = p.Pos().Line
-	}
-	if p.Binds == nil {
-		return true
-	}
-	if len(cs.Fields) == 0 {
-		c.errorAt(p, "write it without (): "+cs.Name, "case '%s' carries no values", cs.Name)
-		return false
-	}
-	if len(p.Binds) != len(cs.Fields) {
-		names := make([]string, len(cs.Fields))
-		for i, f := range cs.Fields {
-			names[i] = f.Name
-		}
-		c.errorAt(p, fmt.Sprintf("write %s(%s), using _ for values you don't need", cs.Name, strings.Join(names, ", ")),
-			"case '%s' carries %s, found %d", cs.Name, plural(len(cs.Fields), "value"), len(p.Binds))
-		return false
-	}
-	a.Binds = make([]*Var, len(p.Binds))
-	for i, b := range p.Binds {
-		if b.Name != "_" {
-			a.Binds[i] = c.declare(b, cs.Fields[i].Type, false, PatternVar)
-		}
-	}
-	return true
-}
-
-// Reports cases or values a match without `_` leaves out.
-func (c *checker) checkExhaustive(m *ast.MatchExpr, en *Enum, subject Type, covered map[*Case]int, literals map[string]int) {
-	var missing []string
-	switch {
-	case en != nil:
-		for _, cs := range en.Cases {
-			if covered[cs] == 0 {
-				missing = append(missing, cs.Name)
-			}
-		}
-	case subject == Bool:
-		for _, v := range []string{"true", "false"} {
-			if literals[v] == 0 {
-				missing = append(missing, v)
-			}
-		}
-	default:
-		c.errorAtPos(m.Pos(), 5, "add _ => ... as the last arm", "a match on %s needs a _ arm for the other values", subject)
+// Reports values a match leaves out.
+func (c *checker) checkExhaustive(m *ast.MatchExpr, subject Type, rows []patRow) {
+	e := c.exhaust()
+	w := e.missing(rows, []Type{subject})
+	if w == nil {
 		return
+	}
+	var missing []string
+	switch subject.(type) {
+	case *Enum:
+	default:
+		if subject != Bool {
+			switch {
+			case w[0] != "_":
+			case subject == Int || subject == Float || subject == String:
+				c.errorAtPos(m.Pos(), 5, "add _ => ... as the last arm", "a match on %s needs a _ arm for the other values", subject)
+				return
+			default:
+				c.errorAtPos(m.Pos(), 5, "add _ => ... as the last arm", "match doesn't handle every %s value", subject)
+				return
+			}
+			missing = []string{w[0]}
+		}
+	}
+	if missing == nil {
+		for _, k := range ctors(subject, nil) {
+			spec := specializeRows(rows, k)
+			if len(spec) == 0 {
+				missing = append(missing, k.key)
+			} else if w := e.missing(spec, k.types); w != nil {
+				missing = append(missing, show(subject, k, w))
+			}
+		}
 	}
 	switch len(missing) {
 	case 0:
