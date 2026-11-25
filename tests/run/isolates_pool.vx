@@ -1,0 +1,71 @@
+import "vex:isolate"
+
+struct Node {
+    name: string
+    next: Node?
+}
+
+fn sum(n: int) -> int {
+    var xs: [int] = []
+    for i in 0..n {
+        xs.push(i)
+    }
+    var s = 0
+    for x in xs {
+        s += x
+    }
+    return s
+}
+
+fn main() {
+    let a = Node(name: "a", next: nil)
+    let b = Node(name: "b", next: a)
+    a.next = b
+    let back = run(isolate.run(fn() -> Node {
+        if let n = a.next {
+            if let m = n.next {
+                println("cycle on the other side:", m.name, n.name)
+            }
+        }
+        return a
+    }))
+    if let n = back.next {
+        if let m = n.next {
+            println("cycle back:", m.name, n.name)
+        }
+    }
+
+    var fs: [Future<int>] = []
+    for i in 0..200 {
+        fs.push(isolate.run(fn() -> int { return sum(i * 100) }))
+    }
+    let all200 = run(all(fs))
+    var total = 0
+    for v in all200 {
+        total += v
+    }
+    println("200 isolates:", total)
+
+    let jobs = Channel<int>()
+    let results = Channel<int>()
+    for w in 0..4 {
+        isolate.spawn {
+            while let n = jobs.receiveSync() {
+                results.send(sum(n))
+            }
+        }
+    }
+    for i in 0..1000 {
+        jobs.send(i)
+    }
+    jobs.close()
+    var got = 0
+    var count = 0
+    while count < 1000 {
+        if let r = results.receiveSync() {
+            got += r
+            count += 1
+        }
+    }
+    println("1000 jobs over 4 workers:", got)
+}

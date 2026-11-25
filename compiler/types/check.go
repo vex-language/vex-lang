@@ -545,6 +545,10 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 		if t := builtinTypes[te.Name]; t != nil {
 			return t
 		}
+		if te.Name == "Channel" && c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && c.handles[te.Name] == nil {
+			c.errorAt(te, "write its value type, e.g. Channel<int>", "Channel needs a type argument")
+			return Invalid
+		}
 		if te.Name == "Future" && c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && c.handles[te.Name] == nil {
 			c.errorAt(te, "write its value type, e.g. Future<int>, or Future<int, Error> when it can fail", "Future needs a type argument")
 			return Invalid
@@ -716,6 +720,9 @@ func (c *checker) genericType(te *ast.NamedType) Type {
 	if te.Name == "Future" && c.genStructs[te.Name] == nil && c.genEnums[te.Name] == nil && c.genIfaces[te.Name] == nil {
 		return c.futureType(te)
 	}
+	if te.Name == "Channel" && c.genStructs[te.Name] == nil && c.genEnums[te.Name] == nil && c.genIfaces[te.Name] == nil {
+		return c.channelType(te, te.Args)
+	}
 	args := c.typeArgs(te)
 	if g := c.genEnums[te.Name]; g != nil {
 		return c.genericEnumInst(te, g, args)
@@ -839,6 +846,9 @@ func terminates(s ast.Stmt) bool {
 	case *ast.IfStmt:
 		return s.Else != nil && terminates(s.Then) && terminates(s.Else)
 	case *ast.WhileStmt:
+		if s.Bind != nil {
+			return false
+		}
 		lit, ok := s.Cond.(*ast.BoolLit)
 		return ok && lit.Value && !breaks(s.Body)
 	case *ast.ExprStmt:
@@ -942,10 +952,19 @@ func (c *checker) stmt(s ast.Stmt) {
 		}
 		c.declare(s.Bind, elem, false, LocalVar)
 	case *ast.WhileStmt:
-		c.cond(s.Cond, "while")
+		if s.Bind != nil {
+			elem := c.unwrapped(c.expr(s.Cond, nil), s.Cond, "while let")
+			c.push()
+			c.declare(s.Bind, elem, false, LocalVar)
+		} else {
+			c.cond(s.Cond, "while")
+		}
 		c.loops++
 		c.stmt(s.Body)
 		c.loops--
+		if s.Bind != nil {
+			c.pop()
+		}
 	case *ast.ForStmt:
 		c.forStmt(s)
 	case *ast.ReturnStmt:

@@ -577,6 +577,8 @@ func (c *checker) substType(t Type, bound map[*TypeParam]Type) Type {
 		return &Optional{Elem: c.substType(t.Elem, bound)}
 	case *Future:
 		return &Future{Elem: c.substType(t.Elem, bound), Throws: t.Throws}
+	case *Channel:
+		return &Channel{Elem: c.substType(t.Elem, bound)}
 	case *FuncType:
 		return &FuncType{Params: args(t.Params), Result: c.substType(t.Result, bound), Throws: t.Throws}
 	case *Struct:

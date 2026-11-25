@@ -36,10 +36,19 @@ type gen struct {
 	// Lists and structs that need a function to show their values.
 	reprs map[string]types.Type
 
-	// Closures: environment structs and prototypes, and their bodies.
+	// Closures: environment structs and prototypes, and their bodies, with
+	// the C function of each.
 	lamDecls strings.Builder
 	lams     strings.Builder
 	nlams    int
+	litNames map[*ast.FuncLit]string
+
+	// Encoders and decoders of values sent between isolates, by mangled
+	// type, and the entry functions of new isolates.
+	codecs     map[string]bool
+	codecDecls strings.Builder
+	codecDefs  strings.Builder
+	nisos      int
 
 	// The C variable each collection being built adds its elements to.
 	builds map[ast.Expr]string
@@ -67,7 +76,7 @@ type gen struct {
 func Generate(info *types.Info, srcName string) string {
 	g := &gen{info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{},
 		opts: map[string]*types.Optional{}, recvs: map[ast.Expr]string{}, chaining: map[ast.Expr]bool{},
-		builds: map[ast.Expr]string{}}
+		builds: map[ast.Expr]string{}, litNames: map[*ast.FuncLit]string{}, codecs: map[string]bool{}}
 	g.collectOptionals()
 	for _, t := range info.Types {
 		g.needRepr(t)
@@ -167,6 +176,8 @@ func Generate(info *types.Info, srcName string) string {
 			g.enumDescriptor(e)
 		}
 	}
+	g.b.WriteString(g.codecDecls.String())
+	g.b.WriteString(g.codecDefs.String())
 	g.b.WriteString(defs.String())
 	g.b.WriteString(g.lams.String())
 	g.line("")
@@ -306,6 +317,8 @@ func ctype(t types.Type) string {
 		return "void *"
 	case *types.Future:
 		return "vx_future *"
+	case *types.Channel:
+		return "vx_chan *"
 	case *types.Struct:
 		return structName(t) + " *"
 	case *types.FuncType:
@@ -380,6 +393,8 @@ func mangle(t types.Type) string {
 	case *types.Handle:
 		id := modTag(t.Module) + t.Name
 		return fmt.Sprintf("H%d%s", len(id), id)
+	case *types.Channel:
+		return "K_" + mangle(t.Elem)
 	case *types.Future:
 		if t.Throws != nil {
 			return "U2_" + mangle(t.Elem) + "_" + mangle(t.Throws)
@@ -599,7 +614,7 @@ func repr(t types.Type, x string) string {
 		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
 	case *types.Handle:
 		return "vx_handle_str(" + cQuote(t.CName) + ", " + x + ")"
-	case *types.Future:
+	case *types.Future, *types.Channel:
 		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
 	}
 	switch t {
@@ -781,6 +796,10 @@ func (g *gen) stmt(s ast.Stmt) {
 	case *ast.IfStmt:
 		g.ifStmt(s)
 	case *ast.WhileStmt:
+		if s.Bind != nil {
+			g.whileLet(s)
+			break
+		}
 		g.block("while ("+cond(g.expr(s.Cond))+")", s.Body)
 	case *ast.ForStmt:
 		g.forStmt(s)
@@ -1015,6 +1034,7 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 	g.nlams++
 	name := fmt.Sprintf("lam%d", g.nlams)
 	env := "env_" + name
+	g.litNames[e] = name
 
 	// Values for the environment, read in the enclosing context.
 	inits := make([]string, len(caps))
@@ -1478,6 +1498,10 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 		switch c.Builtin {
 		case "all", "any", "run":
 			return g.asyncBuiltin(e, c)
+		case "isolate.run", "isolate.spawn":
+			return g.isolateCall(e, c)
+		case "Channel":
+			return "vx_chan_new()"
 		}
 		return g.builtin(c, line)
 	case types.MemberBuiltinCall:
@@ -1544,6 +1568,9 @@ func (g *gen) builtin(c *types.Call, line int) string {
 func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 	recv := g.info.Types[c.Recv]
 	return g.ordered(append([]ast.Expr{c.Recv}, c.Args...), func(cs []string) string {
+		if ch, ok := recv.(*types.Channel); ok {
+			return g.channelCall(e, c, ch, cs, line)
+		}
 		if m, ok := recv.(*types.Map); ok {
 			k := g.temp()
 			switch c.Builtin {

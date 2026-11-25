@@ -322,6 +322,9 @@ func build(n Node) *tree {
 	case *GuardStmt:
 		return branch("guard let "+n.Bind.Name, buildExpr(n.Value), build(n.Else))
 	case *WhileStmt:
+		if n.Bind != nil {
+			return branch("while let "+n.Bind.Name, buildExpr(n.Cond), build(n.Body))
+		}
 		return branch("while", buildExpr(n.Cond), build(n.Body))
 	case *ForStmt:
 		label := "for " + n.Elem.Name

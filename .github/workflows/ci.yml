@@ -45,6 +45,10 @@ jobs:
           go-version-file: go.mod
       - name: Test generated programs under ASan and UBSan
         run: go test -count=1 ./compiler/codegen ./tests
+      - name: Test async and isolates under TSan
+        env:
+          VEX_CFLAGS: -fsanitize=thread -g
+        run: go test -count=1 -run 'TestExamples/(async|isolates)' ./tests
 
   fuzz:
     name: fuzz

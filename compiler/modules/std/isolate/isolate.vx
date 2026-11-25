@@ -1,0 +1,7 @@
+/// Isolates run work in parallel, each on its own thread with its own
+/// memory. `isolate.run(f)` runs `f` on a new isolate and gives a future of
+/// its result; `isolate.spawn(f)` starts one that runs until `f` is done.
+/// Values they use are copied, and channels carry messages between them.
+
+/// Returns how many processor cores the machine has.
+pub extern fn cores() -> int as "vx_cores"

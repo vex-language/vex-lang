@@ -1,0 +1,43 @@
+import "vex:isolate"
+import "vex:time"
+interface Shape {
+    fn area() -> int
+}
+struct Job {
+    done: fn() -> int
+}
+fn work() -> int => 1
+fn add(a: int) -> int => a
+fn main() {
+    let cb = fn() -> int { return 1 }
+    let f = isolate.run(fn() -> int { return cb() })
+    let job = Job(done: work)
+    let g = isolate.run(fn() -> int { return job.done() })
+    let h = isolate.run(add)
+    let k = isolate.run(cb)
+    let c1 = Channel<fn()>()
+    let c2: Channel<Future<int>> = Channel()
+    let c3 = Channel()
+    let c4 = Channel<int>(5)
+    let r = isolate.run(fn() -> Future<void> { return time.sleep(1) })
+    isolate.spawn(fn() throws { throw Error("x") })
+    let s: Shape? = nil
+    let t = isolate.run(fn() -> int { return s?.area() ?? 0 })
+    let ch = Channel<int>()
+    ch.send("x")
+    let v: string? = ch.receiveSync()
+}
+
+// error: 13:25: the closure uses 'cb', a fn() -> int: it can't be copied to another isolate
+// error: 15:25: the closure uses 'job', a Job: it holds fn() -> int, which can't be copied to another isolate
+// error: 16:25: isolate.run needs a function that takes no parameters, found fn(int) -> int
+// error: 17:25: isolate.run needs a closure or the name of a function, since it copies what the function uses
+// error: 18:22: a channel can't carry fn(): it can't be copied to another isolate
+// error: 19:21: a channel can't carry Future<int>: it can't be copied to another isolate
+// error: 20:14: can't tell what the channel carries
+// error: 21:14: Channel<T>() takes no arguments
+// error: 22:25: isolate.run can't give back Future<void>: it can't be copied to another isolate
+// error: 23:19: the function given to isolate.spawn can't throw, since nothing receives its error
+// error: 25:25: the closure uses 's', a Shape?: it holds Shape, which can't be copied to another isolate
+// error: 27:13: argument 'value': expected int, found string
+// error: 28:22: expected string?, found int?

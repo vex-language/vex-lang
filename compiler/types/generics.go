@@ -183,6 +183,8 @@ func hasTypeParam(t Type) bool {
 		return hasTypeParam(t.Elem)
 	case *Future:
 		return hasTypeParam(t.Elem) || hasTypeParam(t.Throws)
+	case *Channel:
+		return hasTypeParam(t.Elem)
 	case *FuncType:
 		for _, p := range t.Params {
 			if hasTypeParam(p) {
@@ -220,6 +222,8 @@ func keyOf(t Type) string {
 		return "[" + keyOf(t.Key) + ": " + keyOf(t.Value) + "]"
 	case *Optional:
 		return keyOf(t.Elem) + "?"
+	case *Channel:
+		return "Channel<" + keyOf(t.Elem) + ">"
 	case *Future:
 		if t.Throws != nil {
 			return "Future<" + keyOf(t.Elem) + ", " + keyOf(t.Throws) + ">"
@@ -733,6 +737,10 @@ func (b *binding) unify(p, a Type) {
 		if a, ok := a.(*Future); ok {
 			b.unify(p.Elem, a.Elem)
 		}
+	case *Channel:
+		if a, ok := a.(*Channel); ok {
+			b.unify(p.Elem, a.Elem)
+		}
 	case *FuncType:
 		if a, ok := a.(*FuncType); ok && len(a.Params) == len(p.Params) {
 			for i := range p.Params {
@@ -830,6 +838,11 @@ func (b *binding) subst(t Type) Type {
 	case *Future:
 		if e := b.subst(t.Elem); e != nil {
 			return &Future{Elem: e, Throws: t.Throws}
+		}
+		return nil
+	case *Channel:
+		if e := b.subst(t.Elem); e != nil {
+			return &Channel{Elem: e}
 		}
 		return nil
 	case *FuncType:

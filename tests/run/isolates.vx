@@ -1,0 +1,80 @@
+import "vex:isolate"
+
+struct Point {
+    x: int
+    y: int
+}
+
+enum Shape {
+    circle(center: Point, r: int)
+    poly(points: [Point])
+    empty
+}
+
+fn crunch(n: int) -> int {
+    var s = 0
+    for i in 0..n {
+        s = s &+ i * i
+    }
+    return s
+}
+
+fn heavy() -> int {
+    return crunch(1000)
+}
+
+fn fails() throws -> int {
+    throw Error("bad input")
+}
+
+fn worker(jobs: Channel<int>, out: Channel<string>) {
+    while let n = jobs.receiveSync() {
+        out.send("done {n}")
+    }
+    out.close()
+}
+
+async fn main() throws {
+    let n = 100000
+    let total = await isolate.run(fn() -> int {
+        return crunch(n)
+    })
+    println(total)
+    println(await isolate.run(heavy))
+
+    let p = Point(x: 1, y: 2)
+    let shapes = [Shape.circle(center: p, r: 3), Shape.poly(points: [p, p]), Shape.empty]
+    let names: [string: [int]] = ["a": [1, 2], "b": []]
+    let echoed = await isolate.run(fn() -> [Shape] {
+        println("in isolate", names, shapes.len)
+        return shapes
+    })
+    println(echoed)
+    match echoed[1] {
+        poly(pts) => println("points:", pts)
+        circle(c, r) => println(c, r)
+        empty => println("empty")
+    }
+
+    let r = try? await isolate.run(fails)
+    println(r)
+    let msg = try await isolate.run(fn() throws -> string {
+        return "ok"
+    })
+    println(msg)
+
+    let parts = await all([isolate.run(fn() -> int { return crunch(10) }), isolate.run(fn() -> int { return crunch(20) })])
+    println(parts)
+
+    let jobs = Channel<int>()
+    let out = Channel<string>()
+    isolate.spawn(fn() { worker(jobs, out) })
+    for i in 0..3 {
+        jobs.send(i)
+    }
+    jobs.close()
+    while let m = await out.receive() {
+        println(m)
+    }
+    println("cores > 0:", isolate.cores() > 0)
+}
