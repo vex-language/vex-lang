@@ -629,18 +629,30 @@ func fieldSlots(s *Struct) []slot {
 // type arguments written at the call or else from its arguments and the
 // type the context expects. Returns nil after reporting an error.
 func (c *checker) inferTypeArgs(e *ast.CallExpr, params []*TypeParam, slots []slot, result, want Type, callee string) []Type {
-	b := &binding{params: params, types: map[*TypeParam]Type{}}
+	return c.inferBound(e, &binding{params: params, types: map[*TypeParam]Type{}}, slots, result, want, callee)
+}
+
+// Works like [inferTypeArgs], for type parameters some of which [b]
+// already binds; written type arguments are for the others.
+func (c *checker) inferBound(e *ast.CallExpr, b *binding, slots []slot, result, want Type, callee string) []Type {
+	params := b.params
 	if len(e.TypeArgs) > 0 {
 		var args []Type
 		for _, te := range e.TypeArgs {
 			args = append(args, c.resolveType(te))
 		}
-		if len(args) != len(params) {
+		var open []*TypeParam
+		for _, p := range params {
+			if b.types[p] == nil {
+				open = append(open, p)
+			}
+		}
+		if len(args) != len(open) {
 			c.checkArgs(e)
-			c.errorAt(e.TypeArgs[0], "", "%s takes %s, found %d", callee, plural(len(params), "type argument"), len(args))
+			c.errorAt(e.TypeArgs[0], "", "%s takes %s, found %d", callee, plural(len(open), "type argument"), len(args))
 			return nil
 		}
-		for i, p := range params {
+		for i, p := range open {
 			b.types[p] = args[i]
 		}
 	} else {
