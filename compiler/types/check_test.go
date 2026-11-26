@@ -651,6 +651,8 @@ func TestErrors(t *testing.T) {
 		// Optionals.
 		{"guard break is not a return", "fn f() -> int {\n    while true {\n        guard let x = g() else { break }\n    }\n}\nfn g() -> int? => nil", "", "5:1", "missing return: f must return int", "add a return statement before the closing }"},
 		{"optional field read", "struct U {\n    n: int\n}", "let u: U? = nil\nlet x = u.n + 1", "6:11", "can't read 'n' from a U?: it may be nil", "use ?.n, or unwrap it first with if let"},
+		{"chain on a case", shapeDecl, "let s = Shape?.empty", "22:16", "?. is only for optional values, not types", "use . instead"},
+		{"chain on a static call", "struct S {\n static fn make() -> S => S()\n}", "let s = S?.make()", "5:12", "?. is only for optional values, not types", "use . instead"},
 		{"optional compare value", "", "let s: string? = nil\nlet b = s == \"x\"", "3:9", "can't compare string? with string", ""},
 		{"optional arithmetic", "", "let n: int? = 1\nlet m = n + 1", "3:9", "can't use '+' with int? and int", ""},
 

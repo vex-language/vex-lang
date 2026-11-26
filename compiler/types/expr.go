@@ -113,6 +113,9 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 	case *ast.IndexExpr:
 		return c.index(e)
 	case *ast.MemberExpr:
+		if c.typeChain(e) {
+			return Invalid
+		}
 		if g := c.genEnumRef(e.X); g != nil {
 			return c.genericCaseValue(e, g, e.Name, want)
 		}

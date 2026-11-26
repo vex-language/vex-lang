@@ -112,6 +112,15 @@ func (c *checker) recv(m *ast.MemberExpr) Type {
 	return x
 }
 
+// Reports `T?.name`, which uses ?. on a type rather than an optional value.
+func (c *checker) typeChain(m *ast.MemberExpr) bool {
+	if !m.Optional || (c.enumRef(m.X) == nil && c.structRef(m.X) == nil && c.genEnumRef(m.X) == nil && c.genStructRef(m.X) == nil) {
+		return false
+	}
+	c.errorAt(m.Name, "use . instead", "?. is only for optional values, not types")
+	return true
+}
+
 // Returns the type of [e], which reads member [m] whose own type is [t]:
 // for `x?.name`, [t] made optional.
 func (c *checker) chain(e ast.Expr, m *ast.MemberExpr, t Type) Type {

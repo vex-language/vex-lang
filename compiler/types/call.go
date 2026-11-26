@@ -50,6 +50,10 @@ func (c *checker) callTarget(e *ast.CallExpr, want Type) Type {
 	case *ast.Ident:
 		return c.callName(e, fn, want)
 	case *ast.MemberExpr:
+		if c.typeChain(fn) {
+			c.checkArgs(e)
+			return Invalid
+		}
 		if g := c.genEnumRef(fn.X); g != nil {
 			return c.genericCaseCall(e, g, fn.Name, want)
 		}
