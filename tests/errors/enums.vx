@@ -10,7 +10,7 @@ enum Dir { up, down }
 
 fn main() {
     let a = Shape.circel(radius: 1)
-    let b = Shape.circle
+    let b: Shape = .circle
     let c = .empty
     let s = Shape.empty
     println(s.radius)
@@ -35,7 +35,7 @@ fn main() {
 
 // Expected errors:
 // error: 12:19: Shape has no case 'circel'
-// error: 13:19: case 'circle' carries values, so it must be called
+// error: 13:21: case 'circle' carries values, so it must be called
 // error: 14:13: can't tell which enum '.empty' belongs to
 // error: 16:15: Shape has no member 'radius'
 // error: 17:5: match doesn't handle 'circle' and 'rect'

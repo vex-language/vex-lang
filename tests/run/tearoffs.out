@@ -1,0 +1,12 @@
+Ann greets Cy ["Bo greets x", "Bo greets y"]
+13 b
+nil 4
+a [Shape2.circle(radius: 1.0), Shape2.circle(radius: 2.0)] Shape2.circle(radius: 1.0)
+3 Maybe<string>.some(value: "v") Light.green
+8.0 9.0
+2
+16.0
+true
+[2, 4] [1, 2, 3, 4, 5] [true, false]
+HI! AB
+3 0 9 z [Dir.up(step: 3)]

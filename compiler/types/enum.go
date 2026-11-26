@@ -143,15 +143,28 @@ func enumNames(e *Enum) []string {
 // [written] is how the case was spelled, for hints.
 func (c *checker) caseValue(x ast.Expr, e *Enum, name *ast.Ident, written string) Type {
 	cs := e.Case(name.Name)
+	me, _ := x.(*ast.MemberExpr)
+	called := func(x ast.Expr) ast.Expr { return memberAccess(x, name.Name, name.Span) }
 	if cs == nil {
-		if e.Method(name.Name) != nil {
-			c.errorAt(name, fmt.Sprintf("call it: %s.%s()", e.Name, name.Name), "method '%s' must be called", name.Name)
+		if m := e.Method(name.Name); m != nil && m.Static && me != nil {
+			if c.methodPrivate(name, m) {
+				return Invalid
+			}
+			if sig := c.funcSig(name, m); sig != nil {
+				return c.tearOff(me, sig, nil, called, nil)
+			}
+			return Invalid
+		} else if m != nil {
+			c.errorAt(name, fmt.Sprintf("tear it off a value instead: value.%s", name.Name), "method '%s' isn't static, so it needs a value of type %s", name.Name, e.Name)
 		} else {
 			c.errorAt(name, didYouMean(name.Name, enumNames(e)), "%s has no case '%s'", e.Name, name.Name)
 		}
 		return Invalid
 	}
 	if len(cs.Fields) > 0 {
+		if me != nil {
+			return c.tearOff(me, fieldsSig(cs.Fields, e), nil, called, nil)
+		}
 		c.errorAt(name, fmt.Sprintf("give its values: %s(%s: ...)", written, cs.Fields[0].Name),
 			"case '%s' carries values, so it must be called", cs.Name)
 		return Invalid

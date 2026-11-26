@@ -465,6 +465,14 @@ extension<T: Comparable> [T] {
 println("hi".shout(), [3, 9, 2].largest())   // HI! 9
 ```
 
+**Tear-offs.** Methods, static methods, enum cases and constructors are function values when named without a call.
+
+```swift
+let greetings = names.map(host.greet)   // bound to host
+let users = names.map(User.new)
+let shapes = radii.map(Shape.circle)
+```
+
 **Multi-line and raw strings.** `"""` strings drop the indentation of their closing quotes, and `r"..."` keeps `\` and `{` as written.
 
 ```swift
@@ -527,7 +535,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, builder blocks, properties, standard library | In progress: 32 of 49 tasks; next are tear-offs and operator overloading |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, builder blocks, properties, standard library | In progress: 33 of 49 tasks; next are operator overloading and sealed interfaces |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |

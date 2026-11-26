@@ -587,12 +587,12 @@ func TestErrors(t *testing.T) {
 		{"missing field", userDecl, "let u = User(age: 3)", "18:9", "missing argument 'name' in call to User", "e.g. User(name: ...)"},
 		{"unknown field", userDecl, `let u = User(name: "a")` + "\nprintln(u.nme)", "19:11", "User has no field 'nme'", "did you mean 'name'?"},
 		{"unknown method", userDecl, `User(name: "a").gret()`, "18:17", "User has no method 'gret'", "did you mean 'greet'?"},
-		{"method without call", userDecl, `let g = User(name: "a").greet`, "18:25", "method 'greet' must be called", "call it: greet()"},
+		{"method off a type", userDecl, `let g = User.greet`, "18:14", "method 'greet' isn't static, so it needs a value of type User", "tear it off a value instead: value.greet"},
 		{"instance method on type", userDecl, "User.greet()", "18:6", "'greet' needs a User value", "call it on a value, e.g. user.greet(), or declare it static fn"},
 		{"static method on value", userDecl, `User(name: "a").guest()`, "18:17", "'guest' is a static method", "call it on the type: User.guest()"},
 		{"field in static", "struct S {\n n: int\n static fn f() -> int => n\n}", "", "3:26", "static method f can't use field 'n'", "static methods have no instance; pass the value in as a parameter"},
 		{"self in function", "fn f() { println(self) }", "", "1:18", "'self' can only be used inside a method", ""},
-		{"static method value", "struct S {\n static fn make() -> S => S()\n}", "let f = S.make", "5:11", "method 'make' must be called", "call it: S.make()"},
+		{"generic method value", "struct S {\n static fn make<T>(v: T) -> S => S()\n}", "let f = S.make", "5:11", "generic method 'make' can't be used as a value", "call it in a closure: fn(...) => make(...)"},
 		{"self cycle", "struct Node {\n next: Node\n}", "", "2:8", "struct 'Node' contains itself through field 'next', so it could never be created", "use a list instead, e.g. children: [Node]"},
 		{"duplicate field", "struct S {\n a: int\n a: int\n}", "", "3:2", "field 'a' is already declared on line 2", ""},
 
@@ -651,6 +651,8 @@ func TestErrors(t *testing.T) {
 		// Optionals.
 		{"guard break is not a return", "fn f() -> int {\n    while true {\n        guard let x = g() else { break }\n    }\n}\nfn g() -> int? => nil", "", "5:1", "missing return: f must return int", "add a return statement before the closing }"},
 		{"optional field read", "struct U {\n    n: int\n}", "let u: U? = nil\nlet x = u.n + 1", "6:11", "can't read 'n' from a U?: it may be nil", "use ?.n, or unwrap it first with if let"},
+		{"chain on a case", shapeDecl, "let s = Shape?.empty", "22:16", "?. is only for optional values, not types", "use . instead"},
+		{"chain on a static call", "struct S {\n static fn make() -> S => S()\n}", "let s = S?.make()", "5:12", "?. is only for optional values, not types", "use . instead"},
 		{"optional compare value", "", "let s: string? = nil\nlet b = s == \"x\"", "3:9", "can't compare string? with string", ""},
 		{"optional arithmetic", "", "let n: int? = 1\nlet m = n + 1", "3:9", "can't use '+' with int? and int", ""},
 
@@ -658,7 +660,7 @@ func TestErrors(t *testing.T) {
 
 		// Enums and match.
 		{"unknown case", shapeDecl, "let s = Shape.circel(radius: 1)", "22:15", "Shape has no case 'circel'", "did you mean 'circle'?"},
-		{"case needs values", shapeDecl, "let s = Shape.circle", "22:15", "case 'circle' carries values, so it must be called", "give its values: Shape.circle(radius: ...)"},
+		{"case needs values", shapeDecl, "let s: Shape = .circle", "22:17", "case 'circle' carries values, so it must be called", "give its values: .circle(radius: ...)"},
 		{"case without values called", shapeDecl, "let s = Shape.empty()", "22:15", "case 'empty' carries no values", "write it without (): Shape.empty"},
 		{"enum as value", shapeDecl, "let s = Shape", "22:9", "'Shape' is a type, not a value", "use one of its cases, e.g. Shape.circle"},
 		{"enum called", shapeDecl, "let s = Shape()", "22:9", "enums are created from one of their cases", "create it from a case, e.g. Shape.circle"},

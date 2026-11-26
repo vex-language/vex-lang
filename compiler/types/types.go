@@ -758,6 +758,10 @@ type Info struct {
 	// already is one or has no value.
 	Chains map[ast.Expr]bool
 
+	// Methods, static methods, constructors and enum cases used as values
+	// without a call, each with the closure it stands for.
+	TearOffs map[*ast.MemberExpr]ast.Expr
+
 	// Enum cases used as values without a call: `Shape.empty`, `.up`.
 	CaseValues map[ast.Expr]*Case
 

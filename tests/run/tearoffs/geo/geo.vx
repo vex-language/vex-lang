@@ -1,0 +1,16 @@
+/// A point, with members used from another module.
+pub struct Point {
+    pub x: int
+    pub y: int
+    pub fn sum() -> int => x + y
+    pub static fn origin() -> Point => Point(x: 0, y: 0)
+}
+
+pub enum Dir {
+    up(step: int)
+    down
+}
+
+pub struct Bag<T> {
+    pub item: T
+}

@@ -156,6 +156,15 @@ func (c *checker) genericCaseValue(x ast.Expr, g *genericEnum, name *ast.Ident, 
 		return c.caseValue(x, inst, name, g.decl.Name.Name+"."+name.Name)
 	}
 	tmpl := c.enumTemplate(g)
+	if cs := tmpl.Case(name.Name); cs != nil && len(cs.Fields) > 0 {
+		if me, ok := x.(*ast.MemberExpr); ok {
+			var names []string
+			for _, f := range cs.Fields {
+				names = append(names, f.Name)
+			}
+			return c.genericTearOff(me, names, want, written(me.X)+"."+name.Name, func(x ast.Expr) ast.Expr { return memberAccess(x, name.Name, name.Span) })
+		}
+	}
 	if cs := tmpl.Case(name.Name); cs == nil || len(cs.Fields) > 0 {
 		return c.caseValue(x, tmpl, name, g.decl.Name.Name+"."+name.Name)
 	}
