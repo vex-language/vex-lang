@@ -1,0 +1,61 @@
+// Mistakes with extensions.
+interface Shape { fn area() -> float }
+struct Point { x: int }
+struct Box<T> { v: T }
+
+extension Point {
+    fn x() -> int => 1
+}
+extension Shape {
+    fn twice() -> float => 2.0
+}
+extension<T> Point {
+    fn f() {}
+}
+extension<T> Box<T> {
+    fn g() {}
+}
+extension fn() {
+    fn h() {}
+}
+extension string {
+    fn upper() -> string => self
+    static fn make() -> string => ""
+    static const empty = ""
+    set loud(v: string) {}
+    fn shout() -> string => self
+}
+extension string {
+    fn shout() -> string => self
+}
+extension<T> [T] {
+    fn first2() -> T => self[0]
+}
+extension<U> [U] {
+    fn first2() -> U => self[0]
+}
+extension Missing {
+    fn m() {}
+}
+
+fn main() {
+    println([1].first2())
+    let p = Point(x: 1)
+    println(p.nope())
+    println("a".shout)
+}
+
+// error: 7:8: 'x' is already a field of Point
+// error: 9:11: Shape can't be extended
+// error: 12:11: an extension of a struct or enum takes no type parameters
+// error: 15:14: an extension of a generic struct or enum names it without type arguments
+// error: 18:11: fn() can't be extended
+// error: 22:8: string already has a member 'upper'
+// error: 23:15: only extensions of structs and enums can add static members
+// error: 24:18: only extensions of structs and enums can add constants
+// error: 25:9: only extensions of structs and enums can add setters
+// error: 29:8: 'shout' is already declared for string on line 26
+// error: 37:11: unknown type 'Missing'
+// error: 42:17: 'first2' of [int] is declared by more than one extension, on lines 32 and 35
+// error: 44:15: Point has no method 'nope'
+// error: 45:17: method 'shout' must be called

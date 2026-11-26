@@ -1,0 +1,12 @@
+/// A point on a grid.
+pub struct Point {
+    pub x: int
+    pub y: int
+}
+
+pub enum Level { low, mid, high }
+
+/// A value in a box.
+pub struct Box<T> {
+    pub value: T
+}

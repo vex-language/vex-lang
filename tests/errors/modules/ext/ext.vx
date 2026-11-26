@@ -1,0 +1,4 @@
+/// An extension that files only see when they import this module.
+pub extension string {
+    fn extShout() -> string => upper()
+}
