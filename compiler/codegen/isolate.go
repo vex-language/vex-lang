@@ -26,8 +26,8 @@ func (g *gen) codec(t types.Type) string {
 	switch t := t.(type) {
 	case *types.Optional:
 		e := g.codec(t.Elem)
-		fmt.Fprintf(&snd, "vx_enc_put(e, &v.has, 1); if (v.has) snd_%s(e, v.v);", e)
-		fmt.Fprintf(&rcv, "%s r = {0}; vx_dec_get(d, &r.has, 1); if (r.has) r.v = rcv_%s(d); return r;", ct, e)
+		fmt.Fprintf(&snd, "bool has = %s; vx_enc_put(e, &has, 1); if (has) snd_%s(e, %s);", present(t, "v"), e, unwrap(t, "v"))
+		fmt.Fprintf(&rcv, "%s r = {0}; bool has = false; vx_dec_get(d, &has, 1); if (has) r = %s; return r;", ct, wrapOpt(t, "rcv_"+e+"(d)"))
 	case *types.List:
 		e := g.codec(t.Elem)
 		fmt.Fprintf(&snd, "if (vx_enc_ref(e, v)) return; vx_enc_i64(e, v->len); "+
@@ -118,7 +118,7 @@ func (g *gen) filler(t types.Type, opt bool) string {
 	g.codecs[name] = true
 	if opt {
 		fmt.Fprintf(&g.codecDefs, "static void %s(const char *buf, void *out) { vx_dec d = {buf, NULL, 0, 0}; %s = rcv_%s(&d); "+
-			"%s *o = out; o->has = true; o->v = v; }\n", name, decl(t, "v"), m, ctype(&types.Optional{Elem: t}))
+			"*(%s *)out = %s; }\n", name, decl(t, "v"), m, ctype(&types.Optional{Elem: t}), wrapOpt(&types.Optional{Elem: t}, "v"))
 	} else {
 		fmt.Fprintf(&g.codecDefs, "static void %s(const char *buf, void *out) { vx_dec d = {buf, NULL, 0, 0}; *(%s *)out = rcv_%s(&d); }\n",
 			name, ctype(t), m)

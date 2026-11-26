@@ -373,6 +373,9 @@ func ctype(t types.Type) string {
 	case *types.Enum:
 		return enumName(t) + " *"
 	case *types.Optional:
+		if nullable(t) {
+			return ctype(t.Elem)
+		}
 		return "opt_" + mangle(t.Elem)
 	}
 	switch t {
@@ -764,7 +767,7 @@ func (g *gen) repr(name string, t types.Type) {
 		g.line("    vx_repr_leave(v);")
 		g.line("    return vx_str_concat(s, VX_LIT(\")\"));")
 	case *types.Optional:
-		g.line("    return v.has ? %s : VX_LIT(\"nil\");", repr(t.Elem, "v.v"))
+		g.line("    return %s ? %s : VX_LIT(\"nil\");", present(t, "v"), repr(t.Elem, unwrap(t, "v")))
 		if showsInline(t) {
 			g.line("}")
 			g.line("")
@@ -849,11 +852,12 @@ func (g *gen) stmt(s ast.Stmt) {
 	case *ast.GuardStmt:
 		tmp := g.temp()
 		g.line("%s = %s;", decl(g.info.Types[s.Value], tmp), g.expr(s.Value))
-		g.line("if (!%s.has) {", tmp)
+		o := g.optOf(s.Value)
+		g.line("if (!%s) {", present(o, tmp))
 		g.body(s.Else)
 		g.line("}")
 		v := g.info.Defs[s.Bind]
-		g.line("%s = %s.v;", decl(v.Type, g.declare(v)), tmp)
+		g.line("%s = %s;", decl(v.Type, g.declare(v)), unwrap(o, tmp))
 	case *ast.ExprStmt:
 		if lit, ok := g.info.Elements[s]; ok {
 			g.element(s.X, lit)
@@ -1368,7 +1372,7 @@ func (g *gen) expr(e ast.Expr) string {
 		return s
 	}
 	if o := g.info.Wraps[e]; o != nil {
-		return fmt.Sprintf("((%s){true, %s})", ctype(o), g.value(e))
+		return wrapOpt(o, g.value(e))
 	}
 	if wrap, ok := g.info.Chains[e]; ok && !g.chaining[e] {
 		return g.chain(e, wrap)
@@ -1487,8 +1491,8 @@ func (g *gen) value(e ast.Expr) string {
 		if m, ok := g.info.Types[e.X].(*types.Map); ok {
 			return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
 				k, p := g.temp(), g.temp()
-				return fmt.Sprintf("({ %s = %s; %s *%s = vx_map_find(%s, &%s); %s ? (%s){true, *%s} : (%s){0}; })",
-					decl(m.Key, k), cs[1], ctype(m.Value), p, cs[0], k, p, ctype(t), p, ctype(t))
+				return fmt.Sprintf("({ %s = %s; %s *%s = vx_map_find(%s, &%s); %s ? %s : (%s){0}; })",
+					decl(m.Key, k), cs[1], ctype(m.Value), p, cs[0], k, p, wrapOpt(t.(*types.Optional), "*"+p), ctype(t))
 			})
 		}
 		if f := g.info.Operators[e]; f != nil {
@@ -1775,9 +1779,9 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 			case "contains":
 				return fmt.Sprintf("({ %s = %s; vx_map_find(%s, &%s) != NULL; })", decl(m.Key, k), cs[1], cs[0], k)
 			case "remove":
-				r, opt := g.temp(), ctype(g.info.Types[e])
-				return fmt.Sprintf("({ %s = %s; %s %s = {0}; %s.has = vx_map_remove(vx_map_mut(%s, %d), &%s, &%s.v); %s; })",
-					decl(m.Key, k), cs[1], opt, r, r, cs[0], line, k, r, r)
+				r, v, o := g.temp(), g.temp(), g.optOf(e)
+				return fmt.Sprintf("({ %s = %s; %s %s = {0}; %s; if (vx_map_remove(vx_map_mut(%s, %d), &%s, &%s)) %s = %s; %s; })",
+					decl(m.Key, k), cs[1], ctype(o), r, decl(m.Value, v), cs[0], line, k, v, r, wrapOpt(o, v), r)
 			case "copy":
 				return "vx_map_copy(" + cs[0] + ")"
 			}

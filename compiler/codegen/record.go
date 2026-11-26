@@ -43,6 +43,9 @@ func (g *gen) valueTypedefs() {
 		switch t := t.(type) {
 		case *types.Optional:
 			done[name] = true
+			if nullable(t) {
+				return
+			}
 			emit(t.Elem)
 			g.line("typedef struct { bool has; %s; } %s;", decl(t.Elem, "v"), name)
 		case *types.Record:

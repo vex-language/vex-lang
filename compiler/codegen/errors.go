@@ -87,7 +87,7 @@ func (g *gen) tryExpr(e *ast.TryExpr) string {
 	}
 	value := x
 	if _, already := g.info.Types[e.X].(*types.Optional); e.Optional && !already {
-		value = fmt.Sprintf("((%s){true, %s})", ctype(t), x)
+		value = wrapOpt(t.(*types.Optional), x)
 	}
 	if r != "" {
 		fmt.Fprintf(&b, "%s = %s; ", r, value)

@@ -9,6 +9,46 @@ import (
 	"github.com/irshadio/vex-lang/compiler/types"
 )
 
+// Reports whether optionals of [o] are a pointer that is NULL for nil,
+// rather than a struct with a flag. Struct and enum values are pointers
+// that are never NULL.
+func nullable(o *types.Optional) bool {
+	switch o.Elem.(type) {
+	case *types.Struct, *types.Enum:
+		return true
+	}
+	return false
+}
+
+// Returns C code testing whether the optional [x] of type [o] holds a value.
+func present(o *types.Optional, x string) string {
+	if nullable(o) {
+		return "((" + x + ") != NULL)"
+	}
+	return "((" + x + ").has)"
+}
+
+// Returns C code giving the value inside the non-nil optional [x].
+func unwrap(o *types.Optional, x string) string {
+	if nullable(o) {
+		return x
+	}
+	return "(" + x + ").v"
+}
+
+// Returns C code giving [x] wrapped in an optional of type [o].
+func wrapOpt(o *types.Optional, x string) string {
+	if nullable(o) {
+		return "(" + x + ")"
+	}
+	return fmt.Sprintf("((%s){true, %s})", ctype(o), x)
+}
+
+// Returns the optional type of [e], which the checker gave it.
+func (g *gen) optOf(e ast.Expr) *types.Optional {
+	return g.info.Types[e].(*types.Optional)
+}
+
 // Finds every optional type the program uses, so each gets a C struct.
 func (g *gen) collectOptionals() {
 	seen := map[types.Type]bool{}
@@ -20,7 +60,9 @@ func (g *gen) collectOptionals() {
 		seen[t] = true
 		switch t := t.(type) {
 		case *types.Optional:
-			g.opts[ctype(t)] = t
+			if !nullable(t) {
+				g.opts[ctype(t)] = t
+			}
 			visit(t.Elem)
 		case *types.List:
 			visit(t.Elem)
@@ -88,11 +130,12 @@ func (g *gen) ifLet(s *ast.IfStmt) {
 	tmp := g.temp()
 	g.line("{")
 	g.ind++
-	g.line("%s = %s;", decl(g.info.Types[s.Cond], tmp), g.expr(s.Cond))
-	g.line("if (%s.has) {", tmp)
+	o := g.optOf(s.Cond)
+	g.line("%s = %s;", decl(o, tmp), g.expr(s.Cond))
+	g.line("if (%s) {", present(o, tmp))
 	v := g.info.Defs[s.Bind]
 	g.ind++
-	g.line("%s = %s.v;", decl(v.Type, g.declare(v)), tmp)
+	g.line("%s = %s;", decl(v.Type, g.declare(v)), unwrap(o, tmp))
 	g.ind--
 	g.body(s.Then)
 	switch e := s.Else.(type) {
@@ -112,20 +155,21 @@ func (g *gen) ifLet(s *ast.IfStmt) {
 
 func (g *gen) nilTest(k lexer.Kind, x ast.Expr) string {
 	if k == lexer.Eq {
-		return fmt.Sprintf("(!(%s).has)", g.expr(x))
+		return "(!" + present(g.optOf(x), g.expr(x)) + ")"
 	}
-	return fmt.Sprintf("((%s).has)", g.expr(x))
+	return present(g.optOf(x), g.expr(x))
 }
 
 // Returns `x ?? fallback`; the fallback runs only when [x] is nil.
 func (g *gen) coalesce(e *ast.BinaryExpr) string {
 	tmp := g.temp()
-	x := fmt.Sprintf("%s = %s;", decl(g.info.Types[e.X], tmp), g.expr(e.X))
-	present := tmp + ".v"
+	o := g.optOf(e.X)
+	x := fmt.Sprintf("%s = %s;", decl(o, tmp), g.expr(e.X))
+	value := unwrap(o, tmp)
 	if _, ok := g.info.Types[e].(*types.Optional); ok {
-		present = tmp
+		value = tmp
 	}
-	return fmt.Sprintf("({ %s %s.has ? %s : %s; })", x, tmp, present, g.expr(e.Y))
+	return fmt.Sprintf("({ %s %s ? %s : %s; })", x, present(o, tmp), value, g.expr(e.Y))
 }
 
 // Returns an optional chain such as `x?.name` or `x?.greet()`: nil when the
@@ -143,7 +187,7 @@ func (g *gen) chain(e ast.Expr, wrap bool) string {
 	recv := g.expr(x)
 
 	// Generate the member as if the receiver were the value inside.
-	g.recvs[x], g.chaining[e], g.info.Types[x] = tmp+".v", true, opt.Elem
+	g.recvs[x], g.chaining[e], g.info.Types[x] = unwrap(opt, tmp), true, opt.Elem
 	inner := g.expr(e)
 	delete(g.recvs, x)
 	delete(g.chaining, e)
@@ -152,12 +196,12 @@ func (g *gen) chain(e ast.Expr, wrap bool) string {
 	t := g.info.Types[e]
 	head := fmt.Sprintf("%s = %s;", decl(opt, tmp), recv)
 	if t == types.Void {
-		return fmt.Sprintf("({ %s if (%s.has) %s; })", head, tmp, inner)
+		return fmt.Sprintf("({ %s if %s %s; })", head, present(opt, tmp), inner)
 	}
 	if wrap {
-		inner = fmt.Sprintf("(%s){true, %s}", ctype(t), inner)
+		inner = wrapOpt(t.(*types.Optional), inner)
 	}
-	return fmt.Sprintf("({ %s %s.has ? %s : (%s){0}; })", head, tmp, inner, ctype(t))
+	return fmt.Sprintf("({ %s %s ? %s : (%s){0}; })", head, present(opt, tmp), inner, ctype(t))
 }
 
 // Returns the type of the C code [g.expr] produces for [e], which is an
@@ -174,10 +218,11 @@ func (g *gen) whileLet(s *ast.WhileStmt) {
 	tmp := g.temp()
 	g.line("for (;;) {")
 	g.ind++
-	g.line("%s = %s;", decl(g.info.Types[s.Cond], tmp), g.expr(s.Cond))
-	g.line("if (!%s.has) break;", tmp)
+	o := g.optOf(s.Cond)
+	g.line("%s = %s;", decl(o, tmp), g.expr(s.Cond))
+	g.line("if (!%s) break;", present(o, tmp))
 	v := g.info.Defs[s.Bind]
-	g.line("%s = %s.v;", decl(v.Type, g.declare(v)), tmp)
+	g.line("%s = %s;", decl(v.Type, g.declare(v)), unwrap(o, tmp))
 	g.ind--
 	g.body(s.Body)
 	g.line("}")
