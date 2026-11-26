@@ -1,0 +1,22 @@
+Usage: vex <command>
+  run    build and run "quoted" and ""two""
+
+Version 0.2, nested 0.2
+[Usage: vex <command>
+  run    build and run "quoted" and ""two""
+
+Version 0.2, nested 0.2]
+╔══╗ "vex" \ ??=
+╚══╝ tab	here 😀
+C:\new\table 12
+\d+\.\d+ {not} 
+raw backslash n two lines other
+{"name": "{x}", "path": "C:\Users"}
+  indented
+one two	three """
+[] [
+x
+]
+Items:
+First: - a
+Count: 2

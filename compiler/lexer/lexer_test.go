@@ -1,6 +1,7 @@
 package lexer
 
 import (
+	"fmt"
 	"strings"
 	"testing"
 
@@ -108,6 +109,73 @@ func TestInterpolation(t *testing.T) {
 		}
 		if g := strings.Join(got, " "); g != c.want {
 			t.Errorf("%s:\n got: %s\nwant: %s", c.name, g, c.want)
+		}
+	}
+}
+
+func TestMultilineAndRawStrings(t *testing.T) {
+	cases := []struct {
+		name, src, want string
+	}{
+		{"indentation removed", "\"\"\"\n    a\n      b\n    \"\"\"", "str:a\n  b NL EOF"},
+		{"empty", "\"\"\"\n  \"\"\"", "str: NL EOF"},
+		{"blank lines kept", "\"\"\"\n  a\n\n  b\n  \"\"\"", "str:a\n\nb NL EOF"},
+		{"shorter blank line", "\"\"\"\n    a\n  \n    \"\"\"", "str:a\n NL EOF"},
+		{"quotes inside", "\"\"\"\n  say \"hi\" \"\"\n  \"\"\"", "str:say \"hi\" \"\" NL EOF"},
+		{"escaped closing quotes", "\"\"\"\n  \\\"\"\"\n  \"\"\"", "str:\"\"\" NL EOF"},
+		{"line continuation", "\"\"\"\n  a \\\n  b\n  \"\"\"", "str:a b NL EOF"},
+		{"interpolation", "\"\"\"\n  a {x}\n  b\n  \"\"\"", "head:a  id:x tail:\nb NL EOF"},
+		{"crlf", "\"\"\"\r\n  a\r\n  b\r\n  \"\"\"", "str:a\nb NL EOF"},
+		{"raw", `r"\d+ {x}"`, `str:\d+ {x} NL EOF`},
+		{"raw empty", `r""`, "str: NL EOF"},
+		{"raw multi-line", "r\"\"\"\n  \\n {x}\n  \"\"\"", `str:\n {x} NL EOF`},
+		{"r as a name", "r + 1", "id:r + int:1 NL EOF"},
+	}
+	for _, c := range cases {
+		got, errs := lex(t, c.src)
+		if len(errs) > 0 {
+			t.Errorf("%s: unexpected errors: %v", c.name, errs)
+			continue
+		}
+		if g := strings.Join(got, " "); g != c.want {
+			t.Errorf("%s:\n got: %q\nwant: %q", c.name, g, c.want)
+		}
+	}
+}
+
+func TestMultilineStringErrors(t *testing.T) {
+	cases := []struct {
+		name, src, pos, msg string
+	}{
+		{"text after opening", "\"\"\"a\n  \"\"\"", "1:4", "a multi-line string starts on the line after its opening \"\"\""},
+		{"closing after text", "\"\"\"\n  a\"\"\"", "2:4", "the closing \"\"\" of a multi-line string goes on its own line"},
+		{"one line", `""""""`, "1:4", "the closing \"\"\" of a multi-line string goes on its own line"},
+		{"less indented", "\"\"\"\n a\n  \"\"\"", "2:1", "this line is indented less than the closing \"\"\" of its string"},
+		{"unterminated", "\"\"\"\n  a", "1:1", "unterminated multi-line string"},
+		{"unterminated raw", `r"abc`, "1:1", "unterminated string"},
+		{"only opening quotes", `"""`, "1:1", "unterminated multi-line string"},
+		{"opening quotes then text", `"""a`, "1:1", "unterminated multi-line string"},
+	}
+	for _, c := range cases {
+		_, errs := lex(t, c.src)
+		if len(errs) != 1 {
+			t.Errorf("%s: got %d errors, want 1: %v", c.name, len(errs), errs)
+			continue
+		}
+		if pos := fmt.Sprintf("%d:%d", errs[0].Pos.Line, errs[0].Pos.Col); pos != c.pos || errs[0].Message != c.msg {
+			t.Errorf("%s: got %s %q, want %s %q", c.name, pos, errs[0].Message, c.pos, c.msg)
+		}
+	}
+}
+
+func TestBrokenMultilineStringsAreReported(t *testing.T) {
+	for _, src := range []string{
+		"}\r\n\"\"\"r{\\\"\"\"\"r\"\"\"x}{rr\"\"\"r",
+		"\"\"\"\n  {\"\"\"\n  x\n  \"\"\"}\n  \"\"\"",
+		"\"\"\"\n  {\n  \"\"\"",
+	} {
+		if _, errs := lex(t, src); len(errs) == 0 {
+			t.Errorf("%q: no errors", src)
 		}
 	}
 }

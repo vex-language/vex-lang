@@ -20,6 +20,9 @@ type interpolation struct {
 
 	// The byte offset of the string's opening quote.
 	start int
+
+	// The multi-line string the interpolation is in, or nil.
+	multi *multiline
 }
 
 // Splits source text into tokens.
@@ -62,6 +65,13 @@ func (l *lexer) run() {
 			l.skipLineComment()
 		case c == '/' && l.peek(1) == '*':
 			l.blockComment()
+		case c == 'r' && l.peek(1) == '"':
+			l.pos++
+			if strings.HasPrefix(l.src[l.pos:], `"""`) {
+				l.multilineString(start, true)
+			} else {
+				l.rawString(start)
+			}
 		case isLetter(c):
 			l.identifier()
 		case c == '$' && isDigit(l.peek(1)):
@@ -73,6 +83,8 @@ func (l *lexer) run() {
 			l.emit(Ident, start, l.pos, "")
 		case isDigit(c):
 			l.number()
+		case strings.HasPrefix(l.src[l.pos:], `"""`):
+			l.multilineString(start, false)
 		case c == '"':
 			l.pos++
 			l.stringBody(start, start, true)
@@ -88,7 +100,11 @@ func (l *lexer) run() {
 			}
 			l.interp = l.interp[:len(l.interp)-1]
 			l.pos++
-			l.stringBody(start, top.start, false)
+			if top.multi != nil {
+				l.multilineBody(start, false, top.multi, false)
+			} else {
+				l.stringBody(start, top.start, false)
+			}
 		case c >= utf8.RuneSelf:
 			l.nonASCII()
 		default:
