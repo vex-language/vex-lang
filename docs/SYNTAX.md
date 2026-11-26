@@ -684,6 +684,24 @@ apply(fn(x) => x + 1, 5)       // parameter types come from fn(int) -> int
 - Each loop iteration has its own loop variable, so closures made in a loop each keep their own value.
 - Call function values with unnamed arguments: `f(1, 2)`.
 
+**Tear-offs.** A method named without a call is a function value, as in Dart. It keeps the value it was torn off, even if the variable changes later. Static methods, enum cases that carry values and constructors work the same way; a constructor is written `Type.new`.
+
+```swift
+let greetings = names.map(host.greet)    // fn(string) -> string, bound to host
+let users = names.map(User.new)          // fn(string) -> User
+let shapes = radii.map(Shape.circle)     // fn(float) -> Shape
+let origin = Point.origin                // fn() -> Point
+let shout = "hi".upper                   // fn() -> string
+let add = items.push                     // fn(int)
+
+let make: fn(int) -> Box<int> = Box.new  // generic types take their type arguments from the expected type
+```
+
+- Methods of structs, enums and interfaces, extension methods and built-in members such as `upper` and `push` can be torn off. Inside a struct or enum, a method named alone is torn off `self`, or the type when static: `names.map(greet)`.
+- `x?.method` is nil when `x` is nil, and otherwise a function bound to the value inside.
+- A tear-off has the method's parameters and result, and throws what the method throws. Default arguments don't carry over: the function takes every parameter.
+- A method must be torn off a value: `User.greet` is an error. Async and generic methods, and `map`, can't be torn off yet; call them in a closure.
+
 **Trailing blocks.** A `{ ... }` block after a call is passed as its last argument, which must have type `fn()` or be a list (see builder blocks below). A call with only a trailing block can leave out the `()`: `Column { ... }`.
 
 ```swift
