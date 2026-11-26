@@ -1,0 +1,67 @@
+// Multi-line and raw strings.
+const version = "0.2"
+
+const banner = """
+    ╔══╗ "vex" \\ ??=
+    ╚══╝ tab\there \u{1F600}
+    """
+
+const path = r"C:\new\table"
+
+fn help() -> string {
+    return """
+        Usage: vex <command>
+          run    build and run "quoted" and ""two""
+
+        Version {version}, {"nested {version}"}
+        """
+}
+
+fn kind(s: string) -> string => match s {
+    r"\n" => "raw backslash n"
+    """
+        two
+        lines
+        """ => "two lines"
+    _ => "other"
+}
+
+fn main() {
+    println(help())
+    println("[" + help() + "]")
+    println(banner)
+    println(path, path.len)
+    println(r"\d+\.\d+ {not}", r"")
+    println(kind(r"\n"), kind("two\nlines"), kind("\n"))
+
+    // Raw multi-line strings keep backslashes and braces.
+    let json = r"""
+        {"name": "{x}", "path": "C:\Users"}
+          indented
+        """
+    println(json)
+
+    // A backslash at the end of a line joins it to the next.
+    let joined = """
+        one \
+        two\tthree \"""
+        """
+    println(joined)
+
+    let empty = """
+        """
+    let blank = """
+
+        x
+
+        """
+    println("[{empty}] [{blank}]")
+
+    let items = ["a", "b"]
+    let report = """
+        Items:
+        First: {items.map(fn(i) => "- {i}")[0]}
+        Count: {items.len}
+        """
+    println(report)
+}
