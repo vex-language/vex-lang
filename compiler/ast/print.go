@@ -62,6 +62,8 @@ func Fprint(w io.Writer, n Node) {
 // Returns a written type in source form, such as `[int]`.
 func TypeString(t TypeExpr) string {
 	switch t := t.(type) {
+	case *KnownType:
+		return fmt.Sprint(t.Type)
 	case *NamedType:
 		if t.Module != "" {
 			return t.Module + "." + (&NamedType{Name: t.Name, Args: t.Args}).typeString()

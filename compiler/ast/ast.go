@@ -330,6 +330,23 @@ type Throws struct {
 	Type TypeExpr
 }
 
+// A type already resolved by the type checker, for code the checker
+// writes itself, such as the function a tear-off stands for.
+type KnownType struct {
+	Span
+	Type any
+}
+
+func (*KnownType) typeNode() {}
+
+// An expression the type checker has already checked, with its type, for
+// code the checker writes itself.
+type KnownExpr struct {
+	Span
+	X    Expr
+	Type any
+}
+
 func (*NamedType) typeNode() {}
 
 // An optional type: `User?`, which holds a User or nil.
@@ -779,6 +796,7 @@ func (*LiteralPattern) patternNode()    {}
 func (*ImplicitMember) exprNode()     {}
 func (*MatchExpr) exprNode()          {}
 func (*NilLit) exprNode()             {}
+func (*KnownExpr) exprNode()          {}
 func (*FuncLit) exprNode()            {}
 func (*Ident) exprNode()              {}
 func (*IntLit) exprNode()             {}
