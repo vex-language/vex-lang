@@ -1138,7 +1138,7 @@ fn main() {
 
 			// A collection on every allocation finds objects the collector
 			// would wrongly free.
-			out, errOut, code = execute(t, exe, c.stdin, "VEX_GC_STRESS=1")
+			out, errOut, code = execute(t, exe, c.stdin, "VEX_GC_STRESS=1", "VEX_GC_VERIFY=1")
 			if code != 0 || errOut != "" || out != c.want {
 				t.Errorf("under VEX_GC_STRESS: exit %d, stderr %q\n got: %q\nwant: %q", code, errOut, out, c.want)
 			}

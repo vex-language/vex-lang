@@ -1,0 +1,94 @@
+// Objects that survive a collection are old, and minor collections skip
+// them unless they were written since. Each part makes something old,
+// churns through garbage so collections run, writes new objects into it,
+// and reads them back after more collections.
+import "vex:isolate"
+
+struct Leaf {
+    label: string
+}
+
+struct Holder {
+    leaf: Leaf
+    others: [Leaf]
+    names: [string: Leaf]
+}
+
+fn churn(n: int) -> int {
+    var total = 0
+    for i in 0..n {
+        total += "garbage {i}".len + [i, i].len
+    }
+    return total
+}
+
+fn labels(leaves: [Leaf]) -> string {
+    var out = ""
+    for l in leaves {
+        out = out + l.label
+    }
+    return out
+}
+
+async fn main() {
+    let holder = Holder(leaf: Leaf(label: "first"), others: [], names: [:])
+    var list: [Leaf] = [Leaf(label: "a")]
+    var lookup: [string: Leaf] = ["a": Leaf(label: "a")]
+    churn(3000)
+
+    // Writes into old objects.
+    holder.leaf = Leaf(label: "field {churn(10)}")
+    list[0] = Leaf(label: "set")
+    list.push(Leaf(label: "pushed"))
+    list = [...list, ...[Leaf(label: "x"), Leaf(label: "y")]]
+    holder.others.push(Leaf(label: "other"))
+    holder.names["n"] = Leaf(label: "named")
+    lookup["a"] = Leaf(label: "replaced")
+    lookup["b"] = Leaf(label: "added")
+    churn(3000)
+    println(holder.leaf.label, labels(list), labels(holder.others), holder.names["n"]?.label ?? "-")
+    println(lookup["a"]?.label ?? "-", lookup["b"]?.label ?? "-")
+
+    // A captured variable, written from a closure after it is old.
+    var current = Leaf(label: "start")
+    let replace = fn(i: int) {
+        current = Leaf(label: "step {i}")
+    }
+    churn(3000)
+    for i in 0..5 {
+        replace(i)
+        churn(500)
+    }
+    println(current.label)
+
+    // A list filled while collections run between its elements.
+    let filled = [for i in 0..300 Leaf(label: "{churn(20) % 7}-{i}")]
+    churn(3000)
+    println(filled.len, filled[0].label, filled[299].label)
+    let mapped = filled.map(fn(l) => Leaf(label: l.label + "!"))
+    let kept = mapped.filter(fn(l) => l.label.len > 5)
+    churn(3000)
+    println(mapped[150].label, kept.len)
+
+    // A long chain built over many collections, then rewired.
+    var nodes: [Holder] = []
+    for i in 0..200 {
+        nodes.push(Holder(leaf: Leaf(label: "{i}"), others: [], names: [:]))
+        churn(50)
+    }
+    for i in 0..200 {
+        nodes[i].others.push(nodes[(i + 1) % 200].leaf)
+        nodes[i].names["self"] = Leaf(label: "s{i}")
+    }
+    churn(3000)
+    var sum = 0
+    for n in nodes {
+        sum += n.others[0].label.len + (n.names["self"]?.label ?? "").len
+    }
+    println(sum)
+
+    // Objects decoded from another isolate, with collections while they arrive.
+    let copied = await isolate.run(fn() -> [Holder] => [for i in 0..50 Holder(leaf: Leaf(label: "c{i}"), others: [Leaf(label: "o{i}")], names: ["k": Leaf(label: "v{i}")])])
+    churn(3000)
+    println(copied.len, copied[49].leaf.label, copied[49].others[0].label, copied[49].names["k"]?.label ?? "-")
+}

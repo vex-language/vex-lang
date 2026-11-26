@@ -52,9 +52,9 @@ func TestMapOperations(t *testing.T) {
 			if err := cc.Compile(codegen.Generate(info, "main.vx"), exe); err != nil {
 				t.Fatal(err)
 			}
-			for _, env := range []string{"", "VEX_GC_STRESS=3"} {
+			for _, env := range [][]string{nil, {"VEX_GC_STRESS=3", "VEX_GC_VERIFY=1"}} {
 				cmd := exec.Command(exe)
-				cmd.Env = append(os.Environ(), env)
+				cmd.Env = append(os.Environ(), env...)
 				var stderr bytes.Buffer
 				cmd.Stderr = &stderr
 				got, err := cmd.Output()

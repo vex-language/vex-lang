@@ -124,7 +124,7 @@ func TestExamples(t *testing.T) {
 			}
 
 			stress := exec.Command(exe)
-			stress.Env = append(os.Environ(), "VEX_GC_STRESS="+stressInterval(path))
+			stress.Env = append(os.Environ(), "VEX_GC_STRESS="+stressInterval(path), "VEX_GC_VERIFY=1")
 			if in, err := os.ReadFile(base + ".in"); err == nil {
 				stress.Stdin = bytes.NewReader(in)
 			}
