@@ -473,6 +473,19 @@ let users = names.map(User.new)
 let shapes = radii.map(Shape.circle)
 ```
 
+**Operators.** Structs define arithmetic, `==`, `<` and indexing; `!=`, `>`, `<=` and `>=` follow, and the struct works in `Comparable` code.
+
+```swift
+struct Vec {
+    x: float
+    y: float
+    operator +(other: Vec) -> Vec => Vec(x: x + other.x, y: y + other.y)
+    operator *(k: float) -> Vec => Vec(x: x * k, y: y * k)
+}
+
+let v = a + b * 2.0
+```
+
 **Multi-line and raw strings.** `"""` strings drop the indentation of their closing quotes, and `r"..."` keeps `\` and `{` as written.
 
 ```swift
@@ -535,7 +548,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, builder blocks, properties, standard library | In progress: 33 of 49 tasks; next are operator overloading and sealed interfaces |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 34 of 49 tasks; next are sealed interfaces and null-aware elements |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |
