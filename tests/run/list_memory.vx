@@ -72,4 +72,17 @@ async fn main() {
     })
     let total = await isolate.run(fn() -> int => sum(back))
     println(back.len, back[299], total)
+
+    // Fills nested in fills, a list that grows while it is read, and an
+    // element that suspends.
+    let grid = [for r in 0..4 [for c in 0..=r "{r}{c}"]]
+    println(grid, grid[3].len)
+    var source = [1, 2, 3]
+    let grow = fn(x: int) -> int {
+        source.push(x * 10)
+        return x
+    }
+    println([for x in source grow(x)], source)
+    let waited = [for i in 0..3 await isolate.run(fn() -> int => i * i)]
+    println(waited)
 }
