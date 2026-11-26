@@ -131,7 +131,7 @@ func (c *checker) instMethod(m *Func, args []Type, at ast.Node) *Func {
 	if !c.deepEnough(at, m.Name, args, abstract) {
 		return nil
 	}
-	f := &Func{Name: m.Name, Module: m.Module, Decl: m.Decl, Owner: m.Owner, Enum: m.Enum, Static: m.Static, TypeArgs: args}
+	f := &Func{Name: m.Name, Module: m.Module, Decl: m.Decl, Owner: m.Owner, Enum: m.Enum, Static: m.Static, TypeArgs: args, Ext: m.Ext}
 	if !abstract {
 		f.Decl = ast.Clone(m.Decl)
 		c.units[f.Decl] = c.units[m.Decl]

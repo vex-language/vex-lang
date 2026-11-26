@@ -491,7 +491,7 @@ func (c *checker) instStruct(g *genericStruct, args []Type, at ast.Node) *Struct
 	s := &Struct{Name: g.decl.Name.Name + "<" + typeList(args) + ">", Module: c.mod, Base: g.decl.Name.Name, Args: args, Decl: g.decl, generic: g, abstract: abstract}
 	if !abstract {
 		s.Decl = ast.Clone(g.decl)
-		c.register(s.Decl, c.units[g.decl])
+		c.registerClone(s.Decl, g.decl)
 		c.info.Structs = append(c.info.Structs, s)
 	}
 	g.insts[key] = s

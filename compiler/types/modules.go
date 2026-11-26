@@ -43,6 +43,7 @@ type tables struct {
 	handles    map[string]*Handle
 	consts     map[string]*Const
 	aliases    map[string]*typeAlias
+	recvs      map[string][]*recvFunc
 }
 
 func newTables() tables {
@@ -58,6 +59,7 @@ func newTables() tables {
 		genIfaces:  map[string]*genericIface{},
 		handles:    map[string]*Handle{},
 		aliases:    map[string]*typeAlias{},
+		recvs:      map[string][]*recvFunc{},
 	}
 }
 
@@ -67,6 +69,35 @@ type unit struct {
 	mod     *Module
 	file    *diag.File
 	imports map[string]*Module
+}
+
+// Records the units of [clone], a copy of the struct or enum [orig] made
+// for an instance: those of [orig], method by method, as members that
+// extensions add live in the extension's module.
+func (c *checker) registerClone(clone, orig ast.Decl) {
+	c.register(clone, c.units[orig])
+	var from, to []*ast.FuncDecl
+	switch o := orig.(type) {
+	case *ast.StructDecl:
+		from, to = o.Methods, clone.(*ast.StructDecl).Methods
+	case *ast.EnumDecl:
+		from, to = o.Methods, clone.(*ast.EnumDecl).Methods
+	}
+	for i, m := range from {
+		c.units[to[i]] = c.units[m]
+	}
+}
+
+// Returns the module of the extension that declares [md], or nil when a
+// struct or enum declares it.
+func (c *checker) extModule(md *ast.FuncDecl) *Module {
+	if md.Recv == nil {
+		return nil
+	}
+	if u := c.units[md]; u != nil {
+		return u.mod
+	}
+	return nil
 }
 
 // Records that [d], and the methods inside it, live in [u].
@@ -82,6 +113,10 @@ func (c *checker) register(d ast.Decl, u *unit) {
 			c.units[m] = u
 		}
 	case *ast.InterfaceDecl:
+		for _, m := range d.Methods {
+			c.units[m] = u
+		}
+	case *ast.ExtensionDecl:
 		for _, m := range d.Methods {
 			c.units[m] = u
 		}
@@ -277,8 +312,15 @@ func (c *checker) fieldPrivate(at ast.Node, f *Field) bool {
 // Reports, and returns true, when method [m] is private to another
 // module. Methods an interface requires are public with the interface.
 func (c *checker) methodPrivate(at ast.Node, m *Func) bool {
+	if c.extensionHidden(at, m) {
+		return true
+	}
 	if m.Decl == nil || m.Decl.Pub || m.Iface != nil {
 		return false
+	}
+	if m.Ext != nil {
+		kind := map[ast.Accessor]string{ast.Method: "method", ast.Getter: "getter", ast.Setter: "setter"}[m.Decl.Accessor]
+		return c.private(at, m.Ext, false, fmt.Sprintf("%s '%s' of the extension", kind, m.Name))
 	}
 	var mod *Module
 	owner := ""

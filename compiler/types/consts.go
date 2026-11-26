@@ -472,8 +472,39 @@ func (c *checker) declareStaticConsts() {
 					return e.Case(name) != nil || e.Method(name) != nil || e.Property(name) != nil
 				})
 			}
+		case *ast.ExtensionDecl:
+			c.extensionConsts(d)
 		}
 		back()
+	}
+}
+
+// Declares the constants that extension [d] adds to a struct or enum.
+func (c *checker) extensionConsts(d *ast.ExtensionDecl) {
+	target := c.extTargets[d]
+	if target == nil || len(d.Consts) == 0 {
+		return
+	}
+	tables := c.units[target].mod.tables
+	switch t := target.(type) {
+	case *ast.StructDecl:
+		s := tables.structs[t.Name.Name]
+		if len(t.TypeParams) > 0 || s == nil {
+			c.errorAt(d.Consts[0].Name, "move it to the top level", "a generic struct can't have constants")
+			return
+		}
+		s.Consts = append(s.Consts, c.staticConsts(d.Consts, s, nil, func(name string) bool {
+			return s.Field(name) != nil || s.Method(name) != nil || s.Property(name) != nil || constNamed(s.Consts, name) != nil
+		})...)
+	case *ast.EnumDecl:
+		e := tables.enums[t.Name.Name]
+		if len(t.TypeParams) > 0 || e == nil {
+			c.errorAt(d.Consts[0].Name, "move it to the top level", "a generic enum can't have constants")
+			return
+		}
+		e.Consts = append(e.Consts, c.staticConsts(d.Consts, nil, e, func(name string) bool {
+			return e.Case(name) != nil || e.Method(name) != nil || e.Property(name) != nil || constNamed(e.Consts, name) != nil
+		})...)
 	}
 }
 

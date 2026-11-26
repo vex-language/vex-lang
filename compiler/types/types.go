@@ -441,6 +441,13 @@ type Func struct {
 	// Set for `async fn`.
 	Async bool
 
+	// The module of the extension that declares this member, or nil.
+	Ext *Module
+
+	// The built-in type an extension adds this member to, such as
+	// `string`; it is passed as `self`.
+	Recv Type
+
 	// For extern and export functions, the C types of the parameters and
 	// the result where they differ from the usual ones: a sized number
 	// such as `int32_t` for an `int32` in the signature, or "".
@@ -665,6 +672,12 @@ type Call struct {
 
 	// The arguments in parameter (or field) order, with defaults filled in.
 	Args []ast.Expr
+}
+
+// A name that means a member of `self` inside an extension of a built-in
+// type, such as `len` for `self.len`; [Expr] is that member access.
+type SelfMember struct {
+	Expr *ast.MemberExpr
 }
 
 // The checked meaning of a member access that isn't a call.

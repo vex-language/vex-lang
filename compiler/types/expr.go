@@ -144,6 +144,11 @@ func (c *checker) ident(id *ast.Ident) Type {
 		c.use(v)
 		return v.Type
 	}
+	if id.Name != "self" && c.selfMember(id.Name) {
+		m := selfAccess(id)
+		c.info.Uses[id] = &SelfMember{Expr: m}
+		return c.expr(m, nil)
+	}
 	if id.Name == "self" {
 		if c.self == nil {
 			c.errorAt(id, "", "'self' can only be used inside a method")
@@ -160,11 +165,17 @@ func (c *checker) ident(id *ast.Ident) Type {
 					"static method %s can't use field '%s'", c.fn.Name, id.Name)
 				return Invalid
 			}
+			if c.fieldPrivate(id, f) {
+				return Invalid
+			}
 			c.info.Uses[id] = f
 			c.use(c.self)
 			return f.Type
 		}
 		if p := owner.Property(id.Name); p != nil {
+			if p.Get != nil && c.methodPrivate(id, p.Get) {
+				return Invalid
+			}
 			if c.self == nil {
 				c.errorAt(id, "static methods have no instance; pass the value in as a parameter",
 					"static method %s can't use property '%s'", c.fn.Name, id.Name)
@@ -770,8 +781,18 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		}
 		return Invalid
 	}
+	if t := c.recvGetter(e, x); t != nil {
+		return t
+	}
 	if sig := builtinMember(x, name); sig != nil {
 		c.errorAt(e.Name, fmt.Sprintf("call it: %s()", name), "'%s' must be called", name)
+		return Invalid
+	}
+	if r, _ := c.findRecv(x, name, ast.Method, e.Name); r != nil {
+		c.errorAt(e.Name, fmt.Sprintf("call it: %s()", name), "method '%s' must be called", name)
+		return Invalid
+	}
+	if c.recvUnavailable(e.Name, x, name) {
 		return Invalid
 	}
 	c.errorAt(e.Name, didYouMean(name, builtinMemberNames(x)), "%s has no member '%s'", x, name)
