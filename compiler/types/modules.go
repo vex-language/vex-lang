@@ -319,7 +319,7 @@ func (c *checker) methodPrivate(at ast.Node, m *Func) bool {
 		return false
 	}
 	if m.Ext != nil {
-		kind := map[ast.Accessor]string{ast.Method: "method", ast.Getter: "getter", ast.Setter: "setter"}[m.Decl.Accessor]
+		kind := map[ast.Accessor]string{ast.Method: "method", ast.Getter: "getter", ast.Setter: "setter", ast.Operator: "operator"}[m.Decl.Accessor]
 		return c.private(at, m.Ext, false, fmt.Sprintf("%s '%s' of the extension", kind, m.Name))
 	}
 	var mod *Module
@@ -338,7 +338,7 @@ func (c *checker) methodPrivate(at ast.Node, m *Func) bool {
 	default:
 		return false
 	}
-	kind := map[ast.Accessor]string{ast.Method: "method", ast.Getter: "getter", ast.Setter: "setter"}[m.Decl.Accessor]
+	kind := map[ast.Accessor]string{ast.Method: "method", ast.Getter: "getter", ast.Setter: "setter", ast.Operator: "operator"}[m.Decl.Accessor]
 	return c.private(at, mod, false, fmt.Sprintf("%s '%s' of %s", kind, m.Name, owner))
 }
 

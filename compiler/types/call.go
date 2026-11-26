@@ -412,7 +412,11 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 	if name == "contains" {
 		if l, ok := recv.(*List); ok && !comparable(l.Elem) && l.Elem != Invalid {
 			c.checkArgs(e)
-			c.errorAt(m.Name, "", "contains can't be used on a list of %s", l.Elem)
+			hint := ""
+			if s, ok := l.Elem.(*Struct); ok {
+				hint = fmt.Sprintf("define it in %s: operator ==(other: %s) -> bool", s.Name, s.Name)
+			}
+			c.errorAt(m.Name, hint, "contains can't be used on a list of %s", l.Elem)
 			return Invalid
 		}
 	}

@@ -472,7 +472,7 @@ func TestErrors(t *testing.T) {
 		{"unordered type parameter", "fn big<T>(a: T, b: T) -> bool => a > b", "", "1:34", "values of type T can't be ordered with >", "require it: <T: Comparable>"},
 		{"type parameter equality", "fn eq<T>(a: T, b: T) -> bool => a == b", "", "1:33", "values of type T can't be compared with ==", "require it: <T: Equatable>"},
 		{"type parameter arithmetic", "fn add<T>(a: T) -> T => a + 1", "", "1:25", "can't use '+' with T and int", ""},
-		{"unmet constraint", "fn max<T: Comparable>(a: T, b: T) -> T => a", "println(max([1], [2]))", "3:9", "max needs T to be Comparable, but [int] isn't", "Comparable types are int, float, string and type parameters that require Comparable"},
+		{"unmet constraint", "fn max<T: Comparable>(a: T, b: T) -> T => a", "println(max([1], [2]))", "3:9", "max needs T to be Comparable, but [int] isn't", "Comparable types are int, float, string, enums whose cases carry no values and structs that define operator < and operator =="},
 		{"unmet constraint in type", "struct Set<T: Hashable> {\n    items: [T: bool]\n}", "let s: Set<float>? = nil", "5:12", "Set needs T to be Hashable, but float isn't", "Hashable types are int, string, bool and enums whose cases carry no values"},
 		{"type argument not inferred", "fn empty<T>() -> [T] => []", "let e = empty()", "3:9", "can't tell the type of T in this call to empty", "write it: empty<int>(...)"},
 		{"wrong type argument count", "fn id<T>(x: T) -> T => x", "println(id<int, int>(1))", "3:12", "id takes 1 type argument, found 2", ""},
