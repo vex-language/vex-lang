@@ -4,6 +4,7 @@ package codegen
 import (
 	_ "embed"
 	"fmt"
+	"math"
 	"sort"
 	"strconv"
 	"strings"
@@ -29,6 +30,10 @@ type gen struct {
 	// the method's `self`, if any.
 	vals  map[*types.Var]string
 	boxes map[*types.Var]string
+
+	// What is known about its ints and list lengths, to leave out checks
+	// that can't fail.
+	rng *ranges
 
 	// Set while generating the values of constants, whose lists and maps
 	// are frozen.
@@ -598,6 +603,11 @@ func (g *gen) function(f *types.Func) {
 	g.file = g.info.FileOf[f.Decl]
 	g.enter(g.b)
 	g.result, g.throws, g.tries = f.Result, f.Throws, nil
+	if f.Decl.ExprBody != nil {
+		g.rng = newRanges(g.info, f.Decl.ExprBody)
+	} else {
+		g.rng = newRanges(g.info, f.Decl.Body)
+	}
 	if self := g.info.Selves[f.Decl]; self != nil {
 		g.self = self
 		g.vals[self] = "self"
@@ -838,6 +848,72 @@ func cond(c string) string {
 }
 
 func (g *gen) stmt(s ast.Stmt) {
+	r := g.rng
+	if r == nil || g.constMode {
+		g.emitStmt(s)
+		return
+	}
+	switch s := s.(type) {
+	case *ast.LetStmt:
+		r.forget(s)
+		g.emitStmt(s)
+		r.forget(s)
+		if s.Pattern == nil {
+			r.declare(g.info.Defs[s.Name], s.Value)
+		}
+	case *ast.AssignStmt:
+		// The new value's range is worked out before the assignment drops
+		// what was known about the target.
+		v := r.local(s.Target)
+		next, known := anyInt, false
+		nested := len(r.assigned(s.Value)) > 0
+		if nested {
+			r.forget(s)
+		}
+		if v != nil && !nested && g.info.Types[s.Target] == types.Int && g.info.Operators[s] == nil {
+			if s.Op == lexer.Assign {
+				next, known = r.of(s.Value), true
+			} else if k, ok := compoundOps[s.Op]; ok {
+				next, known = combine(k, r.of(s.Target), r.of(s.Value))
+			}
+		}
+		g.emitStmt(s)
+		r.forget(s)
+		if known {
+			r.vals[v] = next
+		}
+	case *ast.WhileStmt:
+		if s.Bind != nil {
+			r.forget(s)
+			g.emitStmt(s)
+			r.forget(s)
+			break
+		}
+		saved := r.save()
+		r.enterLoop(s)
+		head := "while (" + cond(g.expr(s.Cond)) + ")"
+		r.assume(s.Cond)
+		g.block(head, s.Body)
+		r.vals = saved
+		r.forget(s)
+	case *ast.ForStmt:
+		saved := r.save()
+		if _, ok := s.Iter.(*ast.RangeExpr); !ok {
+			// A range loop does this itself once its ends are read.
+			r.enterLoop(s)
+		}
+		g.forStmt(s)
+		r.vals = saved
+		r.forget(s)
+	default:
+		r.forget(s)
+		g.emitStmt(s)
+		r.forget(s)
+	}
+}
+
+// Generates the statement [s].
+func (g *gen) emitStmt(s ast.Stmt) {
 	switch s := s.(type) {
 	case *ast.Block:
 		g.block("", s)
@@ -938,6 +1014,25 @@ func (g *gen) ifStmt(s *ast.IfStmt) {
 	}
 }
 
+// Records, before the body of the loop [s] over the range [r], what is known
+// about the loop variable. The range's ends were read before the loop.
+func (g *gen) loopRange(s *ast.ForStmt, r *ast.RangeExpr) {
+	if g.rng == nil {
+		return
+	}
+	lo, hi := g.rng.of(r.Lo), g.rng.of(r.Hi)
+	g.rng.enterLoop(s)
+	if !r.Inclusive {
+		if hi.hi == math.MinInt64 {
+			return
+		}
+		hi.hi--
+	}
+	if lo.lo <= hi.hi {
+		g.rng.vals[g.info.Defs[s.Elem]] = interval{lo.lo, hi.hi}
+	}
+}
+
 func (g *gen) forStmt(s *ast.ForStmt) {
 	if r, ok := s.Iter.(*ast.RangeExpr); ok {
 		v := g.declare(g.info.Defs[s.Elem])
@@ -950,10 +1045,14 @@ func (g *gen) forStmt(s *ast.ForStmt) {
 			// Testing for the end after each pass, not with <=, lets a range
 			// end at the largest int.
 			done := g.temp()
-			g.block(fmt.Sprintf("for (int64_t %s = %s, %s = %s, %s = %s > %s; !%s; %s = %s == %s, %s++)", v, g.expr(r.Lo), hi, g.expr(r.Hi), done, v, hi, done, done, v, hi, v), s.Body)
+			head := fmt.Sprintf("for (int64_t %s = %s, %s = %s, %s = %s > %s; !%s; %s = %s == %s, %s++)", v, g.expr(r.Lo), hi, g.expr(r.Hi), done, v, hi, done, done, v, hi, v)
+			g.loopRange(s, r)
+			g.block(head, s.Body)
 			return
 		}
-		g.block(fmt.Sprintf("for (int64_t %s = %s, %s = %s; %s %s %s; %s++)", v, g.expr(r.Lo), hi, g.expr(r.Hi), v, cmp, hi, v), s.Body)
+		head := fmt.Sprintf("for (int64_t %s = %s, %s = %s; %s %s %s; %s++)", v, g.expr(r.Lo), hi, g.expr(r.Hi), v, cmp, hi, v)
+		g.loopRange(s, r)
+		g.block(head, s.Body)
 		return
 	}
 	// Items added during the loop aren't visited, so pushing inside the
@@ -1027,6 +1126,12 @@ func (g *gen) assign(s *ast.AssignStmt) {
 			fmt.Sprintf("vx_list *%s = %s;", list, g.expr(x.X)),
 			fmt.Sprintf("int64_t %s = %s;", idx, g.expr(x.Index)))
 		barrier = list + "->data"
+		if g.rng != nil && !g.constMode && g.rng.inBounds(x.X, x.Index) {
+			// A list that keeps its length was made by a literal here, so
+			// it isn't a constant's.
+			target = fmt.Sprintf("(((%s *)%s->data)[%s])", ctype(t), list, idx)
+			break
+		}
 		target = fmt.Sprintf("(*VX_AT(%s, vx_list_mut(%s, %d), %s, %d))", ctype(t), list, g.lineOf(x), idx, g.lineOf(x))
 	case *ast.MemberExpr:
 		obj := g.temp()
@@ -1174,10 +1279,15 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 		}
 	}
 
-	outer, ind, vals, boxes, used, tmp, self := g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self
+	outer, ind, vals, boxes, used, tmp, self, rng := g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self, g.rng
 	result, throws, tries := g.result, g.throws, g.tries
 	var body strings.Builder
 	g.enter(&body)
+	if e.ExprBody != nil {
+		g.rng = newRanges(g.info, e.ExprBody)
+	} else {
+		g.rng = newRanges(g.info, e.Body)
+	}
 	g.result, g.throws, g.tries = ft.Result, ft.Throws, nil
 	params := []string{"void *env_"}
 	for i, p := range e.Params {
@@ -1220,7 +1330,7 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 	}
 	g.ind--
 	g.line("}")
-	g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self = outer, ind, vals, boxes, used, tmp, self
+	g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self, g.rng = outer, ind, vals, boxes, used, tmp, self, rng
 	g.result, g.throws, g.tries = result, throws, tries
 
 	if len(caps) > 0 {
@@ -1503,6 +1613,11 @@ func (g *gen) value(e ast.Expr) string {
 				return g.operator(e.Op, f, operand, cs[0], cs[1])
 			})
 		}
+		if operand == types.Int && g.rng != nil && g.rng.safe(e.Op, e.X, e.Y) {
+			return g.ordered([]ast.Expr{e.X, e.Y}, func(cs []string) string {
+				return fmt.Sprintf("(%s %s %s)", cs[0], op(e.Op), cs[1])
+			})
+		}
 		return g.ordered([]ast.Expr{e.X, e.Y}, func(cs []string) string {
 			return binop(e.Op, operand, cs[0], cs[1], g.lineOf(e))
 		})
@@ -1519,6 +1634,11 @@ func (g *gen) value(e ast.Expr) string {
 		if f := g.info.Operators[e]; f != nil {
 			return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
 				return g.memberCall(f, g.info.Types[e.X], cs[0], cs[1])
+			})
+		}
+		if g.rng != nil && g.rng.inBounds(e.X, e.Index) {
+			return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
+				return fmt.Sprintf("(((%s *)%s->data)[%s])", ctype(t), cs[0], cs[1])
 			})
 		}
 		return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
@@ -1600,6 +1720,9 @@ func (g *gen) valueType(s *ast.AssignStmt) types.Type {
 func (g *gen) compound(s *ast.AssignStmt, k lexer.Kind, t types.Type, old, v string) string {
 	if f := g.info.Operators[s]; f != nil {
 		return g.memberCall(f, t, old, v)
+	}
+	if t == types.Int && g.rng != nil && g.rng.safe(k, s.Target, s.Value) {
+		return fmt.Sprintf("(%s %s %s)", old, op(k), v)
 	}
 	return binop(k, t, old, v, g.lineOf(s))
 }
