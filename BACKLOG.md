@@ -132,6 +132,7 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-116** Unicode-aware strings: `upper`/`lower` beyond A–Z, and counting visible characters (grapheme clusters) (M)
 - [ ] **V-111** GC stage 2: precise roots and object layouts (L)
 - [ ] **V-112** GC stage 3: generational collection (done), returning memory to the OS (XL)
+- [x] **V-149** Leave out the overflow and bounds checks the compiler proves can't fail, and the capacity check of presized list fills (M)
 
 ---
 
@@ -269,3 +270,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-26 | Tear-offs follow Dart: a method named without a call is a function bound to its receiver, `x?.m` is nil for a nil `x`, and constructors are torn off as `Type.new`. Built-in members tear off too; async and generic methods wait until function values can be async and generic |
 | 2026-11-26 | Operators follow Dart: `operator +(other: T) -> T` inside a struct, with `self` as the left operand. Structs define `+ - * / %`, unary `-`, `==`, `<`, `[]` and `[]=`; `!=` comes from `==` and the other orderings from `<`, and `==` and `<` make a struct Equatable and Comparable. Enums, interfaces and built-in types don't define operators yet |
 | 2026-11-26 | GC: generational with sticky mark bits, since a conservative collector can't move objects: survivors stay marked, minor collections trace only from roots and a remembered set filled by write barriers after each pointer store, and `VEX_GC_VERIFY` checks for missed barriers under stress (part of V-112) |
+| 2026-11-26 | Ints stay overflow-checked and indexes bounds-checked, as in Swift; wrapping is opt-in with `&+`. The compiler leaves out only the checks it proves can't fail, from constants, `for` ranges, loop conditions, values that only grow or shrink, and lists that keep their length (V-149) |
