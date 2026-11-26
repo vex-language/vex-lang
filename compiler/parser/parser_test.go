@@ -495,6 +495,44 @@ extension shapes.Point {
 	}
 }
 
+func TestOperators(t *testing.T) {
+	src := `struct Vec {
+    operator: int
+    pub operator +(other: Vec) -> Vec => other
+    operator -() -> Vec => self
+    operator ==(other: Vec) -> bool { return true }
+    operator [](i: int) -> int => i
+    operator []=(i: int, v: int) {}
+}
+`
+	f, errs := parse(t, src)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	s := f.Decls[0].(*ast.StructDecl)
+	if len(s.Fields) != 1 || s.Fields[0].Name.Name != "operator" {
+		t.Errorf("got fields %v, want one named operator", s.Fields)
+	}
+	want := []string{
+		"(pub operator + param other: Vec -> Vec (=> other))",
+		"(operator unary - -> Vec (=> self))",
+		"(operator == param other: Vec -> bool (block (return true)))",
+		"(operator [] param i: int -> int (=> i))",
+		"(operator []= param i: int param v: int block)",
+	}
+	if len(s.Methods) != len(want) {
+		t.Fatalf("got %d operators, want %d", len(s.Methods), len(want))
+	}
+	for i, m := range s.Methods {
+		if m.Accessor != ast.Operator {
+			t.Errorf("%s: accessor %v, want Operator", m.Name.Name, m.Accessor)
+		}
+		if got := ast.Sexpr(m); got != want[i] {
+			t.Errorf("operator %d\n got: %s\nwant: %s", i, got, want[i])
+		}
+	}
+}
+
 func TestErrorHandling(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{"let t = try load(p)", "(let t (try (call load p)))"},
@@ -770,6 +808,16 @@ func TestErrors(t *testing.T) {
 		{"field in extension", "extension string {\n    count: int\n}", "2:5", "extensions can't add fields", "compute it instead: get count -> T { ... }"},
 		{"public field in extension", "extension string {\n    pub count: int\n}", "2:9", "extensions can't add fields", "compute it instead: get count -> T { ... }"},
 		{"unclosed extension", "extension string {\n    fn f() {}\n", "1:18", "unclosed extension body", "add a matching }"},
+		{"static operator", "struct A {\n    static operator +(o: A) -> A => o\n}", "2:12", "operators can't be static", "remove static: self is the left operand"},
+		{"not-equal operator", "struct A {\n    operator !=(o: A) -> bool => true\n}", "2:14", "'!=' can't be defined", "define == instead: != is its opposite"},
+		{"greater operator", "struct A {\n    operator >=(o: A) -> bool => true\n}", "2:14", "'>=' can't be defined", "define < instead: >= follows from it"},
+		{"unknown operator", "struct A {\n    operator &&(o: A) -> A => o\n}", "2:14", "expected an operator after 'operator', found '&&'", "operators are + - * / % == < [] and []="},
+		{"binary operator arity", "struct A {\n    operator *() -> A => self\n}", "2:15", "operator '*' takes 1 parameter, found 0", "write operator *(other: T) -> T"},
+		{"index set arity", "struct A {\n    operator []=(i: int) {}\n}", "2:17", "operator '[]=' takes 2 parameters, found 1", "write operator []=(index: int, value: T)"},
+		{"generic operator", "struct A {\n    operator +<T>(o: T) -> A => self\n}", "2:15", "operators can't take type parameters", ""},
+		{"throwing operator", "struct A {\n    operator +(o: A) throws -> A => o\n}", "2:22", "operators can't throw", "make it a method that throws instead"},
+		{"enum operator", "enum E {\n    a\n    operator +(o: E) -> E => a\n}", "3:5", "enums can't define operators yet", "use a method, or a struct that holds the enum"},
+		{"interface operator", "interface I {\n    operator ==(o: I) -> bool\n}", "2:5", "interfaces can't declare operators", "require a method instead, and define the operator in each struct"},
 		{"typedef in function", "fn main() {\n typedef T = int\n}", "2:2", "typedefs can't be declared inside functions", "declare it at the top level of the file"},
 		{"typedef without =", "typedef T int", "1:11", "expected '=' after the type's name, found 'int'", "write typedef T = the type it names, e.g. typedef T = [string: int]"},
 		{"typedef without name", "typedef = int", "1:9", "expected a name for the type, found '='", ""},

@@ -563,6 +563,9 @@ func (p *parser) interfaceDecl() *ast.InterfaceDecl {
 					d.Methods = append(d.Methods, p.accessor())
 					return
 				}
+				if isOperatorDecl(t, p.peek(1)) {
+					p.fail(t, "require a method instead, and define the operator in each struct", "interfaces can't declare operators")
+				}
 				p.fail(t, "require a getter instead, e.g. get name -> string", "interfaces can't have fields")
 			default:
 				p.fail(t, "", "expected a method, found %s", describe(t))
@@ -656,6 +659,9 @@ func (p *parser) enumMember(e *ast.EnumDecl) {
 	case lexer.Ident:
 		if t.Text == "set" && p.peek(1).Kind == lexer.Ident {
 			p.fail(t, "use a method that returns a new value", "enums can't have setters, since their values never change")
+		}
+		if isOperatorDecl(t, p.peek(1)) {
+			p.fail(t, "use a method, or a struct that holds the enum", "enums can't define operators yet")
 		}
 		if t.Text == "get" && p.peek(1).Kind == lexer.Ident {
 			m := p.accessor()
@@ -915,6 +921,9 @@ func (p *parser) member(s *ast.StructDecl) {
 			s.Consts = append(s.Consts, k)
 			return
 		}
+		if p.tok().Kind == lexer.Ident && p.tok().Text == "operator" {
+			p.fail(p.tok(), "remove static: self is the left operand", "operators can't be static")
+		}
 		if !p.at(lexer.Fn) && !p.at(lexer.Async) {
 			p.fail(p.tok(), "", "expected 'fn' or 'const' after 'static', found %s", describe(p.tok()))
 		}
@@ -931,6 +940,12 @@ func (p *parser) member(s *ast.StructDecl) {
 	case lexer.Ident:
 		if (t.Text == "get" || t.Text == "set") && p.peek(1).Kind == lexer.Ident {
 			m := p.accessor()
+			m.Pub = pub
+			s.Methods = append(s.Methods, m)
+			return
+		}
+		if t.Text == "operator" && p.peek(1).Kind != lexer.Colon {
+			m := p.operatorDecl()
 			m.Pub = pub
 			s.Methods = append(s.Methods, m)
 			return
@@ -1002,6 +1017,88 @@ func (p *parser) accessor() *ast.FuncDecl {
 	case p.inInterface && (p.at(lexer.Semi) || p.at(lexer.RBrace)):
 	default:
 		p.fail(p.tok(), "", "expected '{' or '=>' to start the body of %s, found %s", name, describe(p.tok()))
+	}
+	fn.Span = p.span(start)
+	return fn
+}
+
+// Reports whether [t], followed by [next], starts an operator declaration
+// rather than a field named `operator`.
+func isOperatorDecl(t, next lexer.Token) bool {
+	if t.Kind != lexer.Ident || t.Text != "operator" {
+		return false
+	}
+	switch next.Kind {
+	case lexer.Plus, lexer.Minus, lexer.Star, lexer.Slash, lexer.Percent, lexer.Eq, lexer.Lt, lexer.LBracket,
+		lexer.NotEq, lexer.Gt, lexer.LtEq, lexer.GtEq:
+		return true
+	}
+	return false
+}
+
+// Parses `operator +(other: T) -> T { ... }` and the other operators a
+// struct can define.
+func (p *parser) operatorDecl() *ast.FuncDecl {
+	start := p.next().Pos
+	t := p.next()
+	name := strings.Trim(t.Kind.String(), "'")
+	switch t.Kind {
+	case lexer.Plus, lexer.Minus, lexer.Star, lexer.Slash, lexer.Percent, lexer.Eq, lexer.Lt:
+	case lexer.LBracket:
+		p.expect(lexer.RBracket)
+		name = "[]"
+		if p.at(lexer.Assign) {
+			p.next()
+			name = "[]="
+		}
+	case lexer.NotEq:
+		p.fail(t, "define == instead: != is its opposite", "'!=' can't be defined")
+	case lexer.Gt, lexer.LtEq, lexer.GtEq:
+		p.fail(t, fmt.Sprintf("define < instead: %s follows from it", name), "'%s' can't be defined", name)
+	default:
+		p.fail(t, "operators are + - * / % == < [] and []=", "expected an operator after 'operator', found %s", describe(t))
+	}
+	fn := &ast.FuncDecl{Name: &ast.Ident{Span: ast.Span{Start: t.Pos, End: p.lastEnd}, Name: name}, Accessor: ast.Operator}
+	if p.at(lexer.Lt) {
+		p.fail(p.tok(), "", "operators can't take type parameters")
+	}
+	open := p.expect(lexer.LParen)
+	p.list(open, lexer.RParen, func() { fn.Params = append(fn.Params, p.param()) })
+	want, example := 1, "operator "+name+"(other: T) -> T"
+	switch {
+	case name == "-" && len(fn.Params) == 0:
+		fn.Name.Name, want = "unary -", 0
+	case name == "-":
+		example = "operator -(other: T) -> T, or operator -() -> T for -x"
+	case name == "==" || name == "<":
+		example = "operator " + name + "(other: T) -> bool"
+	case name == "[]":
+		example = "operator [](index: int) -> T"
+	case name == "[]=":
+		want, example = 2, "operator []=(index: int, value: T)"
+	}
+	if len(fn.Params) != want {
+		params := "1 parameter"
+		if want != 1 {
+			params = fmt.Sprintf("%d parameters", want)
+		}
+		p.fail(open, "write "+example, "operator '%s' takes %s, found %d", name, params, len(fn.Params))
+	}
+	if p.at(lexer.Throws) {
+		p.fail(p.tok(), "make it a method that throws instead", "operators can't throw")
+	}
+	if p.at(lexer.Arrow) {
+		p.next()
+		fn.Result = p.typeExpr()
+	}
+	switch {
+	case p.at(lexer.FatArrow):
+		p.next()
+		fn.ExprBody = p.expr()
+	case p.at(lexer.LBrace):
+		fn.Body = p.block()
+	default:
+		p.fail(p.tok(), "", "expected '{' or '=>' to start the body of operator %s, found %s", name, describe(p.tok()))
 	}
 	fn.Span = p.span(start)
 	return fn
