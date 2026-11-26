@@ -1292,6 +1292,20 @@ func TestRuntimeErrors(t *testing.T) {
 		{"substring backwards", `println("héllo".substring(3, 1))`, "substring(3, 1) is out of range for a string of length 5\n --> main.vx:2"},
 		{"substring negative", `println("abc".substring(-1, 1))`, "substring(-1, 1) is out of range for a string of length 3\n --> main.vx:2"},
 		{"any of nothing", "let fs: [Future<int>] = []\nrun(any(fs))", "any() needs at least one future\n --> main.vx:3"},
+
+		// Checks the range analysis must keep.
+		{"loop step past the end", "var m = 5\nwhile m < 10 {\n    m += 9223372036854775805\n}", "integer overflow: 5 + 9223372036854775805 doesn't fit in an int; use &+ to wrap around\n --> main.vx:4"},
+		{"pushed list", "var xs = [1, 2, 3]\nxs.push(4)\nprintln(xs[4])", "index 4 is out of range for a list of length 4\n --> main.vx:4"},
+		{"index after shrinking loop", "var i = 2\nwhile i >= 0 {\n    i -= 1\n}\nlet xs = [1, 2, 3]\nprintln(xs[i])", "index -1 is out of range for a list of length 3\n --> main.vx:7"},
+		{"index below range", "let xs = [1, 2, 3]\nfor i in 0..3 {\n    var j = i\n    j -= 1\n    println(xs[j])\n}", "index -1 is out of range for a list of length 3\n --> main.vx:6"},
+		{"index set in a later pass", "let xs = [1, 2, 3]\nvar k = 0\nvar s = 0\nfor i in 0..5 {\n    s += xs[k]\n    k = i * 2\n}", "index 4 is out of range for a list of length 3\n --> main.vx:6"},
+		{"index growing with another bound", "let xs = [1, 2]\nvar a = 0\nvar b = 0\nvar s = 0\nwhile a < 2 {\n    s += xs[b]\n    a += 1\n    b += 5\n}", "index 5 is out of range for a list of length 2\n --> main.vx:7"},
+		{"index set in a branch", "let xs = [1, 2]\nvar i = 0\nif xs.len > 5 {\n    i = 1\n} else {\n    i = 7\n}\nprintln(xs[i])", "index 7 is out of range for a list of length 2\n --> main.vx:9"},
+		{"range end changed later", "var n = 2\nlet xs = [for i in 0..n i]\nn = 10\nvar s = 0\nfor i in 0..n {\n    s += xs[i]\n}", "index 2 is out of range for a list of length 2\n --> main.vx:7"},
+		{"inclusive range", "let xs = [1, 2, 3]\nvar s = 0\nfor i in 0..=3 {\n    s += xs[i]\n}", "index 3 is out of range for a list of length 3\n --> main.vx:5"},
+		{"index changed by a closure", "var i = 0\nlet f = fn() { i = 9 }\nf()\nlet xs = [1, 2]\nprintln(xs[i])", "index 9 is out of range for a list of length 2\n --> main.vx:6"},
+		{"index changed in a loop body", "let xs = [1, 2, 3]\nvar i = 0\nvar s = 0\nwhile i < 3 {\n    i += 1\n    s += xs[i]\n}", "index 3 is out of range for a list of length 3\n --> main.vx:7"},
+		{"list of a list loop", "let xs = [1, 2]\nvar j = 0\nvar s = 0\nfor x in [5, 6, 7] {\n    s += xs[j] + x\n    j += 1\n}", "index 2 is out of range for a list of length 2\n --> main.vx:6"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -1364,5 +1378,40 @@ func TestFrozenConstants(t *testing.T) {
 				t.Errorf("stderr\n got: %q\nwant: %q", errOut, want)
 			}
 		})
+	}
+}
+
+// A loop whose bounds are known has its overflow and bounds checks left
+// out, and a loop whose aren't keeps them.
+func TestRangeChecksLeftOut(t *testing.T) {
+	c := generate(t, `fn main() {
+    let limit = 1000
+    var marks = [for i in 0..limit i >= 2]
+    var count = 0
+    for n in 2..limit {
+        if marks[n] {
+            count += 1
+            var m = n * n
+            while m < limit {
+                marks[m] = false
+                m += n
+            }
+        }
+    }
+    println(count)
+}
+`)
+	c = c[strings.Index(c, "static void fn_main(void) {"):]
+	c = c[:strings.Index(c, "\n}\n")]
+	for _, gone := range []string{"vx_mul(v_n, v_n", "VX_AT(bool", "vx_list_mut"} {
+		if strings.Contains(c, gone) {
+			t.Errorf("generated code still has %q", gone)
+		}
+	}
+	if !strings.Contains(c, "v_count = vx_add(") {
+		t.Errorf("count += 1 lost its overflow check")
+	}
+	if strings.Count(c, "vx_add(") != 1 {
+		t.Errorf("m += n kept its overflow check")
 	}
 }

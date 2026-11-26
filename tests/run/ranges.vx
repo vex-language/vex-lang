@@ -1,0 +1,68 @@
+// Loops whose indexes and sums the compiler proves in range run without
+// checks; these make sure they still compute the same results.
+fn primes(limit: int) -> int {
+    var marks = [for i in 0..limit i >= 2]
+    var count = 0
+    for n in 2..limit {
+        if marks[n] {
+            count += 1
+            var m = n * n
+            while m < limit {
+                marks[m] = false
+                m += n
+            }
+        }
+    }
+    return count
+}
+
+// Adds [x] to [xs] while a list is built by looping over it.
+fn grow(xs: [int], x: int) -> int {
+    xs.push(x * 10)
+    return x
+}
+
+fn main() {
+    println(primes(100), primes(10000))
+
+    // A presized fill over a list that grows while it runs stops at the
+    // length the list had when the loop began.
+    var src = [1, 2, 3]
+    let copied = [for x in src grow(src, x)]
+    println(copied, src)
+
+    // A list another name can change isn't assumed to keep its length.
+    var xs = [1, 2]
+    let ys = xs
+    ys.push(3)
+    println(xs[2], xs.len)
+
+    // Sums and products of bounded values.
+    let size = 50
+    let grid = [for i in 0..size * size i % 7]
+    var total = 0
+    for r in 0..size {
+        for c in 0..size {
+            total += grid[r * size + c]
+        }
+    }
+    println(total)
+
+    // Counting down.
+    let digits = [for i in 0..10 i]
+    var i = 9
+    var out = ""
+    while i >= 0 {
+        out = out + "{digits[i]}"
+        i -= 1
+    }
+    println(out)
+
+    // Largest values still add up without overflowing.
+    let top = 9223372036854775806
+    var k = 0
+    while k < 1 {
+        println(top + k)
+        k += 1
+    }
+}
