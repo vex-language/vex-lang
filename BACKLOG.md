@@ -72,7 +72,7 @@ Goal: `vex run hello.vx` compiles and runs native programs with structs, lists, 
 
 Goal: the language features real apps need before any UI work.
 
-**Progress:** 34 of 49 tasks done. The language has enums and `match`, optionals, errors, closures, generics (functions, structs, enums and methods), interfaces (generic, extending others, with properties, for structs and enums), maps, modules, C interop (handles, sized numbers, callbacks, exports, Objective-C), async/await with an event loop, isolates and channels, records, patterns (struct, list and record patterns, `when` guards, `if case`, checked for exhaustiveness and unreachable arms), constants (`const`, `static const`, frozen collections), type aliases (`typedef`, generic ones included), multi-line and raw strings, extensions (methods, getters and static members for structs, enums and built-in types), tear-offs (methods, static methods, cases and constructors as values), operator overloading for structs, collection `if`/`for`/spread, builder blocks, getters, setters and `didSet`, and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). A full QA pass has been fixed: compiler crashes and hangs, generated C that failed to compile, wrong runtime behaviour, valid code the parser and type checker rejected, and unclear diagnostics. Next come the features the `vex-ui` framework is built on, and the features developers expect from a modern language such as Dart 3, Swift or Kotlin. Each new piece of syntax is approved before it is built.
+**Progress:** 36 of 80 tasks done. The language has enums and `match`, optionals, errors, closures, generics (functions, structs, enums and methods), interfaces (generic, extending others, with properties, for structs and enums), maps, modules, C interop (handles, sized numbers, callbacks, exports, Objective-C), async/await with an event loop, isolates and channels, records, patterns (struct, list and record patterns, `when` guards, `if case`, checked for exhaustiveness and unreachable arms), constants (`const`, `static const`, frozen collections), type aliases (`typedef`, generic ones included), multi-line and raw strings, extensions (methods, getters and static members for structs, enums and built-in types), tear-offs (methods, static methods, cases and constructors as values), operator overloading for structs, collection `if`/`for`/spread, builder blocks, getters, setters and `didSet`, and a first standard library (`vex:math`, `vex:strings`, `vex:time`, `vex:fs`, `vex:os`). A full QA pass has been fixed: compiler crashes and hangs, generated C that failed to compile, wrong runtime behaviour, valid code the parser and type checker rejected, and unclear diagnostics. A second QA pass compared the language with Dart 3, Swift and Kotlin; its gaps are V-150 to V-178. Next come the features the `vex-ui` framework is built on (V-150 to V-159, starting with bitwise operators, safe parsing and list essentials), then the features developers expect from a modern language. Each new piece of syntax is approved before it is built.
 
 ### Done
 - [x] **V-100** Enums with data plus `match` (exhaustive) (L)
@@ -104,6 +104,16 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-135** `async`/`await` with an event loop: `async fn`, `Future<T>`, `await`, `all`/`any`, `run`, `time.sleep`, and `vex_poll` for platform run loops; each task runs on its own stack (XL)
 - [ ] **V-148** Streams: `Stream<T>`, `async*` functions with `yield`, `for await`, and awaiting inside closures, for UI events and HTTP bodies (L)
 - [x] **V-147** Isolates: `isolate.run` and `isolate.spawn` run code in parallel on threads with their own heaps; `Channel<T>` carries deep-copied messages between them; `while let` (XL)
+- [ ] **V-150** Bitwise operators `& | ^ ~ << >>` and `&= |= ^= <<= >>=` on `int`, with `&` binding tighter than `==`; shifts outside 0–63 stop the program (M)
+- [ ] **V-151** List essentials: `sort()`, `sort(by:)`, `sorted`, `reversed`, `insert(x, at:)`, `remove(at:)`, `removeWhere`, `indexOf`, `first`, `last`, `isEmpty`, `find`, `any`, `all`, `reduce`, `join`, `flatMap`, `clear`, `min`, `max`, `sum`, `slice`; sorting is stable (M)
+- [ ] **V-152** Safe parsing and number basics: `int.parse(s)` and `float.parse(s)` returning optionals, `int.parse(s, radix: 16)`, `int.max`/`int.min`, `float.infinity`/`float.nan`, `isNaN`/`isFinite`, `toFixed`, `str(n, radix:)` (S)
+- [ ] **V-153** Conditional values: `if … else …` as an expression, with `else` required (S)
+- [ ] **V-154** Type tests on interface values: `x is T`, `x as? T`, and type patterns in `match` and `if case` for any interface; shares the pattern work with V-144 (M)
+- [ ] **V-155** Equality and hashing: synthesised `Equatable`/`Hashable` for structs and enums, hand-written `hash()`, structs, records and enums as map keys, `==` on lists and maps of Equatable values, `===` for identity (L)
+- [ ] **V-156** Top-level and `static` `var`/`let`, initialised lazily, one copy per isolate (M)
+- [ ] **V-157** Async everywhere: async closures, async function values, async interface methods and async tear-offs; extends the closure part of V-148 (L)
+- [ ] **V-158** Cancellation and timeouts: `future.cancel()`, cancellation reaching `await` points as an error, `time.timeout(future, ms)`, task groups that cancel their children (L)
+- [ ] **V-159** Platform conditionals: `os.target` and `os.arch` as compile-time constants whose dead branches are skipped, and per-target `[c]` sources in `package.toml` (M)
 
 ### Modern language features
 - [x] **V-136** Records in the Dart 3 style: `(int, string)`, `({int x, int y})`, `.$1` and named fields, value equality, and `let`/`var`/`for` destructuring (M)
@@ -117,6 +127,17 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-144** Sealed interfaces: a closed set of structs that `match` checks exhaustively, with type patterns (M)
 - [ ] **V-145** Null-aware elements in collections and `?[ ]` indexing (S)
 - [ ] **V-146** Extension types: zero-cost wrappers that make `UserId` and `int` different types (M)
+- [ ] **V-160** Trailing blocks with parameters: `xs.map { x in x * 2 }`, and an implicit name for a single parameter (M)
+- [ ] **V-161** Fields: `let` fields set once at creation, field types inferred from defaults, `init` blocks for validation, a generated `copy(field:)`, fields readable everywhere but set only inside the type (L)
+- [ ] **V-162** Optional ergonomics: `if let x` shorthand, comma-separated conditions in `if`/`while`/`guard`, `guard cond else`, and `?? return`/`throw`/`break`/`continue` (M)
+- [ ] **V-163** Control flow: `defer`, labelled `break`/`continue`, `repeat { } while` (M)
+- [ ] **V-164** Ranges as values: a `Range` type with `contains`, `step` and `reversed`, and list slicing `xs[1..3]` (M)
+- [ ] **V-165** Iteration: an `Iterable<T>` interface that `for in` accepts, and generators with `yield`; shares machinery with V-148 (L)
+- [ ] **V-166** Enum reflection: `Type.cases`, `.name`, raw values `enum C: int { red = 1 }` with `C(rawValue:)` returning an optional, `==` on enums with data, operators on enums (M)
+- [ ] **V-167** Interfaces: static requirements, `Self`, generic methods and extensions of interfaces; needed for typed JSON (V-109) (L)
+- [ ] **V-168** Custom printing: a `description` getter used by `println`, `str` and interpolation (S)
+- [ ] **V-169** Local named functions, recursive ones included (S)
+- [ ] **V-170** List conversion between element types: `[B]` passed as `[A]` for a fresh copy, and `cast<A>()` (S)
 
 ### Tools and packages
 - [ ] **V-121** Package manager: `vex get` from public git repos, `package.lock` with hashes ([design](docs/design/packages.md)) (L)
@@ -124,6 +145,10 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-124** Benchmark suite in the repo (`bench/`): Vex programs with Go equivalents and a script that compares them (M)
 - [ ] **V-123** Stack traces: runtime errors list the chain of calls with their lines (M)
 - [ ] **V-128** Modules, next steps: warn about unused imports, `pub` names whose types are private, and errors sorted with the root module first (S)
+- [ ] **V-176** `vex test`: test blocks or `_test.vx` files, filtering by name, and failures that show both values (M)
+- [ ] **V-177** Build modes: `--debug` (`-O0 -g`, keeps the C) and `--sanitize=address,undefined` alongside today's `-O3`, and `$VEX_CFLAGS` documented in `vex help build` (S)
+- [ ] **V-178** Warnings for unused local variables and unreachable code, and diagnostics that name unsupported features (`is`, labels, `defer`, `x!`) (S)
+- [x] **V-179** Docs fixes: stale lines about properties, tear-offs and `==` in SYNTAX.md, typed fields in the UI sketch, and the conditional-value, overloading and inheritance decisions in the log (S)
 
 ### Runtime and libraries
 - [ ] **V-109** JSON encode/decode built in, no codegen step (L)
@@ -133,6 +158,11 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-111** GC stage 2: precise roots and object layouts (L)
 - [ ] **V-112** GC stage 3: generational collection (done), returning memory to the OS (XL)
 - [x] **V-149** Leave out the overflow and bounds checks the compiler proves can't fail, and the capacity check of presized list fills (M)
+- [ ] **V-171** `Set<T>` of Hashable values, with literals, `insert`, `remove`, `contains`, `union`, `intersection` and `subtracting` (M)
+- [ ] **V-172** Map helpers: `isEmpty`, `getOrPut`, `update`, `filter`, `mapValues`, `entries` (S)
+- [ ] **V-173** String helpers: `isEmpty`, `lastIndexOf`, `count`, a `split` limit, `padStart`/`padEnd`, `reversed`, `capitalize`, and `vex:strings` functions as methods (S)
+- [ ] **V-174** Format specs in interpolation: `"{x:.2}"`, `"{n:04}"`, `"{n:x}"` (M)
+- [ ] **V-175** Standard library: `vex:random`, `vex:datetime` (`now`, `Duration`, ISO 8601, calendar fields), `eprintln` and `os.stderr`, and `vex:regex` (L)
 
 ---
 
@@ -271,3 +301,8 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-26 | Operators follow Dart: `operator +(other: T) -> T` inside a struct, with `self` as the left operand. Structs define `+ - * / %`, unary `-`, `==`, `<`, `[]` and `[]=`; `!=` comes from `==` and the other orderings from `<`, and `==` and `<` make a struct Equatable and Comparable. Enums, interfaces and built-in types don't define operators yet |
 | 2026-11-26 | GC: generational with sticky mark bits, since a conservative collector can't move objects: survivors stay marked, minor collections trace only from roots and a remembered set filled by write barriers after each pointer store, and `VEX_GC_VERIFY` checks for missed barriers under stress (part of V-112) |
 | 2026-11-26 | Ints stay overflow-checked and indexes bounds-checked, as in Swift; wrapping is opt-in with `&+`. The compiler leaves out only the checks it proves can't fail, from constants, `for` ranges, loop conditions, values that only grow or shrink, and lists that keep their length (V-149) |
+| 2026-11-26 | Bitwise operators use the C symbols `& \| ^ ~ << >>` and their compound assignments, as in Dart, Swift, Go and Rust, with Swift and Go precedence: `&`, `\|` and `^` bind tighter than comparisons, so `flags & HIDDEN != 0` reads as written. Shifts outside 0–63 stop the program (V-150) |
+| 2026-11-26 | Safe parsing uses `int.parse(s)` and `float.parse(s)`, which return optionals, like Dart's `tryParse` and Kotlin's `toIntOrNull`; `int(s)` still stops the program on bad input (V-152) |
+| 2026-11-26 | Conditional values use `if … else …` as an expression, as in Kotlin, Rust and Swift 5.9, with `else` required. `?:` stays rejected, since `?` already marks optionals (V-153) |
+| 2026-11-26 | No function overloading by parameter types, as in Dart and Go: named parameters and defaults cover the usual cases, and calls stay unambiguous (V-179) |
+| 2026-11-26 | No inheritance between structs: shared behaviour comes from interfaces and extensions (V-179) |

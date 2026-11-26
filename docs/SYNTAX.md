@@ -260,7 +260,7 @@ println(slider.percent)      // no ()
 - A getter has a result type and no parameters; a setter takes exactly one parameter, the new value, of the getter's type.
 - A property with only a getter is read-only; one with only a setter can't be read.
 - `pub` makes each one visible to other modules on its own. `get` and `set` are names only where they start a getter or setter, so fields and methods may still be called `get`.
-- Interfaces and enums can't have getters or setters yet.
+- Interfaces can require getters and setters (see [Interfaces](#interfaces)); enums can have getters but not setters, since their values never change.
 
 **didSet.** A block after a field runs after each assignment to it, with the previous value in `oldValue`, as in Swift:
 
@@ -405,7 +405,7 @@ let g = first<string>
 let heads = groups.map(first<string>)        // groups: [[string]]
 ```
 
-- Not yet: generic methods in interfaces, and methods as values.
+- Not yet: generic methods in interfaces.
 
 ## Interfaces
 
@@ -1190,7 +1190,7 @@ The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, m
   The checks are cheap. In a tight loop where they cost speed, the wrapping operators remove them.
 - `int` and `float` never mix silently: `count * price` is an error until one side is converted with `float(count)` or `int(price)`.
 - Strings join with `+` only to other strings. Use interpolation for anything else: `"{count} items"`.
-- `==` and `!=` compare `int`, `float`, `bool`, `string` and enums whose cases carry no values; `<`, `<=`, `>`, `>=` also work on these except `bool`. Enum cases are ordered as they are declared, so in `enum Level { low, high }`, `Level.low < Level.high`.
+- `==` and `!=` compare `int`, `float`, `bool`, `string`, enums whose cases carry no values, records, and structs that define `operator ==`. `<`, `<=`, `>`, `>=` work on `int`, `float`, `string`, those enums, and structs that define `operator <`. Enum cases are ordered as they are declared, so in `enum Level { low, high }`, `Level.low < Level.high`.
 - Conditions must be `bool`: write `if xs.len > 0`, not `if xs`.
 - Structs are shared references: after `let b = a`, changing `b.name` also changes `a.name`. `let` stops the name being reassigned, not the fields being changed.
 - A name can be declared again in an inner block, which hides the outer one; declaring it twice in the same block is an error.
@@ -1251,7 +1251,7 @@ The UI framework is a separate package built from general language features, wit
 import "package:ui"
 
 struct Counter: View {
-    let count = State(0)
+    count: State<int> = State(0)
 
     fn body() -> View => Column(spacing: 12) {
         Text("Count: {count.value}").size(24)
