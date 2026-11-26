@@ -53,7 +53,7 @@ A sketch of what this allows. It is **not approved syntax**: each feature's synt
 import "package:ui"
 
 struct Counter: View {
-    let count = State(0)
+    count: State<int> = State(0)
 
     fn body() -> View => Column(spacing: 12) {
         Text("Count: {count.value}").size(24)
