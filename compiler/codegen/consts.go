@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"math"
 	"strconv"
 	"strings"
 
@@ -28,6 +29,14 @@ func (g *gen) constRef(k *types.Const) string {
 		}
 		return "INT64_C(" + strconv.FormatInt(v, 10) + ")"
 	case float64:
+		switch {
+		case math.IsNaN(v):
+			return "((double)NAN)"
+		case math.IsInf(v, 1):
+			return "((double)INFINITY)"
+		case math.IsInf(v, -1):
+			return "(-(double)INFINITY)"
+		}
 		s := strconv.FormatFloat(v, 'g', -1, 64)
 		if !strings.ContainsAny(s, ".eEn") {
 			s += ".0"

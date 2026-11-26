@@ -592,6 +592,24 @@ func (g *generator) expr(t typ) expr {
 	case tList:
 		return g.listExpr(leaf)
 	case tOpt:
+		switch g.r.Intn(3) {
+		case 0:
+			// Formatting and parsing in the same radix gives the int back.
+			x, r := g.expr(tInt), g.r.Intn(35)+2
+			return expr{fmt.Sprintf("int.parse(str(%s, radix: %d), radix: %d)", x.code, r, r), func(e env) any {
+				v := x.eval(e).(int64)
+				return &v
+			}}
+		case 1:
+			s := g.expr(tStr)
+			return expr{"int.parse(" + s.code + ")", func(e env) any {
+				v, err := strconv.ParseInt(strings.TrimSpace(s.eval(e).(string)), 10, 64)
+				if err != nil {
+					return (*int64)(nil)
+				}
+				return &v
+			}}
+		}
 		x := g.expr(tInt)
 		return expr{"even(" + x.code + ")", func(e env) any {
 			v := x.eval(e).(int64)
