@@ -1,0 +1,29 @@
+import "../shapes"
+
+/// Members added to types of another module.
+pub extension shapes.Point {
+    fn manhattan() -> int => abs(x) + abs(y)
+    get isOrigin -> bool => x == 0 && y == 0
+    static fn origin() -> shapes.Point => shapes.Point(x: 0, y: 0)
+    static const dimensions = 2
+}
+
+pub extension shapes.Box {
+    fn describe() -> string => "box of {value}"
+}
+
+pub extension string {
+    fn shout() -> string => upper() + "!"
+    get isBlank -> bool => trim().len == 0
+}
+
+extension string {
+    /// Private to this module, but usable inside it.
+    fn wrap() -> string => "[" + self + "]"
+    pub fn wrapped() -> string => wrap()
+}
+
+fn abs(n: int) -> int {
+    if n < 0 { return -n }
+    return n
+}

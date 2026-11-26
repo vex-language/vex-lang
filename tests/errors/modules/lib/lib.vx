@@ -1,3 +1,5 @@
+import "../ext"
+
 fn hidden() {}
 
 pub struct Point {
@@ -28,4 +30,8 @@ typedef Hidden = int
 pub typedef Grid<T> = [[T]]
 pub typedef Pt = Point
 
-// error: 25:27: result of broken: expected int, found string
+extension string {
+    fn libQuiet() -> string => lower()
+}
+
+// error: 27:27: result of broken: expected int, found string

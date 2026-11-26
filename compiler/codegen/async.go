@@ -23,6 +23,9 @@ func spawnParams(f *types.Func) (cts, names []string) {
 	if f.Enum != nil && !f.Static {
 		cts, names = append(cts, enumName(f.Enum)+" *"), append(names, "self")
 	}
+	if f.Recv != nil {
+		cts, names = append(cts, ctype(f.Recv)), append(names, "self")
+	}
 	for i, p := range f.Params {
 		cts, names = append(cts, ctype(p.Type)), append(names, fmt.Sprintf("a%d", i))
 	}

@@ -317,6 +317,13 @@ func funcName(f *types.Func) string {
 		id := enumIdent(f.Enum)
 		return fmt.Sprintf("m%d%s_%s", len(id), id, cid(f.Name)) + typeArgsTag(f)
 	}
+	if f.Recv != nil {
+		// Extensions of built-in types: the receiver's type tells apart
+		// members of the same name, and the accessor kind a getter.
+		recv := mangle(f.Recv)
+		prefix := map[ast.Accessor]string{ast.Method: "x", ast.Getter: "xg"}[f.Decl.Accessor]
+		return fmt.Sprintf("%s%s%d%s_%s", prefix, modTag(f.Module), len(recv), recv, cid(f.Name)) + typeArgsTag(f)
+	}
 	if f.TypeArgs != nil {
 		return "fn_" + modTag(f.Module) + cid(f.Name) + "__" + mangleList(f.TypeArgs)
 	}
@@ -544,6 +551,9 @@ func (g *gen) signature(f *types.Func, define bool) string {
 	}
 	if f.Iface != nil {
 		params = append(params, "void *self")
+	}
+	if f.Recv != nil {
+		params = append(params, decl(f.Recv, "self"))
 	}
 	for i, p := range f.Params {
 		name := "v_" + p.Name
@@ -1349,6 +1359,8 @@ func (g *gen) value(e ast.Expr) string {
 			return g.selfRef() + "->f_" + u.Name
 		case *types.Property:
 			return g.memberCall(u.Get, g.selfType(), g.selfRef())
+		case *types.SelfMember:
+			return g.expr(u.Expr)
 		case *types.Func:
 			if g.info.ThrowingRefs[e] {
 				g.throwingValues[u] = true

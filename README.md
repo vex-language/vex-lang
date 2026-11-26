@@ -452,6 +452,19 @@ fn on(handler: Handler) { ... }
 var images: Cache<string> = [:]
 ```
 
+**Extensions.** Add methods and getters to any struct, enum or built-in type, from any module.
+
+```swift
+extension string {
+    fn shout() -> string => upper() + "!"
+}
+extension<T: Comparable> [T] {
+    fn largest() -> T? { ... }
+}
+
+println("hi".shout(), [3, 9, 2].largest())   // HI! 9
+```
+
 **Multi-line and raw strings.** `"""` strings drop the indentation of their closing quotes, and `r"..."` keeps `\` and `{` as written.
 
 ```swift
@@ -514,7 +527,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, builder blocks, properties, standard library | In progress: 31 of 49 tasks; next are extensions and tear-offs |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, builder blocks, properties, standard library | In progress: 32 of 49 tasks; next are tear-offs and operator overloading |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |

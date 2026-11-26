@@ -105,11 +105,19 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		c.errorAt(id, "", "'%s' is %s, not a function", name, article(v.Type))
 		return Invalid
 	}
+	if c.selfMember(name) {
+		e.Fn = selfAccess(id)
+		return c.call(e, want)
+	}
 	if owner := c.ownStruct(); owner != nil {
 		if m := owner.Method(name); m != nil {
 			if !m.Static && c.self == nil {
 				c.checkArgs(e)
 				c.errorAt(id, "static methods have no instance to call it on", "static method %s can't call method '%s'", c.fn.Name, name)
+				return Invalid
+			}
+			if c.methodPrivate(id, m) {
+				c.checkArgs(e)
 				return Invalid
 			}
 			if m = c.methodInst(e, m, want); m == nil {
@@ -381,7 +389,13 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 	}
 	sig := builtinMember(recv, name)
 	if sig == nil {
+		if t := c.recvCall(e, m, recv, want); t != nil {
+			return t
+		}
 		c.checkArgs(e)
+		if c.recvUnavailable(m.Name, recv, name) {
+			return Invalid
+		}
 		if hint := mapMethodHint(recv, name); hint != "" {
 			c.errorAt(m.Name, hint, "%s has no method '%s'", recv, name)
 		} else if name == "len" || name == "keys" || name == "values" {

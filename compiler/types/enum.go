@@ -54,7 +54,7 @@ func (c *checker) enumMembers(e *Enum) {
 		c.errorAt(e.Decl.Name, "add cases, e.g. enum "+e.Name+" { first, second }", "enum '%s' has no cases", e.Name)
 	}
 	for _, md := range e.Decl.Methods {
-		m := &Func{Name: md.Name.Name, Decl: md, Enum: e, Static: md.Static}
+		m := &Func{Name: md.Name.Name, Decl: md, Enum: e, Static: md.Static, Ext: c.extModule(md)}
 		if !e.abstract {
 			c.info.FuncOf[md] = m
 		}

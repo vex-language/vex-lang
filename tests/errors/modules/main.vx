@@ -26,6 +26,15 @@ fn aliases() {
     lib.Pt.origin()
 }
 
+fn extensions() {
+    println("a".libQuiet(), "b".extShout(), lib.Point(x: 1).peekY())
+}
+
+extension lib.Point {
+    fn peekY() -> int => y
+    fn callSecret() -> int => secret()
+}
+
 // error: 5:5: function 'hidden' is private to lib
 // error: 7:15: field 'y' of lib.Point is private to lib
 // error: 8:5: lib has no 'nothere'
@@ -44,3 +53,7 @@ fn aliases() {
 // error: 24:13: lib.Grid names [[T]], so it can't be called
 // error: 25:13: 'lib.Pt' is a type, not a value
 // error: 26:12: method 'origin' of lib.Point is private to lib
+// error: 30:17: method 'libQuiet' of the extension is private to lib
+// error: 30:33: 'extShout' comes from an extension in module ext
+// error: 34:26: field 'y' of lib.Point is private to lib
+// error: 35:31: method 'secret' of lib.Point is private to lib

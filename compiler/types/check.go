@@ -41,6 +41,9 @@ type checker struct {
 	root     *Module
 	rootUnit *unit
 
+	// The struct or enum declaration each extension adds members to.
+	extTargets map[*ast.ExtensionDecl]ast.Decl
+
 	// The module and file being checked, the modules the file imports,
 	// and the module's top-level names.
 	unit    *unit
@@ -96,6 +99,8 @@ func Check(f *diag.File, file *ast.File) (info *Info, err error) {
 func newChecker() *checker {
 	return &checker{
 		units: map[ast.Node]*unit{},
+
+		extTargets: map[*ast.ExtensionDecl]ast.Decl{},
 		info: &Info{
 			Types:          map[ast.Expr]Type{},
 			Uses:           map[*ast.Ident]any{},
@@ -307,6 +312,11 @@ func (c *checker) collect() {
 		}
 	})
 	each(func(d ast.Decl) {
+		if xd, ok := d.(*ast.ExtensionDecl); ok {
+			c.declareExtension(xd)
+		}
+	})
+	each(func(d ast.Decl) {
 		if kd, ok := d.(*ast.ConstDecl); ok {
 			c.declareConst(kd)
 		}
@@ -407,7 +417,7 @@ func (c *checker) structMembers(s *Struct) {
 		s.Fields = append(s.Fields, &Field{Name: fd.Name.Name, Type: c.resolveType(fd.Type), Default: fd.Default, Owner: s, Decl: fd})
 	}
 	for _, md := range s.Decl.Methods {
-		m := &Func{Name: md.Name.Name, Decl: md, Owner: s, Static: md.Static}
+		m := &Func{Name: md.Name.Name, Decl: md, Owner: s, Static: md.Static, Ext: c.extModule(md)}
 		if !s.abstract {
 			c.info.FuncOf[md] = m
 		}
@@ -494,6 +504,9 @@ func (c *checker) ifaceTaken(id *ast.Ident) bool {
 // Resolves the parameter and result types of [f].
 func (c *checker) signature(f *Func) {
 	defer c.enter(f.Decl)()
+	if f.Decl.Recv != nil && f.Owner == nil && f.Enum == nil {
+		f.Recv = c.resolveType(f.Decl.Recv)
+	}
 	if len(f.Decl.TypeParams) > 0 && (f.Iface != nil || f.Decl.Accessor != ast.Method) {
 		c.errorAt(f.Decl.TypeParams[0], "make it a method of a struct or enum", "interface methods and accessors can't have their own type parameters yet")
 		env := map[string]Type{}
@@ -862,6 +875,10 @@ func (c *checker) funcBody(f *Func) {
 	}
 	if f.Iface != nil {
 		c.self = &Var{Name: "self", Type: f.Iface, Kind: SelfVar, Decl: f.Decl.Name}
+		c.info.Selves[f.Decl] = c.self
+	}
+	if f.Recv != nil {
+		c.self = &Var{Name: "self", Type: f.Recv, Kind: SelfVar, Decl: f.Decl.Name}
 		c.info.Selves[f.Decl] = c.self
 	}
 	for i, p := range f.Decl.Params {

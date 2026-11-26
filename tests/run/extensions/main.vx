@@ -1,0 +1,105 @@
+import "shapes"
+import "text"
+
+interface Shape { fn area() -> float }
+
+struct Square: Shape { side: float }
+
+// A method an extension adds can meet an interface the struct declares.
+extension Square {
+    fn area() -> float => side * side
+    get perimeter -> float => 4.0 * side
+    static fn unit() -> Square => Square(side: 1.0)
+}
+
+extension shapes.Level {
+    fn next() -> shapes.Level => match self {
+        low => .mid
+        mid || high => .high
+    }
+}
+
+typedef Names = [string]
+
+extension Names {
+    fn joined(sep: string = ", ") -> string {
+        var out = ""
+        for n in self {
+            if out.len > 0 { out += sep }
+            out += n
+        }
+        return out
+    }
+}
+
+extension [int] {
+    fn sum() -> int {
+        var t = 0
+        for x in self { t += x }
+        return t
+    }
+    async fn total() -> int => sum()
+}
+
+extension<T: Comparable> [T] {
+    fn largest() -> T? {
+        if len == 0 { return nil }
+        var best = self[0]
+        for x in self {
+            if x > best { best = x }
+        }
+        return best
+    }
+    fn pairs<U>(other: [U]) -> [(T, U)] {
+        var out: [(T, U)] = []
+        for x in self {
+            for y in other { out.push((x, y)) }
+        }
+        return out
+    }
+}
+
+extension<K: Hashable, V> [K: V] {
+    get size -> int => len
+}
+
+extension int {
+    get squared -> int => self * self
+    fn times(body: fn(int)) {
+        for i in 0..self { body(i) }
+    }
+    fn isEven() -> bool => self % 2 == 0
+}
+
+async fn main() {
+    // Structs and enums of this module.
+    let all: [Shape] = [Square(side: 2.0), Square.unit()]
+    println(all[0].area(), all[1].area(), Square(side: 3.0).perimeter)
+
+    // Structs, enums and generic structs of another module.
+    let p = shapes.Point(x: -3, y: 4)
+    println(p.manhattan(), p.isOrigin, shapes.Point.origin().isOrigin, shapes.Point.dimensions)
+    println(shapes.Level.low.next(), shapes.Level.mid.next())
+    println(shapes.Box(value: 3).describe(), shapes.Box(value: "a").describe())
+
+    // Built-in types, from this module and another one.
+    println("hi".shout(), "  ".isBlank, "x".isBlank, "a".wrapped())
+    let names: Names = ["ann", "bo"]
+    println(names.joined(), names.joined(sep: "/"))
+    println([1, 2, 3].sum(), [3, 9, 2].largest() ?? 0, ["b", "c", "a"].largest() ?? "")
+    let empty: [int] = []
+    println(empty.largest() ?? -1, [1, 2].pairs(["x"]))
+    println(["a": 1, "b": 2].size, 7.squared, (1 + 3).isEven())
+    3.times(fn(i) { print(i) })
+    println()
+    let maybe: string? = "hey"
+    println(maybe?.shout() ?? "none")
+
+    // Async members, awaited and started.
+    let started = [4, 5].total()
+    println(await [1, 2].total(), await started)
+
+    // `extension` stays usable as a name.
+    let extension = "png"
+    println(extension)
+}

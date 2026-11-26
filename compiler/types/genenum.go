@@ -50,7 +50,7 @@ func (c *checker) instEnum(g *genericEnum, args []Type, at ast.Node) *Enum {
 	e := &Enum{Name: g.decl.Name.Name + "<" + typeList(args) + ">", Module: c.mod, Base: g.decl.Name.Name, Args: args, Decl: g.decl, generic: g, abstract: abstract}
 	if !abstract {
 		e.Decl = ast.Clone(g.decl)
-		c.register(e.Decl, c.units[g.decl])
+		c.registerClone(e.Decl, g.decl)
 		c.info.Enums = append(c.info.Enums, e)
 	}
 	g.insts[key] = e
