@@ -407,6 +407,14 @@ func (c *checker) unary(e *ast.UnaryExpr, want Type) Type {
 		}
 		return Bool
 	}
+	if e.Op == lexer.Tilde {
+		t := c.expr(e.X, Int)
+		if t != Int && t != Invalid {
+			c.errorAt(e.X, "", "'~' needs an int, found %s", t)
+			return Invalid
+		}
+		return t
+	}
 	if IsMinInt(e) && want != Float {
 		c.info.Types[e.X] = Int
 		return Int
@@ -542,8 +550,25 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 		return Bool
 	}
 
-	if wrapping(e.Op) && (x != Int || y != Int) {
-		c.errorAt(e, "", "'%s' works only on int, found %s and %s", op, x, y)
+	if (wrapping(e.Op) || bitwise(e.Op)) && (x != Int || y != Int) {
+		hint := ""
+		switch {
+		case x == Bool && y == Bool && e.Op == lexer.Amp:
+			hint = "use && for logical and"
+		case x == Bool && y == Bool && e.Op == lexer.Pipe:
+			hint = "use || for logical or"
+		}
+		if bitwise(e.Op) {
+			// An int literal beside a float has already become a float, so
+			// only the operand that isn't an int is named.
+			bad := x
+			if x == Int {
+				bad = y
+			}
+			c.errorAt(e, hint, "'%s' works only on int, found %s", op, bad)
+			return Invalid
+		}
+		c.errorAt(e, hint, "'%s' works only on int, found %s and %s", op, x, y)
 		return Invalid
 	}
 	if Identical(x, y) {
@@ -617,6 +642,15 @@ func precedenceOf(k lexer.Kind) int {
 func wrapping(k lexer.Kind) bool {
 	switch k {
 	case lexer.AmpPlus, lexer.AmpMinus, lexer.AmpStar, lexer.AmpPlusAssign, lexer.AmpMinusAssign, lexer.AmpStarAssign:
+		return true
+	}
+	return false
+}
+
+// Reports whether [k] is a bitwise operator: `&`, `|`, `^`, `<<` or `>>`.
+func bitwise(k lexer.Kind) bool {
+	switch k {
+	case lexer.Amp, lexer.Pipe, lexer.Caret, lexer.Shl, lexer.Shr:
 		return true
 	}
 	return false

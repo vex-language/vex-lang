@@ -1,0 +1,30 @@
+// Mistakes with bitwise operators.
+const TOO_FAR = 1 << 64
+const BELOW = 8 >> -1
+
+fn main() {
+    let f = 1.5
+    println(f & 1)
+    println("a" | "b")
+    println(true ^ false)
+    println(~f)
+    println(~true)
+    var g = 2.0
+    g <<= 1
+    var s = "x"
+    s |= "y"
+    println(1 & 2.0)
+    let both = true & false
+}
+
+// error: 2:22: this constant shifts by 64, outside 0 to 63
+// error: 3:20: this constant shifts by -1, outside 0 to 63
+// error: 7:13: '&' works only on int, found float
+// error: 8:13: '|' works only on int, found string
+// error: 9:13: '^' works only on int, found bool
+// error: 10:14: '~' needs an int, found float
+// error: 11:14: '~' needs an int, found bool
+// error: 13:5: <<= can't be used with float
+// error: 15:5: |= can't be used with string
+// error: 16:13: '&' works only on int, found float
+// error: 17:16: '&' works only on int, found bool

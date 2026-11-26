@@ -1183,7 +1183,8 @@ func (c *checker) assign(s *ast.AssignStmt) {
 	switch s.Op {
 	case lexer.PlusAssign:
 		ok = numeric(target) || target == String
-	case lexer.PercentAssign, lexer.AmpPlusAssign, lexer.AmpMinusAssign, lexer.AmpStarAssign:
+	case lexer.PercentAssign, lexer.AmpPlusAssign, lexer.AmpMinusAssign, lexer.AmpStarAssign,
+		lexer.AmpAssign, lexer.PipeAssign, lexer.CaretAssign, lexer.ShlAssign, lexer.ShrAssign:
 		ok = target == Int || target == Invalid
 	default:
 		ok = numeric(target)
