@@ -159,7 +159,6 @@ func Generate(info *types.Info, srcName string) string {
 	for _, e := range info.Enums {
 		g.enumStruct(e)
 	}
-	g.recordEquals()
 	g.line("")
 	for _, s := range info.Structs {
 		g.line("static %s;", constructorSig(s))
@@ -181,6 +180,8 @@ func Generate(info *types.Info, srcName string) string {
 			g.line("static %s;", spawnSig(f))
 		}
 	}
+	// Record equality may run a struct's == operator, declared above.
+	g.recordEquals()
 	g.b.WriteString(g.lamDecls.String())
 	for _, s := range info.Structs {
 		if len(s.Interfaces) > 0 {
@@ -310,8 +311,12 @@ func funcName(f *types.Func) string {
 		owner := structIdent(f.Owner)
 		// Accessors share their property's name, so each kind has its own
 		// prefix.
-		prefix := map[ast.Accessor]string{ast.Method: "m", ast.Getter: "g", ast.Setter: "s", ast.Observer: "o"}[f.Decl.Accessor]
-		return fmt.Sprintf("%s%d%s_%s", prefix, len(owner), owner, cid(f.Name)) + typeArgsTag(f)
+		prefix := map[ast.Accessor]string{ast.Method: "m", ast.Getter: "g", ast.Setter: "s", ast.Observer: "o", ast.Operator: "p"}[f.Decl.Accessor]
+		name := cid(f.Name)
+		if f.Decl.Accessor == ast.Operator {
+			name = operatorNames[f.Name]
+		}
+		return fmt.Sprintf("%s%d%s_%s", prefix, len(owner), owner, name) + typeArgsTag(f)
 	}
 	if f.Enum != nil {
 		id := enumIdent(f.Enum)
@@ -333,6 +338,12 @@ func funcName(f *types.Func) string {
 		return prefix + id + "_" + cid(f.Name)
 	}
 	return "fn_" + modTag(f.Module) + cid(f.Name)
+}
+
+// The C names of the operators a struct can define.
+var operatorNames = map[string]string{
+	"+": "plus", "-": "minus", "*": "times", "/": "div", "%": "rem", "unary -": "neg",
+	"==": "eq", "<": "lt", "[]": "get", "[]=": "set",
 }
 
 // Returns [name], a name from the program, for use inside a C name. Each
@@ -990,6 +1001,10 @@ func (g *gen) assign(s *ast.AssignStmt) {
 	var target, recv string
 	switch x := s.Target.(type) {
 	case *ast.IndexExpr:
+		if set := g.info.IndexSets[x]; set != nil {
+			g.indexSet(s, x, set)
+			return
+		}
 		if _, ok := g.info.Types[x.X].(*types.Map); ok {
 			m, k := g.temp(), g.temp()
 			setup = append(setup,
@@ -1036,11 +1051,11 @@ func (g *gen) assign(s *ast.AssignStmt) {
 	value := g.expr(s.Value)
 	if setup != nil || observer != nil {
 		v := g.temp()
-		setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, v), value))
+		setup = append(setup, fmt.Sprintf("%s = %s;", decl(g.valueType(s), v), value))
 		value = v
 	}
 	if compound {
-		value = binop(op, t, old, value, g.lineOf(s))
+		value = g.compound(s, op, t, old, value)
 	}
 	if setup == nil {
 		g.line("%s = %s;", target, value)
@@ -1063,6 +1078,27 @@ func (g *gen) assign(s *ast.AssignStmt) {
 	g.line("}")
 }
 
+// Generates `x[i] = v` with the `[]=` operator [set] of x's struct. A
+// compound assignment reads the old value with its `[]` operator first.
+func (g *gen) indexSet(s *ast.AssignStmt, x *ast.IndexExpr, set *types.Func) {
+	rt, t := g.info.Types[x.X], g.info.Types[s.Target]
+	recv, idx, v := g.temp(), g.temp(), g.temp()
+	g.line("{")
+	g.ind++
+	g.line("%s = %s;", decl(rt, recv), g.expr(x.X))
+	g.line("%s = %s;", decl(set.Params[0].Type, idx), g.expr(x.Index))
+	value := g.expr(s.Value)
+	if op, compound := compoundOps[s.Op]; compound {
+		old := g.temp()
+		g.line("%s = %s;", decl(t, old), g.memberCall(g.info.Operators[x], rt, recv, idx))
+		g.line("%s = %s;", decl(g.valueType(s), v), value)
+		value = g.compound(s, op, t, old, v)
+	}
+	g.line("%s;", g.memberCall(set, rt, recv, idx, value))
+	g.ind--
+	g.line("}")
+}
+
 // Generates an assignment to the property [p] of [recv], after the lines
 // in [setup]. A compound assignment reads it with the getter first.
 func (g *gen) setProperty(s *ast.AssignStmt, recv string, rt types.Type, p *types.Property, setup []string) {
@@ -1074,10 +1110,10 @@ func (g *gen) setProperty(s *ast.AssignStmt, recv string, rt types.Type, p *type
 		setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, old), g.memberCall(p.Get, rt, recv)))
 	}
 	v := g.temp()
-	setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, v), g.expr(s.Value)))
+	setup = append(setup, fmt.Sprintf("%s = %s;", decl(g.valueType(s), v), g.expr(s.Value)))
 	value := v
 	if compound {
-		value = binop(op, t, old, v, g.lineOf(s))
+		value = g.compound(s, op, t, old, v)
 	}
 	g.line("{")
 	g.ind++
@@ -1221,24 +1257,30 @@ func (g *gen) fnValueWrapper(f *types.Func, throwing bool) {
 
 // Reports whether evaluating [e] may call a function, so its order relative
 // to other calls matters.
-func hasCall(e ast.Expr) bool {
+func (g *gen) hasCall(e ast.Expr) bool {
+	if g.info.Operators[e] != nil {
+		return true
+	}
 	switch e := e.(type) {
 	case *ast.CallExpr, *ast.TryExpr, *ast.AwaitExpr:
 		return true
 	case *ast.UnaryExpr:
-		return hasCall(e.X)
+		return g.hasCall(e.X)
 	case *ast.BinaryExpr:
-		return hasCall(e.X) || hasCall(e.Y)
+		return g.hasCall(e.X) || g.hasCall(e.Y)
 	case *ast.IndexExpr:
-		return hasCall(e.X) || hasCall(e.Index)
+		return g.hasCall(e.X) || g.hasCall(e.Index)
 	case *ast.MemberExpr:
-		return hasCall(e.X)
+		if m := g.info.Members[e]; m != nil && m.Property != nil {
+			return true
+		}
+		return g.hasCall(e.X)
 	case *ast.ListLit:
 		if e.Body != nil {
 			return true
 		}
 		for _, x := range e.Elems {
-			if hasCall(x) {
+			if g.hasCall(x) {
 				return true
 			}
 		}
@@ -1247,13 +1289,13 @@ func hasCall(e ast.Expr) bool {
 			return true
 		}
 		for i, k := range e.Keys {
-			if hasCall(k) || hasCall(e.Values[i]) {
+			if g.hasCall(k) || g.hasCall(e.Values[i]) {
 				return true
 			}
 		}
 	case *ast.InterpolatedString:
 		for _, x := range e.Exprs {
-			if hasCall(x) {
+			if g.hasCall(x) {
 				return true
 			}
 		}
@@ -1279,7 +1321,7 @@ func (g *gen) orderedBy(es []ast.Expr, rank []int, render func(cs []string) stri
 	for _, e := range es {
 		if e != nil {
 			n++
-			if hasCall(e) {
+			if g.hasCall(e) {
 				calls++
 			}
 		}
@@ -1404,6 +1446,9 @@ func (g *gen) value(e ast.Expr) string {
 			return l
 		})
 	case *ast.UnaryExpr:
+		if f := g.info.Operators[e]; f != nil {
+			return g.memberCall(f, g.info.Types[e.X], g.expr(e.X))
+		}
 		if types.IsMinInt(e) && t == types.Int {
 			return "INT64_MIN"
 		}
@@ -1427,6 +1472,11 @@ func (g *gen) value(e ast.Expr) string {
 			return g.nilTest(e.Op, e.Y)
 		}
 		operand := g.info.Types[e.X]
+		if f := g.info.Operators[e]; f != nil {
+			return g.ordered([]ast.Expr{e.X, e.Y}, func(cs []string) string {
+				return g.operator(e.Op, f, operand, cs[0], cs[1])
+			})
+		}
 		return g.ordered([]ast.Expr{e.X, e.Y}, func(cs []string) string {
 			return binop(e.Op, operand, cs[0], cs[1], g.lineOf(e))
 		})
@@ -1438,6 +1488,11 @@ func (g *gen) value(e ast.Expr) string {
 				k, p := g.temp(), g.temp()
 				return fmt.Sprintf("({ %s = %s; %s *%s = vx_map_find(%s, &%s); %s ? (%s){true, *%s} : (%s){0}; })",
 					decl(m.Key, k), cs[1], ctype(m.Value), p, cs[0], k, p, ctype(t), p, ctype(t))
+			})
+		}
+		if f := g.info.Operators[e]; f != nil {
+			return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
+				return g.memberCall(f, g.info.Types[e.X], cs[0], cs[1])
 			})
 		}
 		return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
@@ -1489,6 +1544,39 @@ func (g *gen) value(e ast.Expr) string {
 }
 
 func op(k lexer.Kind) string { return strings.Trim(k.String(), "'") }
+
+// Returns C code applying the binary operator [k] to [a] and [b] with
+// operator [f] of struct [t]. `!=` negates `==`, and the other orderings
+// come from `<`.
+func (g *gen) operator(k lexer.Kind, f *types.Func, t types.Type, a, b string) string {
+	switch k {
+	case lexer.NotEq, lexer.GtEq:
+		return "(!" + g.memberCall(f, t, a, b) + ")"
+	case lexer.Gt:
+		return g.memberCall(f, t, b, a)
+	case lexer.LtEq:
+		return "(!" + g.memberCall(f, t, b, a) + ")"
+	}
+	return g.memberCall(f, t, a, b)
+}
+
+// Returns the type of the C value assigned by [s]: the target's, or for a
+// struct's compound operator, its parameter's.
+func (g *gen) valueType(s *ast.AssignStmt) types.Type {
+	if f := g.info.Operators[s]; f != nil {
+		return f.Params[0].Type
+	}
+	return g.info.Types[s.Target]
+}
+
+// Returns C code applying the compound assignment [s], whose operator is
+// [k], to the old value [old] of type [t] and the assigned value [v].
+func (g *gen) compound(s *ast.AssignStmt, k lexer.Kind, t types.Type, old, v string) string {
+	if f := g.info.Operators[s]; f != nil {
+		return g.memberCall(f, t, old, v)
+	}
+	return binop(k, t, old, v, g.lineOf(s))
+}
 
 // Returns C code applying the binary operator [k] to [a] and [b], whose
 // type is [t].
@@ -1725,16 +1813,7 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 			case "contains":
 				list, v, i, found := g.temp(), g.temp(), g.temp(), g.temp()
 				item := fmt.Sprintf("((%s*)%s->data)[%s]", elem, list, i)
-				eq := item + " == " + v
-				if l.Elem == types.String {
-					eq = fmt.Sprintf("vx_str_eq(%s, %s)", item, v)
-				}
-				if _, ok := l.Elem.(*types.Enum); ok {
-					eq = fmt.Sprintf("%s->tag == %s->tag", item, v)
-				}
-				if r, ok := l.Elem.(*types.Record); ok {
-					eq = equal(r, item, v)
-				}
+				eq := equal(l.Elem, item, v)
 				return fmt.Sprintf("({ vx_list *%s = %s; %s = %s; bool %s = false; "+
 					"for (int64_t %s = 0; %s < %s->len; %s++) if (%s) { %s = true; break; } %s; })",
 					list, cs[0], decl(l.Elem, v), cs[1], found, i, i, list, i, eq, found, found)

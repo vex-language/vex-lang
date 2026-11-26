@@ -73,6 +73,10 @@ func equal(t types.Type, a, b string) string {
 		return fmt.Sprintf("eq_%s(%s, %s)", mangle(t), a, b)
 	case *types.Handle:
 		return fmt.Sprintf("%s == %s", a, b)
+	case *types.Struct:
+		if f := t.Operator("=="); f != nil {
+			return fmt.Sprintf("%s(%s, %s)", funcName(f), a, b)
+		}
 	}
 	switch t {
 	case types.String:
