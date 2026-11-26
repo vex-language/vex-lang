@@ -92,6 +92,7 @@ func (g *gen) spawnWrapper(f *types.Func) {
 	for _, n := range ns {
 		g.line("    a->%s = %s;", n, n)
 	}
+	g.line("    vx_remember(a);")
 	g.line("    vx_go(en_%s, a);", name)
 	g.line("    return a->f;")
 	g.line("}")
