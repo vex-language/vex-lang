@@ -22,7 +22,8 @@ func (g *gen) collection(lit ast.Expr, body *ast.Block, t types.Type) string {
 		if n != "0" {
 			f := fill{g.temp(), g.temp(), g.temp()}
 			g.fills[lit] = f
-			init += fmt.Sprintf(" int64_t %s = 0, %s = %s->cap; %s *%s = %s->data;", f.len, f.cap, r, ctype(t.Elem), f.data, r)
+			c := ctype(t.Elem)
+			init += fmt.Sprintf(" int64_t %s = 0, %s = %s->cap; %s *%s = (%s *)%s->data;", f.len, f.cap, r, c, f.data, c, r)
 			done = fmt.Sprintf("%s->len = %s; ", r, f.len)
 		}
 	case *types.Map:
@@ -135,8 +136,8 @@ func (g *gen) element(x ast.Expr, lit ast.Expr) {
 		v := g.temp()
 		g.line("%s = %s;", decl(t.Elem, v), g.expr(x))
 		g.line("if (__builtin_expect(%s < %s, 1)) %s[%s++] = %s;", f.len, f.cap, f.data, f.len, v)
-		g.line("else { %s->len = %s; vx_list_push(%s, &%s); %s = %s->len; %s = %s->cap; %s = %s->data; }",
-			r, f.len, r, v, f.len, r, f.cap, r, f.data, r)
+		g.line("else { %s->len = %s; vx_list_push(%s, &%s); %s = %s->len; %s = %s->cap; %s = (%s *)%s->data; }",
+			r, f.len, r, v, f.len, r, f.cap, r, f.data, ctype(t.Elem), r)
 	case *types.Map:
 		if s, ok := x.(*ast.SpreadExpr); ok {
 			g.spread(s, func(src string, _ types.Type) { g.line("vx_map_merge(%s, %s);", r, src) })
