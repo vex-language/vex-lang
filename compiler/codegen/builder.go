@@ -88,6 +88,15 @@ func newList(t types.Type, n, capacity, items string) string {
 	return fmt.Sprintf("vx_list_make(sizeof(%s), %s, %s, %s, %t)", ctype(t), n, capacity, items, flat(t))
 }
 
+// Returns C code adding [v] to the end of list [l] of [t]. A value with
+// pointers goes through the write barrier.
+func push(t types.Type, l, v string) string {
+	if flat(t) {
+		return fmt.Sprintf("VX_PUSH(%s, %s, %s)", ctype(t), l, v)
+	}
+	return fmt.Sprintf("VX_PUSH_REF(%s, %s, %s)", ctype(t), l, v)
+}
+
 // Reports whether values of [t] never hold a pointer the collector must
 // follow.
 func flat(t types.Type) bool {
@@ -123,19 +132,23 @@ func (g *gen) element(x ast.Expr, lit ast.Expr) {
 				g.line("vx_list *%s = %s;", l, src)
 				g.line("for (int64_t %s = 0; %s < %s->len; %s++) {", i, i, l, i)
 				g.line("    %s = %s;", decl(o, v), wrapOpt(o, fmt.Sprintf("((%s*)%s->data)[%s]", ctype(from), l, i)))
-				g.line("    VX_PUSH(%s, %s, %s);", ctype(o), r, v)
+				g.line("    %s;", push(o, r, v))
 				g.line("}")
 			})
 			return
 		}
 		f, ok := g.fills[lit]
 		if !ok {
-			g.line("VX_PUSH(%s, %s, %s);", ctype(t.Elem), r, g.expr(x))
+			g.line("%s;", push(t.Elem, r, g.expr(x)))
 			return
 		}
 		v := g.temp()
 		g.line("%s = %s;", decl(t.Elem, v), g.expr(x))
-		g.line("if (__builtin_expect(%s < %s, 1)) %s[%s++] = %s;", f.len, f.cap, f.data, f.len, v)
+		barrier := ""
+		if !flat(t.Elem) {
+			barrier = fmt.Sprintf(" vx_remember(%s);", f.data)
+		}
+		g.line("if (__builtin_expect(%s < %s, 1)) { %s[%s++] = %s;%s }", f.len, f.cap, f.data, f.len, v, barrier)
 		g.line("else { %s->len = %s; vx_list_push(%s, &%s); %s = %s->len; %s = %s->cap; %s = (%s *)%s->data; }",
 			r, f.len, r, v, f.len, r, f.cap, r, f.data, ctype(t.Elem), r)
 	case *types.Map:

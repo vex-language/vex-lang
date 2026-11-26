@@ -135,7 +135,12 @@ typedef struct {
     // its free list is empty.
     char *bump[2][VX_CLASSES], *bump_end[2][VX_CLASSES];
     size_t page_scan;          // pages before this one aren't empty
+    const void **rem;          // addresses written since the last collection
+    size_t rem_len, rem_cap;
+    size_t rem_done;           // entries before this one name distinct objects
+    size_t major_next;         // a major collection is due once gc_base passes this
 } vx_heap;
+
 
 static VX_TLS vx_heap vx_h = {.gc_next = 4 << 20, .lo = UINTPTR_MAX};
 
@@ -295,6 +300,55 @@ static vx_large *vx_large_of(uintptr_t p) {
     return p < (uintptr_t)(l + 1) + l->size ? l : NULL;
 }
 
+// A mark byte holds the mark in its low bit. Bit 1 flags an object already
+// in the remembered set, from when the set is compacted until the next
+// collection, which clears it before marking.
+#define VX_REMEMBERED 2
+
+// Compacts the full remembered set to one entry per object, and grows it
+// unless that freed half of it.
+__attribute__((noinline, cold))
+static void vx_rem_compact(void) {
+    vx_heap *h = &vx_h;
+    size_t k = h->rem_done;
+    for (size_t i = h->rem_done; i < h->rem_len; i++) {
+        uintptr_t p = (uintptr_t)h->rem[i];
+        vx_page *pg = p >= h->lo && p < h->hi ? vx_page_of(p) : NULL;
+        if (pg && pg->size) {
+            size_t j = (size_t)(((uint64_t)(p - (uintptr_t)pg->start) * pg->recip) >> 32);
+            if (j < pg->count) {
+                if (pg->marks[j] & VX_REMEMBERED) continue;
+                pg->marks[j] |= VX_REMEMBERED;
+                h->rem[k++] = pg->start + j * pg->size;
+                continue;
+            }
+        }
+        h->rem[k++] = (const void *)p;
+    }
+    h->rem_len = h->rem_done = k;
+    if (h->rem_len * 2 > h->rem_cap) h->rem = vx_grow(h->rem, &h->rem_cap, sizeof(void *));
+}
+
+// Makes room in the full remembered set.
+__attribute__((noinline, cold))
+static void vx_rem_full(void) {
+    vx_heap *h = &vx_h;
+    if (h->rem_cap < 4096) h->rem = vx_grow(h->rem, &h->rem_cap, sizeof(void *));
+    else vx_rem_compact();
+}
+
+// The write barrier: records that the object holding [p] was written, so
+// the next minor collection scans it again if it is old. It runs after the
+// write, so that no collection can come between them. Writing the same
+// object over and over records it once.
+__attribute__((always_inline))
+static inline void vx_remember(const void *p) {
+    vx_heap *h = &vx_h;
+    if (h->rem_len > 0 && h->rem[h->rem_len - 1] == p) return;
+    if (__builtin_expect(h->rem_len == h->rem_cap, 0)) vx_rem_full();
+    h->rem[h->rem_len++] = p;
+}
+
 static void vx_gray_push(char *ptr, size_t size) {
     if (vx_gray_len == vx_gray_cap) vx_gray = vx_grow(vx_gray, &vx_gray_cap, sizeof(vx_span));
     vx_gray[vx_gray_len++] = (vx_span){ptr, size};
@@ -384,12 +438,102 @@ static void vx_mark_stack(void) {
 
 static void vx_async_mark(void);
 
+// Finds the object holding the address [p], giving its start and size, or
+// returns false when [p] isn't in an object. [marked] tells whether the
+// object is marked, and [atomic] whether it holds no pointers.
+static bool vx_object_at(uintptr_t p, char **start, size_t *size, bool *marked, bool *atomic) {
+    if (p < vx_lo || p >= vx_hi) return false;
+    vx_page *pg = vx_page_of(p);
+    if (pg) {
+        if (pg->size == 0) return false;
+        size_t i = (size_t)(((uint64_t)(p - (uintptr_t)pg->start) * pg->recip) >> 32);
+        if (i >= pg->count) return false;
+        *start = pg->start + i * pg->size;
+        *size = pg->size;
+        *marked = pg->marks[i] & 1;
+        *atomic = pg->atomic;
+        return true;
+    }
+    vx_large *l = vx_large_of(p);
+    if (!l) return false;
+    *start = (char *)(l + 1);
+    *size = l->size;
+    *marked = l->mark;
+    *atomic = l->atomic;
+    return true;
+}
+
+// Empties the remembered set, clearing its flags. Unless [major], the
+// marked objects in it are scanned again, so what they now point to is
+// marked too.
+static void vx_mark_remembered(bool major) {
+    for (size_t i = 0; i < vx_h.rem_len; i++) {
+        char *start;
+        size_t size;
+        bool marked, atomic;
+        if (!vx_object_at((uintptr_t)vx_h.rem[i], &start, &size, &marked, &atomic)) continue;
+        vx_page *pg = vx_page_of((uintptr_t)start);
+        if (pg) pg->marks[(size_t)(start - pg->start) / pg->size] &= 1;
+        if (!major && marked && !atomic) vx_gray_push(start, size);
+    }
+    vx_h.rem_len = vx_h.rem_done = 0;
+}
+
+// Under VEX_GC_VERIFY, checks after marking that no marked object points
+// to an unmarked one: a write to an old object that a barrier missed.
+__attribute__((no_sanitize_address))
+static void vx_verify_object(char *obj, size_t size) {
+    for (size_t off = 0; off + sizeof(void *) <= size; off += sizeof(void *)) {
+        uintptr_t p = *(uintptr_t *)(obj + off);
+        char *start;
+        size_t n;
+        bool marked, atomic;
+        if (vx_object_at(p, &start, &n, &marked, &atomic) && !marked) {
+            fprintf(stderr, "error: the collector missed a write: the object at %p (%zu bytes) points at offset %zu to "
+                "the unmarked object at %p\n", (void *)obj, size, off, (void *)start);
+            abort();
+        }
+    }
+}
+
+static void vx_verify(void) {
+    for (size_t p = 0; p < vx_pages_len; p++) {
+        vx_page *pg = vx_pages[p];
+        if (pg->size == 0 || pg->atomic) continue;
+        for (uint32_t i = 0; i < pg->count; i++) {
+            if (pg->marks[i]) vx_verify_object(pg->start + (size_t)i * pg->size, pg->size);
+        }
+    }
+    for (size_t i = 0; i < vx_larges_len; i++) {
+        vx_large *l = vx_larges[i];
+        if (l->mark && !l->atomic) vx_verify_object((char *)(l + 1), l->size);
+    }
+}
+
+static bool vx_gc_verify;          // VEX_GC_VERIFY=1: check every minor collection
+
+// Collects garbage. Objects that survive stay marked, which makes them old:
+// a minor collection marks only from the roots and the old objects written
+// since, so it doesn't trace the old objects again. A major collection
+// clears every mark first and traces everything, once the old objects
+// have doubled since the last one.
 static void vx_collect(void) {
     if (!vx_stack_base) return;
     vx_gc_count++;
     vx_gc_total += vx_heap_bytes - vx_h.gc_base;
     if (vx_heap_bytes > vx_gc_peak) vx_gc_peak = vx_heap_bytes;
     if (vx_larges_len > 1) qsort(vx_larges, vx_larges_len, sizeof(vx_large *), vx_large_cmp);
+    bool major = vx_gc_stress ? vx_gc_count % 4 == 0 : vx_h.gc_base >= vx_h.major_next;
+    vx_mark_remembered(major);
+    if (major) {
+        for (size_t p = 0; p < vx_pages_len; p++) {
+            vx_page *pg = vx_pages[p];
+            if (pg->size == 0 || pg->live == 0) continue;
+            memset(pg->marks, 0, pg->count);
+            pg->live = 0;
+        }
+        for (size_t i = 0; i < vx_larges_len; i++) vx_larges[i]->mark = 0;
+    }
 
     vx_mark_stack();
     vx_mark_range((const char *)&vx_fs_entries, (const char *)(&vx_fs_entries + 1));
@@ -403,9 +547,11 @@ static void vx_collect(void) {
     }
     vx_async_mark();
     vx_mark_gray();
+    if (vx_gc_verify && !major) vx_verify();
 
-    // Sweep: rebuild the free lists from the unmarked objects. A page with
-    // nothing live is empty again, and a full one has nothing to add.
+    // Sweep: rebuild the free lists from the unmarked objects, keeping the
+    // marks. A page with nothing live is empty again, and a full one has
+    // nothing to add.
     memset(vx_free, 0, sizeof(vx_free));
     memset(vx_h.bump, 0, sizeof(vx_h.bump));
     memset(vx_h.bump_end, 0, sizeof(vx_h.bump_end));
@@ -419,11 +565,7 @@ static void vx_collect(void) {
             continue;
         }
         vx_heap_bytes += (size_t)pg->live * pg->size;
-        if (pg->live == pg->count) {
-            memset(pg->marks, 0, pg->count);
-            pg->live = 0;
-            continue;
-        }
+        if (pg->live == pg->count) continue;
         int cls = vx_class_of[pg->size / 16];
         void **list = &vx_free[pg->atomic][cls];
         for (uint32_t i = pg->count; i-- > 0;) {
@@ -432,14 +574,11 @@ static void vx_collect(void) {
             *obj = *list;
             *list = obj;
         }
-        memset(pg->marks, 0, pg->count);
-        pg->live = 0;
     }
     size_t kept = 0;
     for (size_t i = 0; i < vx_larges_len; i++) {
         vx_large *l = vx_larges[i];
         if (l->mark) {
-            l->mark = 0;
             vx_heap_bytes += l->size;
             vx_larges[kept++] = l;
         } else {
@@ -448,7 +587,10 @@ static void vx_collect(void) {
     }
     vx_larges_len = kept;
     vx_h.gc_base = vx_heap_bytes;
-    vx_gc_next = vx_heap_bytes * 2 > (size_t)(4 << 20) ? vx_heap_bytes * 2 : (size_t)(4 << 20);
+    if (major) vx_h.major_next = vx_heap_bytes * 2 > (size_t)(4 << 20) ? vx_heap_bytes * 2 : (size_t)(4 << 20);
+    // The young objects may grow as large as the old ones before a minor
+    // collection.
+    vx_gc_next = vx_heap_bytes + (vx_heap_bytes > (size_t)(4 << 20) ? vx_heap_bytes : (size_t)(4 << 20));
 }
 
 static void *vx_alloc_large(size_t n, bool atomic) {
@@ -607,6 +749,8 @@ static void vx_gc_init(void *base) {
     const char *stress = getenv("VEX_GC_STRESS");
     if (stress) vx_gc_stress = (size_t)strtoull(stress, NULL, 10);
     vx_gc_thread_init(base);
+    const char *verify = getenv("VEX_GC_VERIFY");
+    vx_gc_verify = verify && *verify && strcmp(verify, "0") != 0;
     const char *stats = getenv("VEX_GC_STATS");
     if (stats && *stats && strcmp(stats, "0") != 0) atexit(vx_gc_report);
 }
@@ -859,6 +1003,8 @@ static vx_list *vx_list_make(int64_t esz, int64_t n, int64_t cap, const void *it
     size_t size = (size_t)(l->cap * esz);
     l->data = flat ? vx_alloc_atomic(size) : vx_alloc(size);
     if (n > 0) memcpy(l->data, items, (size_t)(n * esz));
+    vx_remember(l);
+    vx_remember(l->data);
     return l;
 }
 
@@ -900,6 +1046,14 @@ static bool vx_is_atomic(void *p) {
     else vx_list_push(vx_push_l, &vx_push_v); \
 })
 
+// Like [VX_PUSH], for values that hold pointers: the list's elements are
+// then recorded by the write barrier.
+#define VX_PUSH_REF(T, l, v) ({ \
+    vx_list *vx_ref_l = (l); \
+    VX_PUSH(T, vx_ref_l, v); \
+    vx_remember(vx_ref_l->data); \
+})
+
 // Returns a pointer to element [i], stopping the program if it is out of range.
 static void *vx_list_at(vx_list *l, int64_t i, int line) {
     if (i < 0 || i >= l->len) {
@@ -914,9 +1068,11 @@ static void vx_list_push(vx_list *l, const void *item) {
         if (l->cap < 0) vx_fail(0, "can't change a constant list");
         l->cap *= 2;
         l->data = vx_realloc(l->data, (size_t)(l->cap * l->esz));
+        vx_remember(l);
     }
     memcpy(l->data + l->len * l->esz, item, (size_t)l->esz);
     l->len++;
+    vx_remember(l->data);
 }
 
 // Removes the last element and returns a pointer to it, valid until the
@@ -949,9 +1105,11 @@ static void vx_list_append(vx_list *l, vx_list *src) {
         if (l->cap < 0) vx_fail(0, "can't change a constant list");
         while (l->len + n > l->cap) l->cap *= 2;
         l->data = vx_realloc(l->data, (size_t)(l->cap * l->esz));
+        vx_remember(l);
     }
     if (n > 0) memcpy(l->data + l->len * l->esz, src->data, (size_t)(n * l->esz));
     l->len += n;
+    vx_remember(l->data);
 }
 
 static vx_list *vx_str_split(vx_str s, vx_str sep, int line) {
@@ -1193,6 +1351,7 @@ static void vx_map_grow(vx_map *m) {
     if (n != m->used) m->epoch++;
     if (entries == m->entries) memset(VX_MAP_ENTRY(m, n), 0, (size_t)((m->used - n) * m->esz));
     m->entries = entries;
+    vx_remember(m);
     m->used = n;
     m->cap = cap;
     size_t slots = 16;
@@ -1205,6 +1364,7 @@ static void vx_map_grow(vx_map *m) {
         while (m->index[s] != VX_MAP_EMPTY) s = (s + 1) & (size_t)m->mask;
         m->index[s] = (int32_t)i;
     }
+    vx_remember(m);
 }
 
 // Returns a pointer to the value of [key], or NULL if it is missing.
@@ -1218,7 +1378,11 @@ static inline void *vx_map_find(vx_map *m, const void *key) {
 static void *vx_map_set(vx_map *m, const void *key) {
     uint64_t h = vx_key_hash(m->kind, key);
     int64_t s = vx_map_slot(m, key, h);
-    if (s >= 0) return VX_MAP_ENTRY(m, m->index[s]) + m->voff;
+    if (s >= 0) {
+        // The caller writes the value next, with nothing allocated between.
+        vx_remember(m->entries);
+        return VX_MAP_ENTRY(m, m->index[s]) + m->voff;
+    }
     if (m->used == m->cap) vx_map_grow(m);
     size_t i = h & (size_t)m->mask;
     while (m->index[i] >= 0) i = (i + 1) & (size_t)m->mask;
@@ -1228,6 +1392,7 @@ static void *vx_map_set(vx_map *m, const void *key) {
     memcpy(e + VX_MAP_KEY, key, (size_t)m->ksz);
     m->index[i] = (int32_t)m->used++;
     m->len++;
+    vx_remember(m->entries);
     return e + m->voff;
 }
 
@@ -1642,6 +1807,7 @@ static int64_t vx_fs_list_open(const char *path) {
         }
         size_t len = strlen(e->d_name);
         names[n] = vx_alloc_atomic(len + 1);
+        vx_remember(names);
         memcpy(names[n], e->d_name, len + 1);
         n++;
     }
@@ -1968,11 +2134,13 @@ static void vx_future_settle(vx_future *f, int32_t state) {
 // Completes [f] with the [f->size] bytes at [value].
 static void vx_future_done(vx_future *f, const void *value) {
     if (f->size > 0) memcpy(f->value, value, (size_t)f->size);
+    vx_remember(f);
     vx_future_settle(f, 1);
 }
 
 static void vx_future_fail(vx_future *f, void *err) {
     f->err = err;
+    vx_remember(f);
     vx_future_settle(f, 2);
 }
 
@@ -2139,6 +2307,7 @@ static void vx_all_task(void *p) {
 static vx_future *vx_all(vx_list *futures, int64_t esz) {
     vx_all_arg *a = vx_alloc(sizeof(vx_all_arg));
     *a = (vx_all_arg){vx_future_new(esz > 0 ? (int64_t)sizeof(vx_list *) : 0), futures, esz};
+    vx_remember(a);
     vx_go(vx_all_task, a);
     return a->result;
 }
@@ -2168,6 +2337,7 @@ static vx_future *vx_any(vx_list *futures, int64_t esz, int line) {
     for (int64_t i = 0; i < futures->len && result->state == 0; i++) {
         vx_any_arg *a = vx_alloc(sizeof(vx_any_arg));
         *a = (vx_any_arg){result, ((vx_future **)futures->data)[i]};
+        vx_remember(a);
         vx_go(vx_any_task, a);
     }
     return result;
@@ -2287,6 +2457,7 @@ static void vx_dec_obj(vx_dec *d, void *o) {
         d->cap = cap;
     }
     d->objs[d->len++] = o;
+    vx_remember(d->objs);
 }
 
 // A message to an isolate: what completes future [f]. [fill] decodes

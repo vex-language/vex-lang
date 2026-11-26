@@ -1004,6 +1004,10 @@ func (g *gen) assign(s *ast.AssignStmt) {
 	t := g.info.Types[s.Target]
 	var setup []string
 	var target, recv string
+	// Whether the target is in an object, which the write barrier records,
+	// and what it records: the object, the list's elements, or the target
+	// itself.
+	inHeap, barrier := true, ""
 	switch x := s.Target.(type) {
 	case *ast.IndexExpr:
 		if set := g.info.IndexSets[x]; set != nil {
@@ -1022,6 +1026,7 @@ func (g *gen) assign(s *ast.AssignStmt) {
 		setup = append(setup,
 			fmt.Sprintf("vx_list *%s = %s;", list, g.expr(x.X)),
 			fmt.Sprintf("int64_t %s = %s;", idx, g.expr(x.Index)))
+		barrier = list + "->data"
 		target = fmt.Sprintf("(*VX_AT(%s, vx_list_mut(%s, %d), %s, %d))", ctype(t), list, g.lineOf(x), idx, g.lineOf(x))
 	case *ast.MemberExpr:
 		obj := g.temp()
@@ -1031,7 +1036,7 @@ func (g *gen) assign(s *ast.AssignStmt) {
 			return
 		}
 		target = fmt.Sprintf("%s->f_%s", obj, x.Name.Name)
-		recv = obj
+		recv, barrier = obj, obj
 	default:
 		if id, ok := s.Target.(*ast.Ident); ok {
 			switch g.info.Uses[id].(type) {
@@ -1040,9 +1045,25 @@ func (g *gen) assign(s *ast.AssignStmt) {
 				return
 			case *types.Field:
 				recv = g.selfRef()
+				barrier = recv
+			case *types.Var:
+				inHeap = g.info.Uses[id].(*types.Var).Boxed()
 			}
 		}
 		target = g.expr(s.Target)
+	}
+	store := func(value string) {
+		if !inHeap || flat(t) {
+			g.line("%s = %s;", target, value)
+			return
+		}
+		if barrier != "" {
+			g.line("%s = %s;", target, value)
+			g.line("vx_remember(%s);", barrier)
+			return
+		}
+		p := g.temp()
+		g.line("{ %s *%s = &%s; *%s = %s; vx_remember(%s); }", ctype(t), p, target, p, value, p)
 	}
 	observer := g.info.Observers[s]
 	op, compound := compoundOps[s.Op]
@@ -1063,7 +1084,7 @@ func (g *gen) assign(s *ast.AssignStmt) {
 		value = g.compound(s, op, t, old, value)
 	}
 	if setup == nil {
-		g.line("%s = %s;", target, value)
+		store(value)
 		return
 	}
 	g.line("{")
@@ -1074,10 +1095,10 @@ func (g *gen) assign(s *ast.AssignStmt) {
 	if observer != nil {
 		prev := g.temp()
 		g.line("%s = %s;", decl(t, prev), target)
-		g.line("%s = %s;", target, value)
+		store(value)
 		g.line("%s(%s, %s);", funcName(observer), recv, prev)
 	} else {
-		g.line("%s = %s;", target, value)
+		store(value)
 	}
 	g.ind--
 	g.line("}")
@@ -1790,7 +1811,7 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 			elem := ctype(l.Elem)
 			switch c.Builtin {
 			case "push":
-				return fmt.Sprintf("VX_PUSH(%s, vx_list_mut(%s, %d), %s)", elem, cs[0], line, cs[1])
+				return push(l.Elem, fmt.Sprintf("vx_list_mut(%s, %d)", cs[0], line), cs[1])
 			case "pop":
 				return fmt.Sprintf("(*(%s*)vx_list_pop(vx_list_mut(%s, %d), %d))", elem, cs[0], line, line)
 			case "copy":
@@ -1800,9 +1821,9 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 				ft := g.info.Types[c.Args[0]].(*types.FuncType)
 				call := fmt.Sprintf("((%s)%s.fn)(%s.env, %s)", fnPtrType(ft), f, f, x)
 				resultElem := ft.Result
-				body := fmt.Sprintf("if (%s) VX_PUSH(%s, %s, %s);", call, elem, out, x)
+				body := fmt.Sprintf("if (%s) %s;", call, push(l.Elem, out, x))
 				if c.Builtin == "map" {
-					body = fmt.Sprintf("VX_PUSH(%s, %s, %s);", ctype(resultElem), out, call)
+					body = push(resultElem, out, call) + ";"
 				} else {
 					resultElem = l.Elem
 				}
@@ -1880,6 +1901,9 @@ func (g *gen) bindVar(v *types.Var, value string) {
 		name := g.declare(v)
 		g.line("%s = vx_alloc(sizeof(%s));", declPtr(v.Type, name), ctype(v.Type))
 		g.line("*%s = %s;", name, value)
+		if !flat(v.Type) {
+			g.line("vx_remember(%s);", name)
+		}
 		g.vals[v], g.boxes[v] = "(*"+name+")", name
 		return
 	}

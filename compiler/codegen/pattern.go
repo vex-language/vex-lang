@@ -167,7 +167,7 @@ func (g *gen) patBinds(vars []*types.Var) []string {
 		value := g.patTemps[v]
 		if v.Boxed() {
 			name := g.declare(v)
-			out = append(out, fmt.Sprintf("%s = vx_alloc(sizeof(%s)); *%s = %s;", declPtr(v.Type, name), ctype(v.Type), name, value))
+			out = append(out, fmt.Sprintf("%s = vx_alloc(sizeof(%s)); *%s = %s; vx_remember(%s);", declPtr(v.Type, name), ctype(v.Type), name, value, name))
 			g.vals[v], g.boxes[v] = "(*"+name+")", name
 			continue
 		}

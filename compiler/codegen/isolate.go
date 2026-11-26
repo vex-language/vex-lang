@@ -62,7 +62,7 @@ func (g *gen) codec(t types.Type) string {
 		for _, f := range t.Fields {
 			c := g.codec(f.Type)
 			fmt.Fprintf(&snd, " snd_%s(e, v->f_%s);", c, f.Name)
-			fmt.Fprintf(&rcv, " o->f_%s = rcv_%s(d);", f.Name, c)
+			fmt.Fprintf(&rcv, " o->f_%s = rcv_%s(d); vx_remember(o);", f.Name, c)
 		}
 		rcv.WriteString(" return o;")
 	case *types.Enum:
@@ -82,7 +82,7 @@ func (g *gen) codec(t types.Type) string {
 			for _, f := range cs.Fields {
 				c := g.codec(f.Type)
 				fmt.Fprintf(&snd, " snd_%s(e, v->u.c_%s.f_%s);", c, cs.Name, f.Name)
-				fmt.Fprintf(&rcv, " o->u.c_%s.f_%s = rcv_%s(d);", cs.Name, f.Name, c)
+				fmt.Fprintf(&rcv, " o->u.c_%s.f_%s = rcv_%s(d); vx_remember(o);", cs.Name, f.Name, c)
 			}
 			snd.WriteString(" break;")
 			rcv.WriteString(" break;")
@@ -118,9 +118,9 @@ func (g *gen) filler(t types.Type, opt bool) string {
 	g.codecs[name] = true
 	if opt {
 		fmt.Fprintf(&g.codecDefs, "static void %s(const char *buf, void *out) { vx_dec d = {buf, NULL, 0, 0}; %s = rcv_%s(&d); "+
-			"*(%s *)out = %s; }\n", name, decl(t, "v"), m, ctype(&types.Optional{Elem: t}), wrapOpt(&types.Optional{Elem: t}, "v"))
+			"*(%s *)out = %s; vx_remember(out); }\n", name, decl(t, "v"), m, ctype(&types.Optional{Elem: t}), wrapOpt(&types.Optional{Elem: t}, "v"))
 	} else {
-		fmt.Fprintf(&g.codecDefs, "static void %s(const char *buf, void *out) { vx_dec d = {buf, NULL, 0, 0}; *(%s *)out = rcv_%s(&d); }\n",
+		fmt.Fprintf(&g.codecDefs, "static void %s(const char *buf, void *out) { vx_dec d = {buf, NULL, 0, 0}; *(%s *)out = rcv_%s(&d); vx_remember(out); }\n",
 			name, ctype(t), m)
 	}
 	return name
@@ -152,10 +152,10 @@ func (g *gen) isolateCall(e *ast.CallExpr, c *types.Call) string {
 				field := fmt.Sprintf("((struct env_%s *)%s.env)->c%d", lam, fv, i)
 				if v.Boxed() {
 					fmt.Fprintf(&pre, "snd_%s(&%s, *%s); ", m, enc, field)
-					fmt.Fprintf(&body, " env->c%d = vx_alloc(sizeof(%s)); *env->c%d = rcv_%s(d);", i, ctype(v.Type), i, m)
+					fmt.Fprintf(&body, " env->c%d = vx_alloc(sizeof(%s)); vx_remember(env); *env->c%d = rcv_%s(d); vx_remember(env->c%d);", i, ctype(v.Type), i, m, i)
 				} else {
 					fmt.Fprintf(&pre, "snd_%s(&%s, %s); ", m, enc, field)
-					fmt.Fprintf(&body, " env->c%d = rcv_%s(d);", i, m)
+					fmt.Fprintf(&body, " env->c%d = rcv_%s(d); vx_remember(env);", i, m)
 				}
 			}
 			args = append(args, "env")
