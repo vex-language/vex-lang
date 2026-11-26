@@ -94,6 +94,9 @@ typedef struct {
     uint32_t count;   // objects that fit
     uint32_t atomic;  // its objects hold no pointers, so they aren't scanned
     uint32_t live;
+    // ceil(2^32 / size): the object holding byte `off` is (off * recip) >> 32,
+    // exact since size * VX_PAGE_SIZE < 2^32.
+    uint32_t recip;
     uint8_t marks[VX_PAGE_SIZE / 16];
 } vx_page;
 
@@ -238,6 +241,7 @@ static void vx_bounds(uintptr_t lo, uintptr_t hi) {
 static void vx_page_format(vx_page *pg, int cls, bool atomic) {
     pg->size = vx_class_size[cls];
     pg->count = (uint32_t)(VX_PAGE_SIZE / pg->size);
+    pg->recip = (uint32_t)((((uint64_t)1 << 32) + pg->size - 1) / pg->size);
     pg->atomic = atomic;
     void **list = &vx_free[atomic][cls];
     for (uint32_t i = pg->count; i-- > 0;) {
@@ -295,20 +299,40 @@ static void vx_gray_push(char *ptr, size_t size) {
 
 // Reads whole stack frames and objects on purpose, so it isn't checked by
 // AddressSanitizer.
+//
+// The heap's fields are read through [h] once, since each access to the
+// thread-local heap otherwise looks it up again.
 __attribute__((no_sanitize_address))
 static void vx_mark_range(const char *lo, const char *hi) {
+    vx_heap *h = &vx_h;
+    const uintptr_t heap_lo = h->lo, heap_hi = h->hi;
+    vx_page *const *table = h->page_table;
+    const size_t mask = h->page_table_cap - 1;
     uintptr_t start = ((uintptr_t)lo + sizeof(void *) - 1) & ~(uintptr_t)(sizeof(void *) - 1);
     for (uintptr_t a = start; a + sizeof(void *) <= (uintptr_t)hi; a += sizeof(void *)) {
         uintptr_t p = *(uintptr_t *)a;
-        if (p < vx_lo || p >= vx_hi) continue;
-        vx_page *pg = vx_page_of(p);
+        if (p < heap_lo || p >= heap_hi) continue;
+        vx_page *pg = NULL;
+        if (table) {
+            uintptr_t n = p >> VX_PAGE_SHIFT;
+            for (size_t j = vx_page_hash(n, mask + 1);; j = (j + 1) & mask) {
+                vx_page *t = table[j];
+                if (!t || (uintptr_t)t->start >> VX_PAGE_SHIFT == n) {
+                    pg = t;
+                    break;
+                }
+            }
+        }
         if (pg) {
             if (pg->size == 0) continue;
-            size_t i = (p - (uintptr_t)pg->start) / pg->size;
+            size_t i = (size_t)(((uint64_t)(p - (uintptr_t)pg->start) * pg->recip) >> 32);
             if (i >= pg->count || pg->marks[i]) continue;
             pg->marks[i] = 1;
             pg->live++;
-            if (!pg->atomic) vx_gray_push(pg->start + i * pg->size, pg->size);
+            if (!pg->atomic) {
+                if (h->gray_len == h->gray_cap) h->gray = vx_grow(h->gray, &h->gray_cap, sizeof(vx_span));
+                h->gray[h->gray_len++] = (vx_span){pg->start + i * pg->size, pg->size};
+            }
             continue;
         }
         vx_large *l = vx_large_of(p);
@@ -400,10 +424,11 @@ static void *vx_alloc_large(size_t n, bool atomic) {
 }
 
 static void *vx_alloc_block(size_t n, bool atomic) {
-    if (vx_gc_stress && --vx_gc_countdown == 0) {
-        vx_gc_countdown = vx_gc_stress;
+    vx_heap *h = &vx_h;
+    if (vx_gc_stress && --h->gc_countdown == 0) {
+        h->gc_countdown = vx_gc_stress;
         vx_collect();
-    } else if (vx_heap_bytes + n > vx_gc_next) {
+    } else if (h->heap_bytes + n > h->gc_next) {
         vx_collect();
     }
     void *p;
@@ -412,16 +437,26 @@ static void *vx_alloc_block(size_t n, bool atomic) {
     } else {
         int cls = vx_class_of[(n + 15) / 16];
         n = vx_class_size[cls];
-        void **list = &vx_free[atomic][cls];
+        void **list = &h->free[atomic][cls];
         if (!*list) vx_page_new(cls, atomic);
         p = *list;
         *list = *(void **)p;
-        if (atomic) *(void **)p = NULL;
-        else memset(p, 0, n);
+        if (atomic) {
+            *(void **)p = NULL;
+        } else if (n <= 64) {
+            // Small objects, the most common, are cleared without a call.
+            uint64_t *q = p;
+            q[0] = q[1] = 0;
+            if (n > 16) q[2] = q[3] = 0;
+            if (n > 32) q[4] = q[5] = 0;
+            if (n > 48) q[6] = q[7] = 0;
+        } else {
+            memset(p, 0, n);
+        }
     }
-    vx_heap_bytes += n;
-    vx_gc_total += n;
-    if (vx_heap_bytes > vx_gc_peak) vx_gc_peak = vx_heap_bytes;
+    h->heap_bytes += n;
+    h->gc_total += n;
+    if (h->heap_bytes > h->gc_peak) h->gc_peak = h->heap_bytes;
     return p;
 }
 
@@ -733,15 +768,58 @@ static bool vx_str_contains(vx_str s, vx_str sub) { return vx_str_find(s, sub, 0
 
 // --- Lists ---
 
-static vx_list *vx_list_new(int64_t esz, int64_t n, const void *items) {
+// Returns a list of the [n] elements at [items], with room for at least
+// [cap]. The elements of a [flat] list hold no pointers, so the collector
+// doesn't scan them.
+static vx_list *vx_list_make(int64_t esz, int64_t n, int64_t cap, const void *items, bool flat) {
     vx_list *l = vx_alloc(sizeof(vx_list));
+    if (cap < n) cap = n;
     l->esz = esz;
     l->len = n;
-    l->cap = n < 4 ? 4 : n;
-    l->data = vx_alloc((size_t)(l->cap * esz));
+    l->cap = cap < 4 ? 4 : cap;
+    size_t size = (size_t)(l->cap * esz);
+    l->data = flat ? vx_alloc_atomic(size) : vx_alloc(size);
     if (n > 0) memcpy(l->data, items, (size_t)(n * esz));
     return l;
 }
+
+static vx_list *vx_list_new(int64_t esz, int64_t n, const void *items) { return vx_list_make(esz, n, 0, items, false); }
+
+// Like [vx_list_new], for elements that hold no pointers.
+static vx_list *vx_list_flat(int64_t esz, int64_t n, const void *items) { return vx_list_make(esz, n, 0, items, true); }
+
+// Returns the number of values in the range lo..hi, or lo..=hi when
+// [inclusive], or 0 when it can't be counted.
+static int64_t vx_range_len(int64_t lo, int64_t hi, bool inclusive) {
+    int64_t n;
+    if (__builtin_sub_overflow(hi, lo, &n) || (inclusive && __builtin_add_overflow(n, 1, &n))) return 0;
+    return n > 0 ? n : 0;
+}
+
+// Reports whether the object [p] was allocated without pointers.
+static bool vx_is_atomic(void *p) {
+    vx_page *pg = vx_page_of((uintptr_t)p);
+    return pg ? pg->atomic : ((vx_large *)p - 1)->atomic;
+}
+
+// The element [i] of list [l] of [T], or a stop at [line] when [i] is out
+// of range. Unlike [vx_list_at], the element size is known, so indexing
+// compiles to a single load.
+#define VX_AT(T, l, i, line) ({ \
+    vx_list *vx_at_l = (l); \
+    int64_t vx_at_i = (i); \
+    if (__builtin_expect((uint64_t)vx_at_i >= (uint64_t)vx_at_l->len, 0)) vx_list_at(vx_at_l, vx_at_i, line); \
+    (T *)vx_at_l->data + vx_at_i; \
+})
+
+// Adds [v], a [T], to the end of [l]. Only a full or constant list takes
+// the slow path through [vx_list_push].
+#define VX_PUSH(T, l, v) ({ \
+    vx_list *vx_push_l = (l); \
+    T vx_push_v = (v); \
+    if (__builtin_expect(vx_push_l->len < vx_push_l->cap, 1)) ((T *)vx_push_l->data)[vx_push_l->len++] = vx_push_v; \
+    else vx_list_push(vx_push_l, &vx_push_v); \
+})
 
 // Returns a pointer to element [i], stopping the program if it is out of range.
 static void *vx_list_at(vx_list *l, int64_t i, int line) {
@@ -777,7 +855,7 @@ static inline vx_list *vx_list_mut(vx_list *l, int line) {
     return l;
 }
 
-static vx_list *vx_list_copy(vx_list *l) { return vx_list_new(l->esz, l->len, l->data); }
+static vx_list *vx_list_copy(vx_list *l) { return vx_list_make(l->esz, l->len, 0, l->data, vx_is_atomic(l->data)); }
 
 static void *vx_list_pop(vx_list *l, int line) {
     if (l->len == 0) vx_fail(line, "can't pop from an empty list");

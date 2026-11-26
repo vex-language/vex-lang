@@ -1,0 +1,75 @@
+// Lists whose elements hold no pointers aren't scanned by the collector,
+// and lists built by a loop are sized up front. The program creates garbage
+// while they are live, so collections run between their uses.
+import "vex:isolate"
+
+struct Tag {
+    name: string
+}
+
+fn garbage(n: int) -> int {
+    var total = 0
+    for i in 0..n {
+        let s = "item {i}"
+        total += s.len + [i, i + 1].len
+    }
+    return total
+}
+
+fn sum(xs: [int]) -> int {
+    var s = 0
+    for x in xs {
+        s += x
+    }
+    return s
+}
+
+async fn main() {
+    // Flat element types.
+    var ints = [for i in 0..1000 i * 2]
+    var floats = [for i in 0..=10 float(i) / 2.0]
+    var flags = [for i in 0..100 i % 3 == 0]
+    var maybes: [int?] = [for i in 0..10 if i % 2 == 0 i else nil]
+    var pairs = [for i in 0..50 (i, i * i)]
+    println(garbage(2000))
+    println(sum(ints), floats[10], flags.filter(fn(b) => b).len, maybes[4], maybes[5], pairs[7].$2)
+
+    // Elements with pointers stay scanned.
+    var tags = [for i in 0..200 Tag(name: "t{i}")]
+    var named = [for i in 0..100 (i, "n{i}")]
+    println(garbage(2000))
+    println(tags[199].name, named[42].$2, tags.map(fn(t) => t.name.len)[150])
+
+    // Ranges and lists of every size, built and then grown.
+    let lo = 5
+    var empty = [for i in lo..lo i]
+    var backwards = [for i in 10..0 i]
+    var one = [for i in 3..=3 i]
+    var copied = [for x in ints x + 1]
+    empty.push(1)
+    backwards.push(2)
+    for i in 0..5000 {
+        one.push(i)
+        copied.push(i)
+    }
+    println(empty, backwards, one.len, one[4999 + 1], copied.len, copied[999])
+
+    // Copies, slices and transformed lists keep their elements.
+    let snapshot = ints.copy()
+    ints[0] = 99
+    match snapshot {
+        [first, ...rest] => println(first, rest.len, rest[998], ints[0])
+        _ => println("none")
+    }
+    let doubled = snapshot.map(fn(x) => x * 2)
+    let small = doubled.filter(fn(x) => x < 10)
+    println(garbage(2000))
+    println(doubled[999], small, sum(doubled))
+
+    // Lists sent to an isolate and back.
+    let back = await isolate.run(fn() -> [int] {
+        return [for i in 0..300 i]
+    })
+    let total = await isolate.run(fn() -> int => sum(back))
+    println(back.len, back[299], total)
+}
