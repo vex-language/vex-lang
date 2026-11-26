@@ -148,6 +148,14 @@ func (c *checker) checkConst(k *Const) {
 	c.info.Consts = append(c.info.Consts, k)
 }
 
+// The values of the constants of the built-in types, such as `int.max`.
+var basicConsts = map[string]any{
+	"int.max":        int64(math.MaxInt64),
+	"int.min":        int64(math.MinInt64),
+	"float.infinity": math.Inf(1),
+	"float.nan":      math.NaN(),
+}
+
 // Reports whether [e] is made only of values known when compiling, and
 // reports the first part that isn't.
 func (c *checker) constExpr(e ast.Expr) bool {
@@ -183,6 +191,8 @@ func (c *checker) constExpr(e ast.Expr) bool {
 			return true
 		case m != nil && (m.RecordField != "" || m.Builtin == "len"):
 			return c.constExpr(e.X)
+		case m != nil && basicConsts[m.Builtin] != nil:
+			return true
 		}
 		return bad(e, "use a literal or another constant", "'"+c.source(e)+"'")
 	case *ast.UnaryExpr:
@@ -249,6 +259,9 @@ func (c *checker) fold(e ast.Expr, t Type) any {
 	case *ast.MemberExpr:
 		if m := c.info.Members[e]; m != nil && m.Const != nil {
 			return m.Const.Value
+		}
+		if m := c.info.Members[e]; m != nil && basicConsts[m.Builtin] != nil {
+			return basicConsts[m.Builtin]
 		}
 	case *ast.InterpolatedString:
 		var b strings.Builder

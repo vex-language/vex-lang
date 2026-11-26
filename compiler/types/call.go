@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/irshadio/vex-lang/compiler/ast"
@@ -261,6 +262,18 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 // Checks a call of the form `x.name(...)`.
 func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type {
 	name := m.Name.Name
+	if t := basicRef(m.X); t != nil {
+		if name == "parse" && basicStatics[t] != nil {
+			return c.callBuiltin(e, t.String()+".parse")
+		}
+		c.checkArgs(e)
+		if _, ok := basicStatics[t][name]; ok {
+			c.errorAt(m.Name, fmt.Sprintf("read it without (): %s.%s", t, name), "'%s' is a constant, not a method", name)
+		} else {
+			c.errorAt(m.Name, didYouMean(name, basicStaticNames(t)), "%s has no static method '%s'", t, name)
+		}
+		return Invalid
+	}
 	if en := c.enumRef(m.X); en != nil {
 		if method := en.Method(name); method != nil {
 			if c.methodPrivate(m.Name, method) {
@@ -601,6 +614,34 @@ var builtinSlots = map[string]struct {
 	"input":  {[]slot{{name: "prompt", typ: String, optional: true}}, String},
 	"panic":  {[]slot{{name: "message", typ: String}}, Void},
 	"assert": {[]slot{{name: "condition", typ: Bool}, {name: "message", typ: String, optional: true}}, Void},
+
+	"int.parse":   {[]slot{{name: "text", typ: String}, {name: "radix", typ: Int, optional: true}}, &Optional{Elem: Int}},
+	"float.parse": {[]slot{{name: "text", typ: String}}, &Optional{Elem: Float}},
+}
+
+// Returns the built-in type [x] names, such as `int` in `int.parse`, or
+// nil. Their names can't be declared again, so the name alone decides.
+func basicRef(x ast.Expr) Type {
+	if id, ok := x.(*ast.Ident); ok && id.Module == "" {
+		return builtinTypes[id.Name]
+	}
+	return nil
+}
+
+// The static members of the built-in types, and their types.
+var basicStatics = map[Type]map[string]Type{
+	Int:   {"max": Int, "min": Int, "parse": nil},
+	Float: {"infinity": Float, "nan": Float, "parse": nil},
+}
+
+// Returns the names of the static members of the built-in type [t].
+func basicStaticNames(t Type) []string {
+	var names []string
+	for n := range basicStatics[t] {
+		names = append(names, n)
+	}
+	sort.Strings(names)
+	return names
 }
 
 func (c *checker) callBuiltin(e *ast.CallExpr, name string) Type {
@@ -612,6 +653,11 @@ func (c *checker) callBuiltin(e *ast.CallExpr, name string) Type {
 	if b, ok := builtinSlots[name]; ok {
 		call.Args = c.bind(e, b.params, name)
 		return b.result
+	}
+	if name == "str" && len(e.Args) == 2 && e.Args[1].Name != nil && e.Args[1].Name.Name == "radix" {
+		call.Builtin = "str.radix"
+		call.Args = c.bind(e, []slot{{name: "value", typ: Int}, {name: "radix", typ: Int}}, name)
+		return String
 	}
 	for _, a := range e.Args {
 		if a.Name != nil {
@@ -720,6 +766,9 @@ func builtinMember(recv Type, name string) *memberSig {
 		}
 		return nil
 	}
+	if recv == Float && name == "toFixed" {
+		return &memberSig{[]slot{{name: "digits", typ: Int}}, String}
+	}
 	if recv == String {
 		switch name {
 		case "upper", "lower":
@@ -755,9 +804,32 @@ func builtinMemberNames(recv Type) []string {
 	if _, ok := recv.(*Channel); ok {
 		return []string{"send", "receive", "receiveSync", "close"}
 	}
+	if recv == Float {
+		return []string{"isNaN", "isFinite", "toFixed"}
+	}
 	if recv == String {
 		return []string{"len", "upper", "lower", "contains", "split", "replace", "trim", "trimStart", "trimEnd",
 			"startsWith", "endsWith", "indexOf", "substring", "chars", "lines"}
 	}
 	return nil
+}
+
+// Checks `int.max` and the other static members of the built-in type [t].
+// `int.parse` without a call is a tear-off.
+func (c *checker) basicStatic(e *ast.MemberExpr, t Type, writing bool, want Type) Type {
+	name := e.Name.Name
+	result, ok := basicStatics[t][name]
+	switch {
+	case !ok:
+		c.errorAt(e.Name, didYouMean(name, basicStaticNames(t)), "%s has no static member '%s'", t, name)
+		return Invalid
+	case writing:
+		c.errorAt(e.Name, "", "%s.%s can't be changed", t, name)
+		return Invalid
+	case result == nil:
+		sig := &tearSig{names: []string{"text"}, types: []Type{String}, result: builtinSlots[t.String()+".parse"].result}
+		return c.tearOff(e, sig, nil, func(x ast.Expr) ast.Expr { return memberAccess(x, name, e.Name.Span) }, want)
+	}
+	c.info.Members[e] = &Member{Builtin: t.String() + "." + name}
+	return result
 }

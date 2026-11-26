@@ -692,7 +692,8 @@ type Member struct {
 	// The computed property read or assigned, or nil.
 	Property *Property
 
-	// The built-in property name, such as `len`.
+	// The built-in property name, such as `len`, or the qualified name of a
+	// built-in type's constant, such as `int.max`.
 	Builtin string
 
 	// The record field read: `$1` or a name.
