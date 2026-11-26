@@ -1,0 +1,15 @@
+3 0 c -
+false true true
+["a", "b", "c"]
+found b
+none
+node b
+Node(name: "loaded", next: nil) nil
+nil Shape.circle(r: 3) nil
+c
+["a", "nil", "b", "c"]
+a -
+c - 1
+[Shape.dot, nil]
+b c true
+received c

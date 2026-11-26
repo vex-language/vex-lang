@@ -1,0 +1,93 @@
+// Optional structs and enums are a pointer that is NULL for nil. Every way
+// of making, testing and reading one.
+import "vex:isolate"
+
+struct Node {
+    name: string
+    next: Node?
+
+    fn show() {
+        println("node", name)
+    }
+}
+
+enum Shape {
+    dot
+    circle(r: int)
+}
+
+struct Holder {
+    node: Node?
+    shape: Shape?
+}
+
+fn find(nodes: [Node], name: string) -> Node? {
+    for n in nodes {
+        if n.name == name {
+            return n
+        }
+    }
+    return nil
+}
+
+fn load(ok: bool) throws -> Node {
+    if !ok {
+        throw Error("missing")
+    }
+    return Node(name: "loaded", next: nil)
+}
+
+fn depth(n: Node?) -> int {
+    guard let node = n else {
+        return 0
+    }
+    return 1 + depth(node.next)
+}
+
+async fn main() {
+    let c = Node(name: "c", next: nil)
+    let b = Node(name: "b", next: c)
+    let a = Node(name: "a", next: b)
+    println(depth(a), depth(nil), a.next?.next?.name ?? "-", c.next?.name ?? "-")
+    println(a.next == nil, c.next == nil, nil != a.next)
+
+    var cur: Node? = a
+    var names: [string] = []
+    while let n = cur {
+        names.push(n.name)
+        cur = n.next
+    }
+    println(names)
+
+    if let n = find([a, b, c], "b") {
+        println("found", n.name)
+    }
+    println(find([a], "z")?.name ?? "none")
+    a.next?.show()
+    c.next?.show()
+    println(try? load(true), try? load(false))
+
+    // Enums, fields, lists and maps.
+    var h = Holder(node: nil, shape: Shape.circle(r: 3))
+    println(h.node, h.shape, Holder(node: b, shape: nil).shape)
+    h.node = c
+    println(h.node?.name ?? "-")
+    let maybe: [Node?] = [a, nil, ...[b, c]]
+    println(maybe.map(fn(n) => n?.name ?? "nil"))
+    var byName: [string: Node] = ["a": a, "c": c]
+    println(byName["a"]?.name ?? "-", byName["x"]?.name ?? "-")
+    println(byName.remove("c")?.name ?? "-", byName.remove("c")?.name ?? "-", byName.len)
+    let shapes: [Shape?] = [Shape.dot, nil]
+    println(shapes)
+
+    // Across isolates and channels.
+    let sent = await isolate.run(fn() -> Node? => a.next)
+    let empty = await isolate.run(fn() -> Node? => nil)
+    println(sent?.name ?? "-", sent?.next?.name ?? "-", empty == nil)
+    let ch = Channel<Node>()
+    ch.send(c)
+    ch.close()
+    while let n = await ch.receive() {
+        println("received", n.name)
+    }
+}
