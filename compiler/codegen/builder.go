@@ -14,10 +14,17 @@ import (
 func (g *gen) collection(lit ast.Expr, body *ast.Block, t types.Type) string {
 	r := g.temp()
 	g.builds[lit] = r
-	var init string
+	var init, done string
 	switch t := t.(type) {
 	case *types.List:
-		init = fmt.Sprintf("vx_list *%s = %s;", r, newList(t.Elem, "0", g.presize(body), "NULL"))
+		n := g.presize(body)
+		init = fmt.Sprintf("vx_list *%s = %s;", r, newList(t.Elem, "0", n, "NULL"))
+		if n != "0" {
+			f := fill{g.temp(), g.temp(), g.temp()}
+			g.fills[lit] = f
+			init += fmt.Sprintf(" int64_t %s = 0, %s = %s->cap; %s *%s = %s->data;", f.len, f.cap, r, ctype(t.Elem), f.data, r)
+			done = fmt.Sprintf("%s->len = %s; ", r, f.len)
+		}
 	case *types.Map:
 		init = fmt.Sprintf("vx_map *%s = %s;", r, newMap(t))
 	}
@@ -28,8 +35,13 @@ func (g *gen) collection(lit ast.Expr, body *ast.Block, t types.Type) string {
 		g.stmt(s)
 	}
 	g.b, g.ind = outer, ind
-	return fmt.Sprintf("({ %s\n%s%s%s; })", init, b.String(), strings.Repeat("    ", ind+1), r)
+	return fmt.Sprintf("({ %s\n%s%s%s%s; })", init, b.String(), strings.Repeat("    ", ind+1), done, r)
 }
+
+// The length, capacity and data of a presized list being filled, kept in
+// locals so each element is a single store. The list's own length is
+// stale until the fill ends.
+type fill struct{ len, cap, data string }
 
 // Returns C code for the number of elements [body] gives when it is a
 // single `for` over a range or a list that adds one element each time, or
@@ -115,7 +127,16 @@ func (g *gen) element(x ast.Expr, lit ast.Expr) {
 			})
 			return
 		}
-		g.line("VX_PUSH(%s, %s, %s);", ctype(t.Elem), r, g.expr(x))
+		f, ok := g.fills[lit]
+		if !ok {
+			g.line("VX_PUSH(%s, %s, %s);", ctype(t.Elem), r, g.expr(x))
+			return
+		}
+		v := g.temp()
+		g.line("%s = %s;", decl(t.Elem, v), g.expr(x))
+		g.line("if (__builtin_expect(%s < %s, 1)) %s[%s++] = %s;", f.len, f.cap, f.data, f.len, v)
+		g.line("else { %s->len = %s; vx_list_push(%s, &%s); %s = %s->len; %s = %s->cap; %s = %s->data; }",
+			r, f.len, r, v, f.len, r, f.cap, r, f.data, r)
 	case *types.Map:
 		if s, ok := x.(*ast.SpreadExpr); ok {
 			g.spread(s, func(src string, _ types.Type) { g.line("vx_map_merge(%s, %s);", r, src) })

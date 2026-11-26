@@ -60,6 +60,7 @@ type gen struct {
 
 	// The C variable each collection being built adds its elements to.
 	builds map[ast.Expr]string
+	fills  map[ast.Expr]fill
 
 	// Named functions used as values, which need a wrapper.
 	fnValues map[*types.Func]bool
@@ -89,7 +90,7 @@ type gen struct {
 func Generate(info *types.Info, srcName string) string {
 	g := &gen{info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{}, throwingValues: map[*types.Func]bool{},
 		opts: map[string]*types.Optional{}, recs: map[string]*types.Record{}, recvs: map[ast.Expr]string{}, chaining: map[ast.Expr]bool{},
-		builds: map[ast.Expr]string{}, litNames: map[*ast.FuncLit]string{}, codecs: map[string]bool{}}
+		builds: map[ast.Expr]string{}, fills: map[ast.Expr]fill{}, litNames: map[*ast.FuncLit]string{}, codecs: map[string]bool{}}
 	g.collectOptionals()
 	for _, t := range info.Types {
 		g.needRepr(t)
