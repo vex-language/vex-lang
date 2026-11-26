@@ -452,6 +452,16 @@ fn on(handler: Handler) { ... }
 var images: Cache<string> = [:]
 ```
 
+**Multi-line and raw strings.** `"""` strings drop the indentation of their closing quotes, and `r"..."` keeps `\` and `{` as written.
+
+```swift
+let usage = """
+    Usage: vex <command>
+      run    build and run {name}
+    """
+let number = r"\d+\.\d+"
+```
+
 **Built-ins.** `print`, `println`, `input`, `int`, `float`, `str`, `panic` and `assert`.
 
 **Error messages.** The compiler explains mistakes and suggests a fix:
@@ -504,7 +514,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, builder blocks, properties, standard library | In progress: 30 of 49 tasks; next are multi-line strings and extensions |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, builder blocks, properties, standard library | In progress: 31 of 49 tasks; next are extensions and tear-offs |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |

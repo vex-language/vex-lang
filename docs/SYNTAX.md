@@ -41,7 +41,37 @@ let text = "Tab\tquote\" brace\{ smile \u{1F600}"
 /* Block comments /* can nest */ too. */
 ```
 
-Escapes: `\n` `\t` `\r` `\\` `\"` `\{` `\}` and `\u{...}`. Strings stay on one line.
+Escapes: `\n` `\t` `\r` `\\` `\"` `\{` `\}` and `\u{...}`. A `"..."` string stays on one line.
+
+A multi-line string starts with `"""` at the end of a line and ends with `"""` on its own line, as in Swift. The indentation of the closing `"""` is removed from every line, so the string can be indented with the code around it:
+
+```swift
+fn help() -> string {
+    return """
+        Usage: vex <command>
+          run    build and run "{name}"
+        """
+}
+// "Usage: vex <command>\n  run    build and run \"app\""
+```
+
+- The text starts on the line after the opening `"""`, and the line break before the closing `"""` isn't part of the string.
+- Every line must be indented at least as much as the closing `"""`; blank lines may be shorter.
+- `"` and `""` need no escape inside; write `\"""` for three quotes.
+- A `\` at the end of a line joins it to the next line.
+- Escapes and `{interpolation}` work as in other strings. Windows line endings become `\n`.
+
+A raw string, written `r"..."` or `r"""..."""` as in Dart, keeps `\` and `{` as plain text, for patterns, paths and JSON:
+
+```swift
+let number = r"\d+\.\d+"
+let folder = r"C:\Users\ann"
+let body = r"""
+    {"name": "{not interpolated}"}
+    """
+```
+
+A raw `r"..."` string can't contain `"`; use `r"""..."""` for that.
 
 ## Constants
 
