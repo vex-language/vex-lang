@@ -122,7 +122,7 @@ func (g *gen) element(x ast.Expr, lit ast.Expr) {
 				l, i, v := g.temp(), g.temp(), g.temp()
 				g.line("vx_list *%s = %s;", l, src)
 				g.line("for (int64_t %s = 0; %s < %s->len; %s++) {", i, i, l, i)
-				g.line("    %s = {true, ((%s*)%s->data)[%s]};", decl(o, v), ctype(from), l, i)
+				g.line("    %s = %s;", decl(o, v), wrapOpt(o, fmt.Sprintf("((%s*)%s->data)[%s]", ctype(from), l, i)))
 				g.line("    VX_PUSH(%s, %s, %s);", ctype(o), r, v)
 				g.line("}")
 			})
@@ -159,9 +159,9 @@ func (g *gen) spread(s *ast.SpreadExpr, add func(src string, t types.Type)) {
 	if o, ok := t.(*types.Optional); ok {
 		v := g.temp()
 		g.line("%s = %s;", decl(o, v), g.expr(s.X))
-		g.line("if (%s.has) {", v)
+		g.line("if (%s) {", present(o, v))
 		g.ind++
-		add(v+".v", o.Elem)
+		add(unwrap(o, v), o.Elem)
 		g.ind--
 		g.line("}")
 	} else {
