@@ -38,6 +38,8 @@ func (c *checker) expr(e ast.Expr, want Type) Type {
 
 func (c *checker) exprType(e ast.Expr, want Type) Type {
 	switch e := e.(type) {
+	case *ast.KnownExpr:
+		return e.Type.(Type)
 	case *ast.IntLit:
 		if want == Float {
 			return Float
@@ -114,7 +116,11 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		if g := c.genEnumRef(e.X); g != nil {
 			return c.genericCaseValue(e, g, e.Name, want)
 		}
-		return c.chain(e, e, c.member(e))
+		saved := c.tearWant
+		c.tearWant = want
+		t := c.member(e)
+		c.tearWant = saved
+		return c.chain(e, e, t)
 	case *ast.FuncLit:
 		return c.funcLit(e, want)
 	case *ast.ImplicitMember:
@@ -185,9 +191,21 @@ func (c *checker) ident(id *ast.Ident) Type {
 			c.use(c.self)
 			return c.readProperty(id, id.Name, p)
 		}
-		if owner.Method(id.Name) != nil {
-			c.errorAt(id, fmt.Sprintf("call it: %s()", id.Name), "method '%s' must be called", id.Name)
-			return Invalid
+		if m := owner.Method(id.Name); m != nil {
+			// A method named alone is torn off `self`, or off the type
+			// when static.
+			var x *ast.MemberExpr
+			switch {
+			case !m.Static && c.self != nil:
+				x = selfAccess(id)
+			case m.Static && owner.generic == nil:
+				x = &ast.MemberExpr{Span: id.Span, X: &ast.Ident{Span: id.Span, Name: owner.Name}, Name: &ast.Ident{Span: id.Span, Name: id.Name}}
+			default:
+				c.errorAt(id, fmt.Sprintf("call it in a closure: fn(...) => %s(...)", id.Name), "method '%s' can't be used as a value here", id.Name)
+				return Invalid
+			}
+			c.info.Uses[id] = &SelfMember{Expr: x}
+			return c.expr(x, nil)
 		}
 	}
 	if c.self != nil {
@@ -671,6 +689,10 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 	name := e.Name.Name
 	writing := c.writing
 	c.writing = false
+	want := c.tearWant
+	c.tearWant = nil
+	at := e.Name.Span
+	called := func(x ast.Expr) ast.Expr { return memberAccess(x, name, at) }
 	if en := c.enumRef(e.X); en != nil {
 		if k := c.staticConst(e, nil, en); k != nil {
 			return k.Type
@@ -681,12 +703,29 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		if k := c.staticConst(e, s, nil); k != nil {
 			return k.Type
 		}
-		if s.Method(name) != nil {
-			c.errorAt(e.Name, fmt.Sprintf("call it: %s.%s()", s.Name, name), "method '%s' must be called", name)
-		} else {
+		switch m := s.Method(name); {
+		case m != nil && !m.Static:
+			c.errorAt(e.Name, fmt.Sprintf("tear it off a value instead: value.%s", name), "method '%s' isn't static, so it needs a value of type %s", name, s.Name)
+		case m != nil:
+			if c.methodPrivate(e.Name, m) {
+				return Invalid
+			}
+			if sig := c.funcSig(e.Name, m); sig != nil {
+				return c.tearOff(e, sig, nil, called, want)
+			}
+		case name == "new":
+			return c.tearOff(e, fieldsSig(s.Fields, s), nil, func(x ast.Expr) ast.Expr { return x }, want)
+		default:
 			c.errorAt(e.Name, "", "%s has no static method '%s'", s.Name, name)
 		}
 		return Invalid
+	}
+	if g := c.genStructRef(e.X); g != nil && name == "new" {
+		var names []string
+		for _, f := range c.structTemplate(g).Fields {
+			names = append(names, f.Name)
+		}
+		return c.genericTearOff(e, names, want, written(e.X)+".new", func(x ast.Expr) ast.Expr { return x })
 	}
 	x := c.recv(e)
 	switch x := x.(type) {
@@ -714,8 +753,13 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 			c.info.Members[e] = &Member{Property: p}
 			return p.Type()
 		}
-		if x.Method(name) != nil {
-			c.errorAt(e.Name, fmt.Sprintf("call it: %s()", name), "method '%s' must be called", name)
+		if m := x.Method(name); m != nil {
+			if c.methodPrivate(e.Name, m) {
+				return Invalid
+			}
+			if sig := c.funcSig(e.Name, m); sig != nil {
+				return c.tearOff(e, sig, x, called, want)
+			}
 		} else {
 			c.errorAt(e.Name, "read the values a case carries with match, e.g. match v { circle(r) => r, ... }", "%s has no member '%s'", x.Name, name)
 		}
@@ -735,8 +779,13 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 			defer func() { c.writing = false }()
 			return c.readProperty(e.Name, name, p)
 		}
-		if x.Method(name) != nil {
-			c.errorAt(e.Name, fmt.Sprintf("call it: %s()", name), "method '%s' must be called", name)
+		if m := x.Method(name); m != nil {
+			if c.methodPrivate(e.Name, m) {
+				return Invalid
+			}
+			if sig := c.funcSig(e.Name, m); sig != nil {
+				return c.tearOff(e, sig, x, called, want)
+			}
 			return Invalid
 		}
 		c.errorAt(e.Name, didYouMean(name, memberNames(x)), "%s has no field '%s'", x.Name, name)
@@ -775,7 +824,9 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 			return c.readProperty(e.Name, name, p)
 		}
 		if _, m := ifaceMethod(x, name); m != nil {
-			c.errorAt(e.Name, fmt.Sprintf("call it: %s()", name), "method '%s' must be called", name)
+			if sig := c.funcSig(e.Name, m); sig != nil {
+				return c.tearOff(e, sig, x, called, want)
+			}
 		} else {
 			c.errorAt(e.Name, didYouMean(name, ifaceNames(x)), "%s has no member '%s'", x, name)
 		}
@@ -785,11 +836,29 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		return t
 	}
 	if sig := builtinMember(x, name); sig != nil {
-		c.errorAt(e.Name, fmt.Sprintf("call it: %s()", name), "'%s' must be called", name)
+		return c.tearOff(e, memberSigOf(sig), x, called, want)
+	}
+	if _, ok := x.(*List); ok && name == "map" {
+		c.errorAt(e.Name, "call it in a closure: fn(x) => ...", "'map' can't be used as a value")
 		return Invalid
 	}
-	if r, _ := c.findRecv(x, name, ast.Method, e.Name); r != nil {
-		c.errorAt(e.Name, fmt.Sprintf("call it: %s()", name), "method '%s' must be called", name)
+	if r, b := c.findRecv(x, name, ast.Method, e.Name); r != nil {
+		f := r.plain
+		if f == nil {
+			args := make([]Type, len(r.gen.params))
+			for i, p := range r.gen.params {
+				if args[i] = b.types[p]; args[i] == nil {
+					c.errorAt(e.Name, fmt.Sprintf("call it in a closure: fn(...) => %s(...)", name), "generic method '%s' can't be used as a value", name)
+					return Invalid
+				}
+			}
+			if f = c.instFunc(r.gen, args, e); f == nil {
+				return Invalid
+			}
+		}
+		if sig := c.funcSig(e.Name, f); sig != nil {
+			return c.tearOff(e, sig, x, called, want)
+		}
 		return Invalid
 	}
 	if c.recvUnavailable(e.Name, x, name) {

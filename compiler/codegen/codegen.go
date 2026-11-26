@@ -1451,7 +1451,12 @@ func (g *gen) value(e ast.Expr) string {
 			return "vx_map_freeze(" + g.mapLit(e, t.(*types.Map)) + ")"
 		}
 		return g.mapLit(e, t.(*types.Map))
+	case *ast.KnownExpr:
+		return g.expr(e.X)
 	case *ast.MemberExpr:
+		if f := g.info.TearOffs[e]; f != nil {
+			return g.expr(f)
+		}
 		if cs := g.info.CaseValues[e]; cs != nil {
 			return caseFunc(cs) + "()"
 		}

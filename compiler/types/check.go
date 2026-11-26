@@ -41,6 +41,9 @@ type checker struct {
 	root     *Module
 	rootUnit *unit
 
+	// The type a member access is expected to have, for tear-offs.
+	tearWant Type
+
 	// The struct or enum declaration each extension adds members to.
 	extTargets map[*ast.ExtensionDecl]ast.Decl
 
@@ -115,6 +118,7 @@ func newChecker() *checker {
 			Elements:       map[*ast.ExprStmt]ast.Expr{},
 			Observers:      map[*ast.AssignStmt]*Func{},
 			Chains:         map[ast.Expr]bool{},
+			TearOffs:       map[*ast.MemberExpr]ast.Expr{},
 			Matches:        map[*ast.MatchExpr]*Match{},
 			PatternTypes:   map[ast.Pattern]Type{},
 			PatternCases:   map[ast.Pattern]*Case{},
@@ -573,6 +577,8 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 		return ft
 	case *ast.RecordType:
 		return c.recordType(te)
+	case *ast.KnownType:
+		return te.Type.(Type)
 	case *ast.NamedType:
 		if te.Module != "" {
 			return c.qualifiedType(te)
