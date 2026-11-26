@@ -34,4 +34,9 @@ extension string {
     fn libQuiet() -> string => lower()
 }
 
+pub struct Cash {
+    pub cents: int
+    operator -(other: Cash) -> Cash => other
+}
+
 // error: 27:27: result of broken: expected int, found string

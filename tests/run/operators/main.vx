@@ -1,0 +1,134 @@
+import "money"
+
+struct Vec {
+    x: float
+    y: float
+    operator +(other: Vec) -> Vec => Vec(x: x + other.x, y: y + other.y)
+    operator -(other: Vec) -> Vec => Vec(x: x - other.x, y: y - other.y)
+    operator -() -> Vec => Vec(x: -x, y: -y)
+    operator *(k: float) -> Vec => Vec(x: x * k, y: y * k)
+    operator /(k: float) -> Vec => Vec(x: x / k, y: y / k)
+    operator ==(other: Vec) -> bool => x == other.x && y == other.y
+}
+
+struct Version {
+    major: int
+    minor: int
+    operator ==(other: Version) -> bool => major == other.major && minor == other.minor
+    operator <(other: Version) -> bool => major < other.major || (major == other.major && minor < other.minor)
+}
+
+struct Clock {
+    minutes: int
+    operator %(n: int) -> Clock => Clock(minutes: minutes % n)
+}
+
+/// A grid of cells, indexed by (column, row).
+struct Grid {
+    cells: [int]
+    width: int
+    operator [](at: (int, int)) -> int => cells[at.$2 * width + at.$1]
+    operator []=(at: (int, int), value: int) {
+        cells[at.$2 * width + at.$1] = value
+    }
+}
+
+struct Box<T> {
+    value: T
+    operator ==(other: Box<T>) -> bool => true
+}
+
+/// Prints when it runs, to show the order operands run in.
+struct Loud {
+    n: int
+    operator +(other: Loud) -> Loud {
+        println("add {n} {other.n}")
+        return Loud(n: n + other.n)
+    }
+}
+
+struct Body {
+    pos: Vec {
+        didSet {
+            println("moved to {pos.x}")
+        }
+    }
+    vel: Vec
+    fn step() {
+        pos += vel
+    }
+}
+
+extension money.Money {
+    operator *(k: int) -> money.Money => money.Money(cents: cents * k)
+}
+
+fn largest<T: Comparable>(xs: [T]) -> T {
+    var best = xs[0]
+    for x in xs {
+        if x > best {
+            best = x
+        }
+    }
+    return best
+}
+
+fn count<T: Equatable>(xs: [T], x: T) -> int {
+    var n = 0
+    for y in xs {
+        if y == x {
+            n += 1
+        }
+    }
+    return n
+}
+
+fn loud(n: int) -> Loud {
+    println("make {n}")
+    return Loud(n: n)
+}
+
+fn main() {
+    // Arithmetic.
+    let a = Vec(x: 1.0, y: 2.0)
+    let b = Vec(x: 3.0, y: 4.0)
+    let c = a + b * 2
+    println(c.x, c.y, (-a).x, (a - b).y, (b / 2.0).x, (Clock(minutes: 135) % 60).minutes)
+    var acc = a
+    acc += b
+    acc *= 10.0
+    println(acc.x, acc.y)
+
+    // Equality and ordering.
+    println(a == b, a != b, a == Vec(x: 1.0, y: 2.0), Box(value: 1) == Box(value: 2))
+    let v1 = Version(major: 1, minor: 2)
+    let v2 = Version(major: 1, minor: 10)
+    println(v1 < v2, v1 > v2, v1 <= v1, v1 >= v2)
+    println(largest([v1, v2, Version(major: 0, minor: 99)]).minor, count([v1, v2, v1], v1))
+    println([v1, v2].contains(Version(major: 1, minor: 10)), (v1, "a") == (v1, "a"))
+
+    // Indexing.
+    var grid = Grid(cells: [0, 0, 0, 0], width: 2)
+    grid[(1, 1)] = 5
+    grid[(0, 1)] += 3
+    grid[(0, 1)] += 1
+    println(grid[(1, 1)], grid[(0, 1)], grid.cells)
+    var vs = [Vec(x: 1.0, y: 1.0)]
+    vs[0] += Vec(x: 100.0, y: 0.0)
+    println(vs[0].x)
+
+    // Fields with didSet.
+    var body = Body(pos: Vec(x: 0.0, y: 0.0), vel: Vec(x: 2.0, y: 0.0))
+    body.step()
+    body.pos += Vec(x: 10.0, y: 0.0)
+
+    // Operands run left to right.
+    let sum = loud(1) + loud(2) + loud(3)
+    println(sum.n)
+
+    // Operators from another module and an extension.
+    let m = money.Money(cents: 5) + money.Money(cents: 7)
+    println(m.cents, m == money.Money(cents: 12), m > money.Money(cents: 1), (m * 3).cents)
+    let pair = money.Pair(first: "x", second: "y")
+    println(pair[0], pair[1])
+}

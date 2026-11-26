@@ -1,0 +1,17 @@
+/// An amount of money, with operators used from another module.
+pub struct Money {
+    pub cents: int
+    pub operator +(other: Money) -> Money => Money(cents: cents + other.cents)
+    pub operator ==(other: Money) -> bool => cents == other.cents
+    pub operator <(other: Money) -> bool => cents < other.cents
+}
+
+/// Two values read by index.
+pub struct Pair<T> {
+    pub first: T
+    pub second: T
+    pub operator [](i: int) -> T => match i {
+        0 => first,
+        _ => second,
+    }
+}
