@@ -1734,6 +1734,20 @@ static int64_t vx_mod(int64_t a, int64_t b, int line) {
     return a % b;
 }
 
+// Bits shifted out of the top are lost, as in Swift and Go; `>>` copies the
+// sign bit in.
+#define VX_SHL(a, b) ((int64_t)((uint64_t)(a) << (b)))
+
+static int64_t vx_shl(int64_t a, int64_t b, int line) {
+    if ((uint64_t)b > 63) vx_fail(line, "shift by %" PRId64 ", outside 0 to 63", b);
+    return VX_SHL(a, b);
+}
+
+static int64_t vx_shr(int64_t a, int64_t b, int line) {
+    if ((uint64_t)b > 63) vx_fail(line, "shift by %" PRId64 ", outside 0 to 63", b);
+    return a >> b;
+}
+
 // --- Input and output ---
 
 static void vx_write(vx_str s) { fwrite(s.ptr, 1, (size_t)s.len, stdout); }

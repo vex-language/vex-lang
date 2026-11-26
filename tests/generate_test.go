@@ -644,6 +644,24 @@ func binInt(x, y expr, op string, f func(a, b int64) int64) expr {
 	}}
 }
 
+// Returns a bitwise expression; shifts move by a constant in range.
+func (g *generator) bitExpr() expr {
+	switch g.r.Intn(6) {
+	case 0:
+		return binInt(g.expr(tInt), g.expr(tInt), "&", func(a, b int64) int64 { return a & b })
+	case 1:
+		return binInt(g.expr(tInt), g.expr(tInt), "|", func(a, b int64) int64 { return a | b })
+	case 2:
+		return binInt(g.expr(tInt), g.expr(tInt), "^", func(a, b int64) int64 { return a ^ b })
+	case 3:
+		return binInt(g.expr(tInt), intLit(int64(g.r.Intn(64))), "<<", func(a, b int64) int64 { return a << b })
+	case 4:
+		return binInt(g.expr(tInt), intLit(int64(g.r.Intn(64))), ">>", func(a, b int64) int64 { return a >> b })
+	}
+	x := g.expr(tInt)
+	return expr{"(~" + x.code + ")", func(e env) any { return ^x.eval(e).(int64) }}
+}
+
 func (g *generator) intExpr(leaf bool) expr {
 	if leaf {
 		return intLit(int64(g.r.Intn(2001) - 1000))
@@ -665,6 +683,9 @@ func (g *generator) intExpr(leaf bool) expr {
 		}
 		return binInt(g.expr(tInt), g.expr(tInt), "*", mulC)
 	case 3:
+		if g.r.Intn(2) == 0 {
+			return g.bitExpr()
+		}
 		k := int64(g.r.Intn(9) + 2)
 		if g.r.Intn(2) == 0 {
 			k = -k

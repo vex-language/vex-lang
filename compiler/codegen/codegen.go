@@ -1094,6 +1094,12 @@ var compoundOps = map[lexer.Kind]lexer.Kind{
 	lexer.AmpPlusAssign:  lexer.AmpPlus,
 	lexer.AmpMinusAssign: lexer.AmpMinus,
 	lexer.AmpStarAssign:  lexer.AmpStar,
+
+	lexer.AmpAssign:   lexer.Amp,
+	lexer.PipeAssign:  lexer.Pipe,
+	lexer.CaretAssign: lexer.Caret,
+	lexer.ShlAssign:   lexer.Shl,
+	lexer.ShrAssign:   lexer.Shr,
 }
 
 // Generates an assignment. The target's list and index (or object) are
@@ -1615,7 +1621,7 @@ func (g *gen) value(e ast.Expr) string {
 		}
 		if operand == types.Int && g.rng != nil && g.rng.safe(e.Op, e.X, e.Y) {
 			return g.ordered([]ast.Expr{e.X, e.Y}, func(cs []string) string {
-				return fmt.Sprintf("(%s %s %s)", cs[0], op(e.Op), cs[1])
+				return unchecked(e.Op, cs[0], cs[1])
 			})
 		}
 		return g.ordered([]ast.Expr{e.X, e.Y}, func(cs []string) string {
@@ -1722,9 +1728,18 @@ func (g *gen) compound(s *ast.AssignStmt, k lexer.Kind, t types.Type, old, v str
 		return g.memberCall(f, t, old, v)
 	}
 	if t == types.Int && g.rng != nil && g.rng.safe(k, s.Target, s.Value) {
-		return fmt.Sprintf("(%s %s %s)", old, op(k), v)
+		return unchecked(k, old, v)
 	}
 	return binop(k, t, old, v, g.lineOf(s))
+}
+
+// Returns C code applying the int operator [k] to [a] and [b] without
+// checks, for operands the range analysis proved safe.
+func unchecked(k lexer.Kind, a, b string) string {
+	if k == lexer.Shl {
+		return fmt.Sprintf("VX_SHL(%s, %s)", a, b)
+	}
+	return fmt.Sprintf("(%s %s %s)", a, op(k), b)
 }
 
 // Returns C code applying the binary operator [k] to [a] and [b], whose
@@ -1769,6 +1784,10 @@ func binop(k lexer.Kind, t types.Type, a, b string, line int) string {
 			return fmt.Sprintf("vx_div(%s, %s, %d)", a, b, line)
 		case lexer.Percent:
 			return fmt.Sprintf("vx_mod(%s, %s, %d)", a, b, line)
+		case lexer.Shl:
+			return fmt.Sprintf("vx_shl(%s, %s, %d)", a, b, line)
+		case lexer.Shr:
+			return fmt.Sprintf("vx_shr(%s, %s, %d)", a, b, line)
 		}
 	}
 	return fmt.Sprintf("(%s %s %s)", a, op(k), b)

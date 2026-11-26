@@ -1,0 +1,53 @@
+// Bitwise operators on ints: masks, flags, colors and shifts.
+const HIDDEN = 1 << 3
+const SELECTED = 1 << 4
+const LOW = ~0xF0 & 0xFF
+
+/// Returns the red, green and blue parts of an ARGB color.
+fn channels(argb: int) -> (int, int, int) => ((argb >> 16) & 0xFF, (argb >> 8) & 0xFF, argb & 0xFF)
+
+/// Returns how many bits of [x] are set.
+fn popcount(x: int) -> int {
+    var n = 0
+    var v = x
+    while v != 0 {
+        v &= v &- 1
+        n += 1
+    }
+    return n
+}
+
+/// Returns a small FNV-style hash of [codes].
+fn hash(codes: [int]) -> int {
+    var h = 0x4bf29ce484222325
+    for c in codes {
+        h ^= c
+        h = h &* 0x100000001b3
+    }
+    return h
+}
+
+fn main() {
+    println(channels(0xFF336699))
+    var flags = 0
+    flags |= HIDDEN
+    flags |= SELECTED | 1
+    println(flags, flags & HIDDEN != 0, flags & 2 != 0)
+    flags &= ~HIDDEN
+    println(flags, flags ^ 0xFF, LOW)
+    println(popcount(255), popcount(-1), popcount(0))
+    println(1 << 62, 1 << 63, -1 << 63)
+    println(-16 >> 2, -1 >> 63, 0x7FFFFFFFFFFFFFFF >> 62)
+    println(1 + 2 << 3, 3 | 4 + 1, 6 & 3 * 2, 5 ^ 1 == 4)
+    var x = 1
+    x <<= 10
+    x >>= 3
+    x ^= 0b1111
+    println(x)
+    var table = [0, 0, 0, 0]
+    for i in 0..100 {
+        table[i & 3] += i
+    }
+    println(table)
+    println(hash([97, 98, 99]) != hash([97, 98, 100]), hash([1]) == hash([1]))
+}

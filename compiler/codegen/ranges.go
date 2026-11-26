@@ -77,7 +77,24 @@ func (r *ranges) of(e ast.Expr) interval {
 			}
 		}
 	case *ast.BinaryExpr:
-		if iv, ok := combine(e.Op, r.of(e.X), r.of(e.Y)); ok {
+		x, y := r.of(e.X), r.of(e.Y)
+		switch e.Op {
+		case lexer.Amp:
+			// Masking with a value that can't be negative can't exceed it.
+			switch {
+			case x.lo >= 0 && y.lo >= 0:
+				return interval{0, min(x.hi, y.hi)}
+			case x.lo >= 0:
+				return interval{0, x.hi}
+			case y.lo >= 0:
+				return interval{0, y.hi}
+			}
+		case lexer.Shr:
+			if x.lo >= 0 && y.lo >= 0 && y.hi <= 63 {
+				return interval{x.lo >> y.hi, x.hi >> y.lo}
+			}
+		}
+		if iv, ok := combine(e.Op, x, y); ok {
 			return iv
 		}
 	case *ast.MemberExpr:
@@ -130,8 +147,13 @@ func combine(op lexer.Kind, a, b interval) (interval, bool) {
 	return interval{min.Int64(), max.Int64()}, true
 }
 
-// Reports whether [x] [op] [y] on ints can't overflow.
+// Reports whether [x] [op] [y] on ints can't overflow, or for a shift,
+// whether [y] is always in 0 to 63.
 func (r *ranges) safe(op lexer.Kind, x, y ast.Expr) bool {
+	if op == lexer.Shl || op == lexer.Shr {
+		n := r.of(y)
+		return n.lo >= 0 && n.hi <= 63
+	}
 	_, ok := combine(op, r.of(x), r.of(y))
 	return ok
 }
