@@ -458,6 +458,45 @@ fn largest<T: Ordered<T>>(xs: [T]) -> T? { ... }
 
 - Not yet: generic methods in interfaces, and static members.
 
+## Extensions
+
+`extension` adds methods, getters and static members to a type that already exists, as in Swift, including built-in types and types from other modules:
+
+```swift
+extension string {
+    fn shout() -> string => upper() + "!"
+    get isBlank -> bool => trim().len == 0
+}
+
+extension Point {
+    fn distance(to: Point) -> float { ... }
+    static fn origin() -> Point => Point(x: 0, y: 0)
+    static const dimensions = 2
+}
+
+println("hi".shout())          // HI!
+println(Point.origin())
+```
+
+Inside an extension, the value is `self`, and its members can be used without `self.`, as in a struct: `upper()` means `self.upper()`.
+
+- Structs and enums, generic ones included, get methods, getters, setters, static methods and constants. An extension of a generic type names it without type arguments, and its members use the type's own parameters: `extension Box { fn get() -> T => value }`.
+- `int`, `float`, `bool`, `string`, lists and maps get methods and getters. Lists and maps are extended for one element type, `extension [int]`, or for all, with type parameters and constraints:
+
+  ```swift
+  extension<T: Comparable> [T] {
+      fn largest() -> T? { ... }
+  }
+  extension<K: Hashable, V> [K: V] {
+      get size -> int => len
+  }
+  ```
+
+- An extension for one type, such as `[int]`, is chosen before one for all lists.
+- Extensions can't add fields, and can't change what a type already has: a member with the same name as an existing one is an error. A method an extension adds can meet an interface the struct already lists after `:`.
+- An extension works in its own module. In other modules, its `pub` members work in files that import the extension's module; `pub extension` makes every member public.
+- Interfaces, optionals, records and function types can't be extended yet.
+
 ## Modules
 
 A folder is a module: its `.vx` files share their names and use each other without imports. A project is a folder with a `package.toml`, and its top folder is the root module, which holds `main`.
