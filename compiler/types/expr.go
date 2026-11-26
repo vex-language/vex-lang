@@ -412,6 +412,16 @@ func (c *checker) unary(e *ast.UnaryExpr, want Type) Type {
 		return Int
 	}
 	t := c.expr(e.X, want)
+	if s, ok := t.(*Struct); ok {
+		f := s.Operator("unary -")
+		if f == nil {
+			c.errorAt(e.X, fmt.Sprintf("define it in %s: operator -() -> %s", s.Name, s.Name), "'-' can't be used with %s", s)
+			return Invalid
+		}
+		c.methodPrivate(e, f)
+		c.info.Operators[e] = f
+		return f.Result
+	}
 	if !numeric(t) {
 		c.errorAt(e.X, "", "'-' needs a number, found %s", t)
 		return Invalid
@@ -476,6 +486,9 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 		operandWant = Float
 	}
 	x := c.expr(e.X, operandWant)
+	if s, ok := x.(*Struct); ok {
+		return c.binaryOperator(e, s)
+	}
 	if operandWant == nil && numeric(x) && x != Invalid {
 		operandWant = x
 	}
@@ -615,6 +628,8 @@ func ordered(t Type) bool {
 	switch t := t.(type) {
 	case *TypeParam:
 		return t.Has("Comparable")
+	case *Struct:
+		return t.Operator("<") != nil && t.Operator("==") != nil
 	case *Enum:
 		return t.Simple()
 	}
@@ -626,6 +641,8 @@ func comparable(t Type) bool {
 	switch t := t.(type) {
 	case *Enum:
 		return t.Simple()
+	case *Struct:
+		return t.Operator("==") != nil
 	case *TypeParam:
 		return t.Has("Equatable")
 	case *Record:
@@ -651,6 +668,18 @@ func (c *checker) indexOf(e *ast.IndexExpr, x Type) Type {
 	if m, ok := x.(*Map); ok {
 		c.mapKey(e.Index, m)
 		return &Optional{Elem: m.Value}
+	}
+	if s, ok := x.(*Struct); ok {
+		f := s.Operator("[]")
+		if f == nil {
+			c.expr(e.Index, nil)
+			c.errorAt(e.X, fmt.Sprintf("define it in %s: operator [](index: int) -> ...", s.Name), "can't index a value of type %s", s)
+			return Invalid
+		}
+		c.methodPrivate(e, f)
+		c.assignable(f.Params[0].Type, c.expr(e.Index, f.Params[0].Type), e.Index, "index")
+		c.info.Operators[e] = f
+		return f.Result
 	}
 	if t := c.expr(e.Index, Int); !Identical(t, Int) {
 		c.errorAt(e.Index, conversionHint(Int, t), "index must be int, found %s", t)
@@ -877,7 +906,7 @@ func memberNames(s *Struct) []string {
 		names = append(names, f.Name)
 	}
 	for _, m := range s.Methods {
-		if m.Decl.Accessor != ast.Observer {
+		if m.Decl.Accessor != ast.Observer && m.Decl.Accessor != ast.Operator {
 			names = append(names, m.Name)
 		}
 	}

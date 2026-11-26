@@ -254,6 +254,10 @@ func (s *Struct) Field(name string) *Field {
 // Returns the method called [name], or nil.
 func (s *Struct) Method(name string) *Func { return s.member(name, ast.Method) }
 
+// Returns the operator called [name], such as `+`, `unary -` or `[]`, or
+// nil.
+func (s *Struct) Operator(name string) *Func { return s.member(name, ast.Operator) }
+
 // Returns the property called [name], or nil when the struct has neither a
 // getter nor a setter of that name.
 func (s *Struct) Property(name string) *Property { return propertyOf(s.Methods, name) }
@@ -761,6 +765,14 @@ type Info struct {
 	// Methods, static methods, constructors and enum cases used as values
 	// without a call, each with the closure it stands for.
 	TearOffs map[*ast.MemberExpr]ast.Expr
+
+	// Operators a struct defines, used by binary and unary expressions,
+	// indexing and compound assignments. For an index assignment, the
+	// `[]` operator that reads the old value of a compound assignment.
+	Operators map[ast.Node]*Func
+
+	// The `[]=` operator of each index assignment to a struct.
+	IndexSets map[*ast.IndexExpr]*Func
 
 	// Enum cases used as values without a call: `Shape.empty`, `.up`.
 	CaseValues map[ast.Expr]*Case

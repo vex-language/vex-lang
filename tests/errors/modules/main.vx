@@ -40,6 +40,10 @@ fn tearOffs(p: lib.Point) {
     let b = lib.Point.origin
 }
 
+fn operators(c: lib.Cash) {
+    let d = c - c
+}
+
 // error: 5:5: function 'hidden' is private to lib
 // error: 7:15: field 'y' of lib.Point is private to lib
 // error: 8:5: lib has no 'nothere'
@@ -64,3 +68,4 @@ fn tearOffs(p: lib.Point) {
 // error: 35:31: method 'secret' of lib.Point is private to lib
 // error: 39:15: method 'secret' of lib.Point is private to lib
 // error: 40:23: method 'origin' of lib.Point is private to lib
+// error: 44:13: operator '-' of lib.Cash is private to lib

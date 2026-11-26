@@ -1,0 +1,76 @@
+// Mistakes with operators.
+struct Bad {
+    n: int
+    operator ==(other: int) -> bool => true
+    operator <(other: Bad) -> int => 0
+    operator +(other: Bad = Bad(n: 0)) -> Bad => self
+    operator *(other: Bad) {}
+    operator []=(i: int, v: int) -> int => 0
+    operator [](i: int) -> string => ""
+    operator +(other: int) -> Bad => self
+    operator -(other: Bad) -> int => 0
+}
+
+struct Plain {
+    n: int
+}
+
+enum Shape {
+    dot
+}
+
+extension int {
+    operator +(other: string) -> int => 0
+}
+
+extension Shape {
+    operator +(other: Shape) -> Shape => self
+}
+
+fn largest<T: Comparable>(xs: [T]) -> T => xs[0]
+
+fn main() {
+    let a = Plain(n: 1) + Plain(n: 2)
+    let b = Plain(n: 1) == Plain(n: 2)
+    let c = Plain(n: 1) < Plain(n: 2)
+    let d = -Plain(n: 1)
+    let e = Plain(n: 1)[0]
+    var f = Plain(n: 1)
+    f += Plain(n: 1)
+    f[0] = 1
+    var g = Bad(n: 1)
+    g[0] += 1
+    g -= Bad(n: 2)
+    let h = largest([Plain(n: 1)])
+    let i = Bad(n: 1) + "s"
+    let j = Plain(n: 1) &+ Plain(n: 2)
+    let k = [Plain(n: 1)].contains(Plain(n: 1))
+    var sink = Sink()
+    sink[0] += 1
+}
+
+struct Sink {
+    operator []=(i: int, v: int) {}
+}
+// error: 4:24: operator '==' compares two Bad values, so it takes a Bad
+// error: 5:31: operator '<' must return bool
+// error: 6:29: operator parameters can't have default values
+// error: 7:14: operator '*' must return a value
+// error: 8:37: operator '[]=' doesn't return a value
+// error: 10:14: operator '+' is already declared on line 6
+// error: 23:14: only extensions of structs can add operators
+// error: 27:14: enums can't define operators yet
+// error: 33:13: '+' can't be used with Plain
+// error: 34:13: values of type Plain can't be compared with ==
+// error: 35:13: values of type Plain can't be ordered with <
+// error: 36:14: '-' can't be used with Plain
+// error: 37:13: can't index a value of type Plain
+// error: 39:5: += can't be used with Plain
+// error: 40:5: values of type Plain can't be changed through []
+// error: 42:5: += needs operator [] and operator []= of Bad to agree on types
+// error: 43:5: -= needs operator - to return Bad, but it returns int
+// error: 44:13: largest needs T to be Comparable, but Plain isn't
+// error: 45:25: expected Bad, found string
+// error: 46:13: '&+' works only on int, found Plain
+// error: 47:27: contains can't be used on a list of Plain
+// error: 49:5: += reads the value first, so Sink needs operator [] too

@@ -139,6 +139,11 @@ const (
 	// The `didSet` block of a field, run after each assignment to it with
 	// the previous value as `oldValue`. Its name is the field's name.
 	Observer
+
+	// `operator +(other: T) -> T`, run by an operator whose left operand
+	// is the struct. Its name is the operator: `+`, `unary -`, `[]` or
+	// `[]=`.
+	Operator
 )
 
 // A function parameter: `name: string = "Hi"`.

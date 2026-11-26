@@ -276,6 +276,8 @@ func build(n Node) *tree {
 			label = "set " + n.Name.Name
 		case Observer:
 			label = "didSet " + n.Name.Name
+		case Operator:
+			label = "operator " + n.Name.Name
 		}
 		if n.Static {
 			label = "static " + label

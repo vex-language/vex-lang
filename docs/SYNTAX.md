@@ -282,6 +282,51 @@ counter.count += 1           // runs didSet
 - Assigning the field inside its own `didSet` doesn't run it again.
 - Changing what a field refers to, such as pushing to a list field, isn't an assignment and doesn't run it.
 
+**Operators.** A struct defines an operator like a method, as in Dart: `self` is the left operand and the parameter the right one.
+
+```swift
+struct Vec {
+    x: float
+    y: float
+
+    operator +(other: Vec) -> Vec => Vec(x: x + other.x, y: y + other.y)
+    operator -() -> Vec => Vec(x: -x, y: -y)
+    operator *(k: float) -> Vec => Vec(x: x * k, y: y * k)
+    operator ==(other: Vec) -> bool => x == other.x && y == other.y
+}
+
+struct Version {
+    major: int
+    minor: int
+
+    operator ==(other: Version) -> bool => major == other.major && minor == other.minor
+    operator <(other: Version) -> bool =>
+        major < other.major || (major == other.major && minor < other.minor)
+}
+
+struct Grid {
+    cells: [int]
+    width: int
+
+    operator [](at: (int, int)) -> int => cells[at.$2 * width + at.$1]
+    operator []=(at: (int, int), value: int) {
+        cells[at.$2 * width + at.$1] = value
+    }
+}
+
+let v = a + b * 2.0
+v += a                        // v = v + a
+println(v1 >= v2)             // from <
+grid[(1, 0)] = 5
+grid[(1, 0)] += 1             // reads with [], then sets with []=
+```
+
+- The operators are `+ - * / %`, unary `-` (no parameter), `==`, `<`, `[]` and `[]=`. The right operand of the arithmetic ones and the index can have any type.
+- `!=` is the opposite of `==`, and `>`, `<=` and `>=` come from `<`, so they can't be defined themselves.
+- `==` and `<` take the struct itself and return `bool`. A struct with `==` is `Equatable`, so it works with `contains` and in records compared with `==`; one with `<` and `==` is also `Comparable`.
+- A compound assignment such as `+=` uses the operator, which must return the struct. Operands run left to right, as for other operators.
+- Operators can't be static, generic, async or throwing, and their parameters have no defaults. `pub` makes one visible to other modules, and extensions of structs can add them. Enums, interfaces and built-in types can't define operators yet.
+
 ## Generics
 
 Functions, structs, enums and methods can take type parameters in `< >`. The types are usually worked out from the arguments, or from the type the result is stored in; they can also be written at the call.
@@ -308,8 +353,8 @@ A type parameter can require what the generic code needs from it: an [interface]
 
 | Constraint | Allows | Met by |
 |---|---|---|
-| `Equatable` | `==`, `!=`, `list.contains` | int, float, bool, string, enums whose cases carry no values |
-| `Comparable` | `<`, `<=`, `>`, `>=`, and `==` | int, float, string, enums whose cases carry no values |
+| `Equatable` | `==`, `!=`, `list.contains` | int, float, bool, string, enums whose cases carry no values, structs that define `operator ==` |
+| `Comparable` | `<`, `<=`, `>`, `>=`, and `==` | int, float, string, enums whose cases carry no values, structs that define `operator <` and `operator ==` |
 | `Hashable` | map keys, and `==` | int, bool, string, enums whose cases carry no values |
 | an interface, such as `Shape` | its methods | structs that implement it, and the interface itself |
 

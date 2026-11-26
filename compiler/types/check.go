@@ -119,6 +119,8 @@ func newChecker() *checker {
 			Observers:      map[*ast.AssignStmt]*Func{},
 			Chains:         map[ast.Expr]bool{},
 			TearOffs:       map[*ast.MemberExpr]ast.Expr{},
+			Operators:      map[ast.Node]*Func{},
+			IndexSets:      map[*ast.IndexExpr]*Func{},
 			Matches:        map[*ast.MatchExpr]*Match{},
 			PatternTypes:   map[ast.Pattern]Type{},
 			PatternCases:   map[ast.Pattern]*Case{},
@@ -438,6 +440,9 @@ func (c *checker) structMembers(s *Struct) {
 		c.addMethod(s, m)
 	}
 	for _, m := range s.Methods {
+		if m.Decl.Accessor == ast.Operator {
+			c.checkOperator(s, m)
+		}
 		if m.Decl.Accessor != ast.Setter {
 			continue
 		}
@@ -463,7 +468,7 @@ func (c *checker) addMethod(s *Struct, m *Func) {
 // is already used in [s]. A getter and a setter may share a name.
 func (c *checker) memberTaken(s *Struct, md *ast.FuncDecl) bool {
 	name := md.Name.Name
-	what := map[ast.Accessor]string{ast.Method: "method", ast.Getter: "getter", ast.Setter: "setter"}
+	what := map[ast.Accessor]string{ast.Method: "method", ast.Getter: "getter", ast.Setter: "setter", ast.Operator: "operator"}
 	if prev := s.member(name, md.Accessor); prev != nil {
 		c.errorAt(md.Name, "", "%s '%s' is already declared on line %d", what[md.Accessor], name, prev.Decl.Pos().Line)
 		return true
@@ -1151,10 +1156,21 @@ func (c *checker) assign(s *ast.AssignStmt) {
 			}
 			break
 		}
+		if st, ok := xt.(*Struct); ok {
+			target = c.indexSet(s, x, st)
+			if target == nil {
+				return
+			}
+			break
+		}
 		target = c.indexOf(x, xt)
 		c.info.Types[x] = target
 	default:
 		target = c.expr(s.Target, nil)
+	}
+	if st, ok := target.(*Struct); ok && s.Op != lexer.Assign {
+		c.compoundOperator(s, st)
+		return
 	}
 	value := c.expr(s.Value, target)
 
