@@ -86,7 +86,7 @@ func (g *gen) patCond(p ast.Pattern, x string) string {
 			case i == rest:
 				r := e.(*ast.RestPattern)
 				if r.Bind != nil {
-					slice := fmt.Sprintf("vx_list_new(sizeof(%s), %s->len - %d, ((%s*)%s->data) + %d)", ctype(elem), x, fixed, ctype(elem), x, i)
+					slice := newList(elem, fmt.Sprintf("%s->len - %d", x, fixed), "0", fmt.Sprintf("((%s*)%s->data) + %d", ctype(elem), x, i))
 					conds = append(conds, g.patBind(g.info.Defs[r.Bind], slice))
 				}
 			case rest >= 0 && i > rest:

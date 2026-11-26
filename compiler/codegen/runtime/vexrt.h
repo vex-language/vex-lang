@@ -768,15 +768,58 @@ static bool vx_str_contains(vx_str s, vx_str sub) { return vx_str_find(s, sub, 0
 
 // --- Lists ---
 
-static vx_list *vx_list_new(int64_t esz, int64_t n, const void *items) {
+// Returns a list of the [n] elements at [items], with room for at least
+// [cap]. The elements of a [flat] list hold no pointers, so the collector
+// doesn't scan them.
+static vx_list *vx_list_make(int64_t esz, int64_t n, int64_t cap, const void *items, bool flat) {
     vx_list *l = vx_alloc(sizeof(vx_list));
+    if (cap < n) cap = n;
     l->esz = esz;
     l->len = n;
-    l->cap = n < 4 ? 4 : n;
-    l->data = vx_alloc((size_t)(l->cap * esz));
+    l->cap = cap < 4 ? 4 : cap;
+    size_t size = (size_t)(l->cap * esz);
+    l->data = flat ? vx_alloc_atomic(size) : vx_alloc(size);
     if (n > 0) memcpy(l->data, items, (size_t)(n * esz));
     return l;
 }
+
+static vx_list *vx_list_new(int64_t esz, int64_t n, const void *items) { return vx_list_make(esz, n, 0, items, false); }
+
+// Like [vx_list_new], for elements that hold no pointers.
+static vx_list *vx_list_flat(int64_t esz, int64_t n, const void *items) { return vx_list_make(esz, n, 0, items, true); }
+
+// Returns the number of values in the range lo..hi, or lo..=hi when
+// [inclusive], or 0 when it can't be counted.
+static int64_t vx_range_len(int64_t lo, int64_t hi, bool inclusive) {
+    int64_t n;
+    if (__builtin_sub_overflow(hi, lo, &n) || (inclusive && __builtin_add_overflow(n, 1, &n))) return 0;
+    return n > 0 ? n : 0;
+}
+
+// Reports whether the object [p] was allocated without pointers.
+static bool vx_is_atomic(void *p) {
+    vx_page *pg = vx_page_of((uintptr_t)p);
+    return pg ? pg->atomic : ((vx_large *)p - 1)->atomic;
+}
+
+// The element [i] of list [l] of [T], or a stop at [line] when [i] is out
+// of range. Unlike [vx_list_at], the element size is known, so indexing
+// compiles to a single load.
+#define VX_AT(T, l, i, line) ({ \
+    vx_list *vx_at_l = (l); \
+    int64_t vx_at_i = (i); \
+    if (__builtin_expect((uint64_t)vx_at_i >= (uint64_t)vx_at_l->len, 0)) vx_list_at(vx_at_l, vx_at_i, line); \
+    (T *)vx_at_l->data + vx_at_i; \
+})
+
+// Adds [v], a [T], to the end of [l]. Only a full or constant list takes
+// the slow path through [vx_list_push].
+#define VX_PUSH(T, l, v) ({ \
+    vx_list *vx_push_l = (l); \
+    T vx_push_v = (v); \
+    if (__builtin_expect(vx_push_l->len < vx_push_l->cap, 1)) ((T *)vx_push_l->data)[vx_push_l->len++] = vx_push_v; \
+    else vx_list_push(vx_push_l, &vx_push_v); \
+})
 
 // Returns a pointer to element [i], stopping the program if it is out of range.
 static void *vx_list_at(vx_list *l, int64_t i, int line) {
@@ -812,7 +855,7 @@ static inline vx_list *vx_list_mut(vx_list *l, int line) {
     return l;
 }
 
-static vx_list *vx_list_copy(vx_list *l) { return vx_list_new(l->esz, l->len, l->data); }
+static vx_list *vx_list_copy(vx_list *l) { return vx_list_make(l->esz, l->len, 0, l->data, vx_is_atomic(l->data)); }
 
 static void *vx_list_pop(vx_list *l, int line) {
     if (l->len == 0) vx_fail(line, "can't pop from an empty list");

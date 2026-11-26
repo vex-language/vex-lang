@@ -1017,7 +1017,7 @@ func (g *gen) assign(s *ast.AssignStmt) {
 		setup = append(setup,
 			fmt.Sprintf("vx_list *%s = %s;", list, g.expr(x.X)),
 			fmt.Sprintf("int64_t %s = %s;", idx, g.expr(x.Index)))
-		target = fmt.Sprintf("(*(%s*)vx_list_at(vx_list_mut(%s, %d), %s, %d))", ctype(t), list, g.lineOf(x), idx, g.lineOf(x))
+		target = fmt.Sprintf("(*VX_AT(%s, vx_list_mut(%s, %d), %s, %d))", ctype(t), list, g.lineOf(x), idx, g.lineOf(x))
 	case *ast.MemberExpr:
 		obj := g.temp()
 		setup = append(setup, fmt.Sprintf("%s = %s;", decl(g.info.Types[x.X], obj), g.expr(x.X)))
@@ -1434,12 +1434,12 @@ func (g *gen) value(e ast.Expr) string {
 		elem := t.(*types.List).Elem
 		if len(e.Elems) == 0 {
 			if g.constMode {
-				return fmt.Sprintf("vx_list_freeze(vx_list_new(sizeof(%s), 0, NULL))", ctype(elem))
+				return "vx_list_freeze(" + newList(elem, "0", "0", "NULL") + ")"
 			}
-			return fmt.Sprintf("vx_list_new(sizeof(%s), 0, NULL)", ctype(elem))
+			return newList(elem, "0", "0", "NULL")
 		}
 		return g.ordered(e.Elems, func(cs []string) string {
-			l := fmt.Sprintf("vx_list_new(sizeof(%s), %d, (%s[]){%s})", ctype(elem), len(cs), ctype(elem), strings.Join(cs, ", "))
+			l := newList(elem, strconv.Itoa(len(cs)), "0", fmt.Sprintf("(%s[]){%s}", ctype(elem), strings.Join(cs, ", ")))
 			if g.constMode {
 				return "vx_list_freeze(" + l + ")"
 			}
@@ -1496,7 +1496,7 @@ func (g *gen) value(e ast.Expr) string {
 			})
 		}
 		return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
-			return fmt.Sprintf("(*(%s*)vx_list_at(%s, %s, %d))", ctype(t), cs[0], cs[1], g.lineOf(e))
+			return fmt.Sprintf("(*VX_AT(%s, %s, %s, %d))", ctype(t), cs[0], cs[1], g.lineOf(e))
 		})
 	case *ast.MapLit:
 		if e.Body != nil {
@@ -1785,8 +1785,7 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 			elem := ctype(l.Elem)
 			switch c.Builtin {
 			case "push":
-				item := g.temp()
-				return fmt.Sprintf("({ %s = %s; vx_list_push(vx_list_mut(%s, %d), &%s); })", decl(l.Elem, item), cs[1], cs[0], line, item)
+				return fmt.Sprintf("VX_PUSH(%s, vx_list_mut(%s, %d), %s)", elem, cs[0], line, cs[1])
 			case "pop":
 				return fmt.Sprintf("(*(%s*)vx_list_pop(vx_list_mut(%s, %d), %d))", elem, cs[0], line, line)
 			case "copy":
@@ -1796,19 +1795,22 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 				ft := g.info.Types[c.Args[0]].(*types.FuncType)
 				call := fmt.Sprintf("((%s)%s.fn)(%s.env, %s)", fnPtrType(ft), f, f, x)
 				resultElem := ft.Result
-				body := fmt.Sprintf("if (%s) vx_list_push(%s, &%s);", call, out, x)
+				body := fmt.Sprintf("if (%s) VX_PUSH(%s, %s, %s);", call, elem, out, x)
 				if c.Builtin == "map" {
-					y := g.temp()
-					body = fmt.Sprintf("%s = %s; vx_list_push(%s, &%s);", decl(resultElem, y), call, out, y)
+					body = fmt.Sprintf("VX_PUSH(%s, %s, %s);", ctype(resultElem), out, call)
 				} else {
 					resultElem = l.Elem
 				}
 				// Like a for loop, it visits the elements there were at the
 				// start, and stops early if some are removed.
 				n := g.temp()
-				return fmt.Sprintf("({ vx_list *%s = %s; vx_fn %s = %s; vx_list *%s = vx_list_new(sizeof(%s), 0, NULL); int64_t %s = %s->len; "+
+				capacity := "0"
+				if c.Builtin == "map" {
+					capacity = n
+				}
+				return fmt.Sprintf("({ vx_list *%s = %s; vx_fn %s = %s; int64_t %s = %s->len; vx_list *%s = %s; "+
 					"for (int64_t %s = 0; %s < %s && %s < %s->len; %s++) { %s = ((%s*)%s->data)[%s]; %s } %s; })",
-					list, cs[0], f, cs[1], out, ctype(resultElem), n, list,
+					list, cs[0], f, cs[1], n, list, out, newList(resultElem, "0", capacity, "NULL"),
 					i, i, n, i, list, i, decl(l.Elem, x), elem, list, i, body, out)
 			case "contains":
 				list, v, i, found := g.temp(), g.temp(), g.temp(), g.temp()

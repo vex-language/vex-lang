@@ -33,8 +33,8 @@ func (g *gen) codec(t types.Type) string {
 		fmt.Fprintf(&snd, "if (vx_enc_ref(e, v)) return; vx_enc_i64(e, v->len); "+
 			"for (int64_t i = 0; i < v->len; i++) snd_%s(e, ((%s *)v->data)[i]);", e, ctype(t.Elem))
 		fmt.Fprintf(&rcv, "vx_list *o = vx_dec_ref(d); if (o) return o; int64_t n = vx_dec_i64(d); "+
-			"o = vx_list_new(sizeof(%s), 0, NULL); vx_dec_obj(d, o); "+
-			"for (int64_t i = 0; i < n; i++) { %s = rcv_%s(d); vx_list_push(o, &x); } return o;", ctype(t.Elem), decl(t.Elem, "x"), e)
+			"o = %s; vx_dec_obj(d, o); "+
+			"for (int64_t i = 0; i < n; i++) { %s = rcv_%s(d); vx_list_push(o, &x); } return o;", newList(t.Elem, "0", "n", "NULL"), decl(t.Elem, "x"), e)
 	case *types.Map:
 		k, v := g.codec(t.Key), g.codec(t.Value)
 		fmt.Fprintf(&snd, "if (vx_enc_ref(e, v)) return; vx_enc_i64(e, v->len); vx_map_iter it = vx_map_iter_new(v); "+
