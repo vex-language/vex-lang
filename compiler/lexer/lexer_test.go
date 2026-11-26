@@ -245,7 +245,7 @@ func TestErrors(t *testing.T) {
 		{"code point too large", `"\u{110000}"`, "1:2", "invalid unicode code point U+110000", ""},
 		{"interpolation across lines", "\"a {x\n}\"", "1:1", "unterminated string interpolation", `close it with } and "`},
 		{"interpolation at end of file", `"a {x`, "1:1", "unterminated string interpolation", `close it with } and "`},
-		{"single pipe", "a | b", "1:3", `unexpected character '|'`, "use || for logical or"},
+		{"dollar", "a $ b", "1:3", `unexpected character '$'`, ""},
 		{"single quotes", "'hi'", "1:1", "single quotes are not used for strings", `strings use double quotes: "text"`},
 		{"lone single quote", "it's", "1:3", "unexpected character '", `strings use double quotes: "text"`},
 		{"hash comment", "# hi", "1:1", `unexpected character '#'`, "comments start with //"},
@@ -277,7 +277,7 @@ func TestErrors(t *testing.T) {
 }
 
 func TestReportsSeveralErrors(t *testing.T) {
-	_, errs := lex(t, "a $ b\nc | d\n# e")
+	_, errs := lex(t, "a $ b\nc ` d\n# e")
 	if len(errs) != 3 {
 		t.Fatalf("got %d errors, want 3: %v", len(errs), errs)
 	}

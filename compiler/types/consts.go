@@ -275,6 +275,9 @@ func (c *checker) fold(e ast.Expr, t Type) any {
 		x := c.fold(e.X, c.info.Types[e.X])
 		switch v := x.(type) {
 		case int64:
+			if e.Op == lexer.Tilde {
+				return ^v
+			}
 			if e.Op == lexer.Minus {
 				if v == math.MinInt64 {
 					c.errorAt(e, "", "this constant overflows int")
@@ -397,6 +400,21 @@ func (c *checker) foldInt(e *ast.BinaryExpr, a, b int64) any {
 		return int64(uint64(a) - uint64(b))
 	case lexer.AmpStar:
 		return int64(uint64(a) * uint64(b))
+	case lexer.Amp:
+		return a & b
+	case lexer.Pipe:
+		return a | b
+	case lexer.Caret:
+		return a ^ b
+	case lexer.Shl, lexer.Shr:
+		if b < 0 || b > 63 {
+			c.errorAt(e.Y, "", "this constant shifts by %d, outside 0 to 63", b)
+			return nil
+		}
+		if e.Op == lexer.Shl {
+			return int64(uint64(a) << b)
+		}
+		return a >> b
 	case lexer.Eq:
 		return a == b
 	case lexer.NotEq:

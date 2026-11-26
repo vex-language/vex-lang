@@ -494,10 +494,6 @@ func (l *lexer) operator() {
 	l.pos++
 	hint := ""
 	switch c {
-	case '&':
-		hint = "use && for logical and"
-	case '|':
-		hint = "use || for logical or"
 	case '#':
 		hint = "comments start with //"
 	}

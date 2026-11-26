@@ -1188,6 +1188,15 @@ The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, m
   ```
 
   The checks are cheap. In a tight loop where they cost speed, the wrapping operators remove them.
+- The bitwise operators `&` `|` `^` `~` `<<` `>>` (and `&=`, `|=`, `^=`, `<<=`, `>>=`) work only on `int`, for colors, option masks, flags and hashing:
+
+  ```swift
+  let red = (argb >> 16) & 0xFF
+  flags |= HIDDEN
+  if flags & SELECTED != 0 { ... }
+  ```
+
+  As in Swift, `<<` and `>>` bind tightest, `&` binds like `*` and `|` and `^` like `+`, all tighter than comparisons, so `flags & SELECTED != 0` reads as written. Bits shifted out of the top are lost, `>>` keeps the sign, and a shift by less than 0 or more than 63 stops the program.
 - `int` and `float` never mix silently: `count * price` is an error until one side is converted with `float(count)` or `int(price)`.
 - Strings join with `+` only to other strings. Use interpolation for anything else: `"{count} items"`.
 - `==` and `!=` compare `int`, `float`, `bool`, `string`, enums whose cases carry no values, records, and structs that define `operator ==`. `<`, `<=`, `>`, `>=` work on `int`, `float`, `string`, those enums, and structs that define `operator <`. Enum cases are ordered as they are declared, so in `enum Level { low, high }`, `Level.low < Level.high`.
@@ -1239,7 +1248,7 @@ error: index 5 is out of range for a list of length 3
  --> main.vx:12
 ```
 
-These cover list indexes out of range, `pop()` on an empty list, division by zero, integer overflow, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`.
+These cover list indexes out of range, `pop()` on an empty list, division by zero, integer overflow, shifts by less than 0 or more than 63, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`.
 
 ## Planned
 

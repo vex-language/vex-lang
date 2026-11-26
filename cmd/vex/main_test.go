@@ -75,12 +75,12 @@ func TestTokens(t *testing.T) {
 }
 
 func TestTokensReportsErrors(t *testing.T) {
-	path := writeFile(t, "let s = \"abc\nlet t = a | b\n")
+	path := writeFile(t, "let s = \"abc\nlet t = a # b\n")
 	code, _, errOut := runCLI("tokens", path)
 	if code != exitError {
 		t.Errorf("code %d, want %d", code, exitError)
 	}
-	for _, want := range []string{"error: unterminated string", "main.vx:1:9", "^^^^ add a closing \"", "use || for logical or", "2 errors"} {
+	for _, want := range []string{"error: unterminated string", "main.vx:1:9", "^^^^ add a closing \"", "comments start with //", "2 errors"} {
 		if !strings.Contains(errOut, want) {
 			t.Errorf("stderr missing %q:\n%s", want, errOut)
 		}

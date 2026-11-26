@@ -1773,10 +1773,13 @@ func (p *parser) bodyStart(keyword string) {
 
 func (p *parser) simpleStmt() ast.Stmt {
 	x := p.expr()
-	switch k := p.tok().Kind; k {
+	switch k, n := p.operator(); k {
 	case lexer.Assign, lexer.PlusAssign, lexer.MinusAssign, lexer.StarAssign, lexer.SlashAssign, lexer.PercentAssign,
-		lexer.AmpPlusAssign, lexer.AmpMinusAssign, lexer.AmpStarAssign:
-		opTok := p.next()
+		lexer.AmpPlusAssign, lexer.AmpMinusAssign, lexer.AmpStarAssign,
+		lexer.AmpAssign, lexer.PipeAssign, lexer.CaretAssign, lexer.ShlAssign, lexer.ShrAssign:
+		for range n {
+			p.next()
+		}
 		switch x.(type) {
 		case *ast.Ident, *ast.IndexExpr, *ast.MemberExpr:
 		default:
@@ -1788,7 +1791,7 @@ func (p *parser) simpleStmt() ast.Stmt {
 			})
 		}
 		v := p.expr()
-		return &ast.AssignStmt{Span: ast.Span{Start: x.Pos(), End: p.lastEnd}, Target: x, Op: opTok.Kind, Value: v}
+		return &ast.AssignStmt{Span: ast.Span{Start: x.Pos(), End: p.lastEnd}, Target: x, Op: k, Value: v}
 	}
 	return &ast.ExprStmt{Span: ast.Span{Start: x.Pos(), End: p.lastEnd}, X: x}
 }
@@ -1799,7 +1802,7 @@ func (p *parser) simpleStmt() ast.Stmt {
 func startsExpr(k lexer.Kind) bool {
 	switch k {
 	case lexer.Ident, lexer.Int, lexer.Float, lexer.String, lexer.StringHead, lexer.True, lexer.False,
-		lexer.LParen, lexer.LBracket, lexer.Minus, lexer.Not, lexer.Fn, lexer.Match, lexer.Dot, lexer.Nil, lexer.Try, lexer.Await:
+		lexer.LParen, lexer.LBracket, lexer.Minus, lexer.Not, lexer.Tilde, lexer.Fn, lexer.Match, lexer.Dot, lexer.Nil, lexer.Try, lexer.Await:
 		return true
 	}
 	return false
@@ -1818,12 +1821,31 @@ func precedence(k lexer.Kind) int {
 		return 4
 	case lexer.QuestionQuestion:
 		return 5
-	case lexer.Plus, lexer.Minus, lexer.AmpPlus, lexer.AmpMinus:
+	case lexer.Plus, lexer.Minus, lexer.AmpPlus, lexer.AmpMinus, lexer.Pipe, lexer.Caret:
 		return 6
-	case lexer.Star, lexer.Slash, lexer.Percent, lexer.AmpStar:
+	case lexer.Star, lexer.Slash, lexer.Percent, lexer.AmpStar, lexer.Amp:
 		return 7
+	case lexer.Shl, lexer.Shr:
+		return 8
 	}
 	return 0
+}
+
+// Returns the operator at the current token and how many tokens it spans:
+// `>>` and `>>=` are written as `>` directly followed by `>` or `>=`.
+func (p *parser) operator() (lexer.Kind, int) {
+	t := p.tok()
+	if t.Kind == lexer.Gt {
+		if n := p.peek(1); n.Pos.Offset == t.End {
+			switch n.Kind {
+			case lexer.Gt:
+				return lexer.Shr, 2
+			case lexer.GtEq:
+				return lexer.ShrAssign, 2
+			}
+		}
+	}
+	return t.Kind, 1
 }
 
 func (p *parser) expr() ast.Expr { return p.binary(1) }
@@ -1831,10 +1853,7 @@ func (p *parser) expr() ast.Expr { return p.binary(1) }
 func (p *parser) binary(min int) ast.Expr {
 	x := p.unary()
 	for {
-		k := p.tok().Kind
-		if k == lexer.Amp {
-			p.fail(p.tok(), "use && for logical and", "unexpected '&'")
-		}
+		k, n := p.operator()
 		prec := precedence(k)
 		if prec == 0 || prec < min {
 			return x
@@ -1842,7 +1861,9 @@ func (p *parser) binary(min int) ast.Expr {
 		if k == lexer.Minus && p.spacedInHead() && p.peek(1).Pos.Offset == p.tok().End {
 			return x
 		}
-		p.next()
+		for range n {
+			p.next()
+		}
 		p.skipNewlines()
 		next := prec + 1
 		if k == lexer.QuestionQuestion {
@@ -1850,7 +1871,7 @@ func (p *parser) binary(min int) ast.Expr {
 			next = prec
 		}
 		y := p.binary(next)
-		if (prec == 3 || prec == 4) && precedence(p.tok().Kind) == prec {
+		if next, _ := p.operator(); (prec == 3 || prec == 4) && precedence(next) == prec {
 			p.fail(p.tok(), "use a < b && b < c", "comparisons can't be chained")
 		}
 		x = &ast.BinaryExpr{Span: ast.Span{Start: x.Pos(), End: y.EndOffset()}, Op: k, X: x, Y: y}
@@ -1867,7 +1888,7 @@ func (p *parser) unary() ast.Expr {
 		x := p.unary()
 		return &ast.AwaitExpr{Span: ast.Span{Start: t.Pos, End: x.EndOffset()}, X: x}
 	}
-	if t.Kind == lexer.Minus || t.Kind == lexer.Not {
+	if t.Kind == lexer.Minus || t.Kind == lexer.Not || t.Kind == lexer.Tilde {
 		p.next()
 		x := p.unary()
 		return &ast.UnaryExpr{Span: ast.Span{Start: t.Pos, End: x.EndOffset()}, Op: t.Kind, X: x}

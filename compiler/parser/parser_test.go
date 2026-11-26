@@ -54,6 +54,13 @@ func TestExpressions(t *testing.T) {
 		{`User(name: "Ann", age: 30)`, `(call User (name: "Ann") (age: 30))`},
 		{"nums.push(4)", "(call (. nums push) 4)"},
 		{"f()()", "(call (call f))"},
+		{"f(flags & HIDDEN != 0)", "(call f (!= (& flags HIDDEN) 0))"},
+		{"f(a | b ^ c & d)", "(call f (^ (| a b) (& c d)))"},
+		{"f(a + b << 2, a * b >> 1)", "(call f (+ a (<< b 2)) (* a (>> b 1)))"},
+		{"f(x >> 16 & 0xFF)", "(call f (& (>> x 16) 0xFF))"},
+		{"f(~a & b, -~a)", "(call f (& (~ a) b) (- (~ a)))"},
+		{"f(a > b, a >= b)", "(call f (> a b) (>= a b))"},
+		{"f(a >> b > c)", "(call f (> (>> a b) c))"},
 	}
 	for _, c := range cases {
 		got := body(t, c.src)
@@ -74,6 +81,9 @@ func TestStatements(t *testing.T) {
 		{"xs[0] -= 1", "(-= (index xs 0) 1)"},
 		{"user.age *= 2", "(*= (. user age) 2)"},
 		{"a /= 2\nb %= 3", "(/= a 2) (%= b 3)"},
+		{"a &= 1\nb |= 2\nc ^= 3", "(&= a 1) (|= b 2) (^= c 3)"},
+		{"a <<= 1\nb >>= 2", "(<<= a 1) (>>= b 2)"},
+		{"let b: Box<Box<int>>= x", "(let b: Box<Box<int>> x)"},
 		{"return", "return"},
 		{"return x + 1", "(return (+ x 1))"},
 		{"while i < 10 { i += 1 }", "(while (< i 10) (block (+= i 1)))"},
@@ -797,7 +807,6 @@ func TestErrors(t *testing.T) {
 		{"pub interface method", "interface I {\n    pub fn x()\n}", "2:5", "interface methods can't be marked pub", "remove pub: interface methods are public whenever the interface is"},
 		{"method without body", "struct S {\n    fn x()\n}", "2:11", "expected '{' or '=>' to start the body of x, found end of line", ""},
 		{"empty type parameters", "fn f<>() {\n}", "1:5", "empty type parameter list", "remove the <>, or name a type parameter: <T>"},
-		{"single ampersand", "fn main() {\n let x = a & b\n}", "2:12", "unexpected '&'", "use && for logical and"},
 		{"ternary", "fn main() {\n let n = ok ? 1 : 2\n}", "2:13", "Vex has no ? : operator", "write match cond { true => a, false => b }"},
 		{"lone question", "fn main() {\n let n = x?\n}", "2:11", "unexpected '?'", "use ?. to read a member, or ?? to give a default"},
 		{"if var", "fn main() {\n if var x = y {}\n}", "2:5", "'if var' isn't supported", "write if let; copy it into a var inside the block"},
@@ -888,8 +897,8 @@ func TestElseOnNewLineStillParses(t *testing.T) {
 }
 
 func TestLexErrorsAreReturned(t *testing.T) {
-	_, errs := parse(t, "fn main() { a & b }")
-	if len(errs) != 1 || errs[0].Hint != "use && for logical and" {
+	_, errs := parse(t, "fn main() { a # b }")
+	if len(errs) != 1 || errs[0].Hint != "comments start with //" {
 		t.Errorf("got %v", errs)
 	}
 }

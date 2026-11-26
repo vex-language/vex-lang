@@ -93,6 +93,13 @@ const (
 	AndAnd
 	OrOr
 	Amp
+	Pipe
+	Caret
+	Tilde
+	Shl
+	// Never produced by the lexer, which keeps `>>` as two `>` so nested
+	// type arguments close; the parser joins them.
+	Shr
 
 	Assign
 	PlusAssign
@@ -103,6 +110,12 @@ const (
 	AmpPlusAssign
 	AmpMinusAssign
 	AmpStarAssign
+	AmpAssign
+	PipeAssign
+	CaretAssign
+	ShlAssign
+	// Joined by the parser from `>` and `>=`, like [Shr].
+	ShrAssign
 
 	Eq
 	NotEq
@@ -164,6 +177,7 @@ var operators = []struct {
 	{"&+=", AmpPlusAssign},
 	{"&-=", AmpMinusAssign},
 	{"&*=", AmpStarAssign},
+	{"<<=", ShlAssign},
 	{"?.", QuestionDot},
 	{"??", QuestionQuestion},
 	{"..", DotDot},
@@ -178,7 +192,14 @@ var operators = []struct {
 	{"&+", AmpPlus},
 	{"&-", AmpMinus},
 	{"&*", AmpStar},
+	{"&=", AmpAssign},
+	{"|=", PipeAssign},
+	{"^=", CaretAssign},
+	{"<<", Shl},
 	{"&", Amp},
+	{"|", Pipe},
+	{"^", Caret},
+	{"~", Tilde},
 	{"+=", PlusAssign},
 	{"-=", MinusAssign},
 	{"*=", StarAssign},
@@ -216,6 +237,8 @@ var kindNames = map[Kind]string{
 	StringHead: "string",
 	StringMid:  "string",
 	StringTail: "string",
+	Shr:        "'>>'",
+	ShrAssign:  "'>>='",
 }
 
 func init() {
