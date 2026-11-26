@@ -121,6 +121,7 @@ typedef struct {
     size_t gc_next;            // collect once heap_bytes passes this
     size_t gc_countdown;
     size_t gc_total, gc_peak, gc_count;
+    size_t gc_base;            // heap_bytes when the last collection ended
     uintptr_t lo, hi;          // bounds of all objects
     vx_page **pages;           // every page
     size_t pages_len, pages_cap;
@@ -386,6 +387,8 @@ static void vx_async_mark(void);
 static void vx_collect(void) {
     if (!vx_stack_base) return;
     vx_gc_count++;
+    vx_gc_total += vx_heap_bytes - vx_h.gc_base;
+    if (vx_heap_bytes > vx_gc_peak) vx_gc_peak = vx_heap_bytes;
     if (vx_larges_len > 1) qsort(vx_larges, vx_larges_len, sizeof(vx_large *), vx_large_cmp);
 
     vx_mark_stack();
@@ -444,6 +447,7 @@ static void vx_collect(void) {
         }
     }
     vx_larges_len = kept;
+    vx_h.gc_base = vx_heap_bytes;
     vx_gc_next = vx_heap_bytes * 2 > (size_t)(4 << 20) ? vx_heap_bytes * 2 : (size_t)(4 << 20);
 }
 
@@ -495,13 +499,45 @@ static void *vx_alloc_block(size_t n, bool atomic) {
         }
     }
     h->heap_bytes += n;
-    h->gc_total += n;
-    if (h->heap_bytes > h->gc_peak) h->gc_peak = h->heap_bytes;
     return p;
 }
 
+// The common case of an allocation, inlined where it happens: an object of
+// up to 128 bytes, from its class's free list or the page the class
+// allocates from in order, when no collection is due. The class is
+// worked out here rather than looked up, so for a constant size it is a
+// constant.
+__attribute__((always_inline))
+static inline void *vx_alloc_small(size_t n, bool atomic) {
+    if (n - 1 < 128 && !vx_gc_stress) {
+        vx_heap *h = &vx_h;
+        size_t cls = (n - 1) >> 4, size = (cls + 1) << 4;
+        if (__builtin_expect(h->heap_bytes + size <= h->gc_next, 1)) {
+            void **list = &h->free[atomic][cls];
+            void *p = *list;
+            if (p) {
+                *list = *(void **)p;
+            } else if (h->bump[atomic][cls] != h->bump_end[atomic][cls]) {
+                p = h->bump[atomic][cls];
+                h->bump[atomic][cls] += size;
+            }
+            if (__builtin_expect(p != NULL, 1)) {
+                h->heap_bytes += size;
+                uint64_t *q = p;
+                q[0] = 0;
+                if (!atomic) {
+                    q[1] = 0;
+                    for (size_t i = 2; i < size / 8; i++) q[i] = 0;
+                }
+                return p;
+            }
+        }
+    }
+    return vx_alloc_block(n ? n : 1, atomic);
+}
+
 // Allocates [n] zeroed bytes that may hold pointers.
-static void *vx_alloc(size_t n) { return vx_alloc_block(n ? n : 1, false); }
+static inline void *vx_alloc(size_t n) { return vx_alloc_small(n, false); }
 
 // Returns a context for passing closure [f] to C, kept alive until C
 // passes it to vex_release.
@@ -532,7 +568,7 @@ void vex_release(void *ctx) {
 }
 
 // Allocates [n] bytes that never hold pointers, such as string text.
-static void *vx_alloc_atomic(size_t n) { return vx_alloc_block(n ? n : 1, true); }
+static inline void *vx_alloc_atomic(size_t n) { return vx_alloc_small(n, true); }
 
 // Returns a copy of [p] resized to [n] bytes. The old object is left for
 // the collector, since other code may still be reading it.
@@ -546,6 +582,9 @@ static void *vx_realloc(void *p, size_t n) {
 }
 
 static void vx_gc_report(void) {
+    vx_gc_total += vx_heap_bytes - vx_h.gc_base;
+    vx_h.gc_base = vx_heap_bytes;
+    if (vx_heap_bytes > vx_gc_peak) vx_gc_peak = vx_heap_bytes;
     fprintf(stderr, "gc: %zu collections, %zu KB allocated, %zu KB peak heap, %zu KB live\n",
         vx_gc_count, vx_gc_total / 1024, vx_gc_peak / 1024, vx_heap_bytes / 1024);
 }
