@@ -426,6 +426,8 @@ static void vx_mark_gray(void) {
     }
 }
 
+static bool vx_gc_verify;           // VEX_GC_VERIFY=1: check every minor collection
+
 __attribute__((noinline, no_sanitize_address))
 static void vx_mark_stack(void) {
     // Spill callee-saved registers onto the stack so they are scanned too.
@@ -479,38 +481,116 @@ static void vx_mark_remembered(bool major) {
     vx_h.rem_len = vx_h.rem_done = 0;
 }
 
-// Under VEX_GC_VERIFY, checks after marking that no marked object points
-// to an unmarked one: a write to an old object that a barrier missed.
-__attribute__((no_sanitize_address))
-static void vx_verify_object(char *obj, size_t size) {
+// Marks everything the program can reach directly, and what that reaches.
+static void vx_mark_roots(void) {
+    vx_mark_stack();
+    vx_mark_range((const char *)&vx_fs_entries, (const char *)(&vx_fs_entries + 1));
+    if (vx_kept) vx_mark_range((const char *)vx_kept, (const char *)(vx_kept + vx_kept_len));
+    if (vx_roots_lo) vx_mark_range(vx_roots_lo, vx_roots_hi);
+    // The stacks of the tasks that aren't running, the program's own
+    // included, from their saved registers up.
+    if (vx_cur != &vx_main_task) vx_mark_range(vx_main_task.sp, vx_main_task.top);
+    for (size_t i = 0; i < vx_tasks_len; i++) {
+        if (vx_tasks[i] != vx_cur) vx_mark_range(vx_tasks[i]->sp, vx_tasks[i]->top);
+    }
+    vx_async_mark();
+    vx_mark_gray();
+}
+
+// Under VEX_GC_VERIFY, each collection ends by copying the old objects, and
+// the next minor collection checks that each old object since changed to
+// point at a young object is in the remembered set; otherwise a write
+// skipped the write barrier. Comparing with the copy, rather than tracing
+// from the roots, keeps dead objects that the stack still seems to point
+// to from being checked: they never change.
+static VX_TLS char **vx_verify_pages;     // a copy of each page, NULL when it holds no old objects that hold pointers
+static VX_TLS size_t vx_verify_pages_len;
+static VX_TLS vx_large **vx_verify_larges; // the old large objects that hold pointers, and their copies
+static VX_TLS char **vx_verify_large_copies;
+static VX_TLS size_t vx_verify_larges_len;
+
+static int vx_uintptr_cmp(const void *a, const void *b) {
+    uintptr_t x = *(const uintptr_t *)a, y = *(const uintptr_t *)b;
+    return (x > y) - (x < y);
+}
+
+// Checks the old object at [obj] against its copy [was].
+static void vx_verify_object(char *obj, const char *was, size_t size, const uintptr_t *rem, size_t rem_len) {
+    if (memcmp(obj, was, size) == 0) return;
+    uintptr_t key = (uintptr_t)obj;
+    if (bsearch(&key, rem, rem_len, sizeof(uintptr_t), vx_uintptr_cmp)) return;
     for (size_t off = 0; off + sizeof(void *) <= size; off += sizeof(void *)) {
         uintptr_t p = *(uintptr_t *)(obj + off);
         char *start;
         size_t n;
         bool marked, atomic;
-        if (vx_object_at(p, &start, &n, &marked, &atomic) && !marked) {
-            fprintf(stderr, "error: the collector missed a write: the object at %p (%zu bytes) points at offset %zu to "
-                "the unmarked object at %p\n", (void *)obj, size, off, (void *)start);
+        if (p != *(const uintptr_t *)(was + off) && vx_object_at(p, &start, &n, &marked, &atomic) && !marked) {
+            fprintf(stderr, "error: the collector missed a write: the old object at %p (%zu bytes) was changed at offset %zu "
+                "to point at the young object at %p, but isn't in the remembered set\n", (void *)obj, size, off, (void *)start);
             abort();
         }
     }
 }
 
-static void vx_verify(void) {
+// Runs at the start of a minor collection, before the remembered set is
+// emptied.
+static void vx_verify_writes(void) {
+    uintptr_t *rem = malloc((vx_h.rem_len + 1) * sizeof(uintptr_t));
+    if (!rem) vx_out_of_memory();
+    size_t rem_len = 0;
+    for (size_t i = 0; i < vx_h.rem_len; i++) {
+        char *start;
+        size_t size;
+        bool marked, atomic;
+        if (vx_object_at((uintptr_t)vx_h.rem[i], &start, &size, &marked, &atomic)) rem[rem_len++] = (uintptr_t)start;
+    }
+    qsort(rem, rem_len, sizeof(uintptr_t), vx_uintptr_cmp);
+    for (size_t p = 0; p < vx_verify_pages_len; p++) {
+        if (!vx_verify_pages[p]) continue;
+        vx_page *pg = vx_pages[p];
+        for (uint32_t i = 0; i < pg->count; i++) {
+            size_t off = (size_t)i * pg->size;
+            if (pg->marks[i] & 1) vx_verify_object(pg->start + off, vx_verify_pages[p] + off, pg->size, rem, rem_len);
+        }
+    }
+    for (size_t i = 0; i < vx_verify_larges_len; i++) {
+        vx_large *l = vx_verify_larges[i];
+        vx_verify_object((char *)(l + 1), vx_verify_large_copies[i], l->size, rem, rem_len);
+    }
+    free(rem);
+}
+
+// Runs at the end of every collection.
+static void vx_verify_copy(void) {
+    for (size_t p = 0; p < vx_verify_pages_len; p++) free(vx_verify_pages[p]);
+    for (size_t i = 0; i < vx_verify_larges_len; i++) free(vx_verify_large_copies[i]);
+    free(vx_verify_pages);
+    free(vx_verify_larges);
+    free(vx_verify_large_copies);
+    vx_verify_pages = calloc(vx_pages_len + 1, sizeof(char *));
+    vx_verify_larges = calloc(vx_larges_len + 1, sizeof(vx_large *));
+    vx_verify_large_copies = calloc(vx_larges_len + 1, sizeof(char *));
+    if (!vx_verify_pages || !vx_verify_larges || !vx_verify_large_copies) vx_out_of_memory();
+    vx_verify_pages_len = vx_pages_len;
+    vx_verify_larges_len = 0;
     for (size_t p = 0; p < vx_pages_len; p++) {
         vx_page *pg = vx_pages[p];
-        if (pg->size == 0 || pg->atomic) continue;
-        for (uint32_t i = 0; i < pg->count; i++) {
-            if (pg->marks[i]) vx_verify_object(pg->start + (size_t)i * pg->size, pg->size);
-        }
+        if (!pg->size || pg->atomic || !pg->live) continue;
+        vx_verify_pages[p] = malloc(VX_PAGE_SIZE);
+        if (!vx_verify_pages[p]) vx_out_of_memory();
+        memcpy(vx_verify_pages[p], pg->start, (size_t)pg->count * pg->size);
     }
     for (size_t i = 0; i < vx_larges_len; i++) {
         vx_large *l = vx_larges[i];
-        if (l->mark && !l->atomic) vx_verify_object((char *)(l + 1), l->size);
+        if (!l->mark || l->atomic) continue;
+        char *copy = malloc(l->size + 1);
+        if (!copy) vx_out_of_memory();
+        memcpy(copy, l + 1, l->size);
+        vx_verify_larges[vx_verify_larges_len] = l;
+        vx_verify_large_copies[vx_verify_larges_len++] = copy;
     }
 }
 
-static bool vx_gc_verify;          // VEX_GC_VERIFY=1: check every minor collection
 
 // Collects garbage. Objects that survive stay marked, which makes them old:
 // a minor collection marks only from the roots and the old objects written
@@ -524,6 +604,7 @@ static void vx_collect(void) {
     if (vx_heap_bytes > vx_gc_peak) vx_gc_peak = vx_heap_bytes;
     if (vx_larges_len > 1) qsort(vx_larges, vx_larges_len, sizeof(vx_large *), vx_large_cmp);
     bool major = vx_gc_stress ? vx_gc_count % 4 == 0 : vx_h.gc_base >= vx_h.major_next;
+    if (vx_gc_verify && !major) vx_verify_writes();
     vx_mark_remembered(major);
     if (major) {
         for (size_t p = 0; p < vx_pages_len; p++) {
@@ -535,19 +616,7 @@ static void vx_collect(void) {
         for (size_t i = 0; i < vx_larges_len; i++) vx_larges[i]->mark = 0;
     }
 
-    vx_mark_stack();
-    vx_mark_range((const char *)&vx_fs_entries, (const char *)(&vx_fs_entries + 1));
-    if (vx_kept) vx_mark_range((const char *)vx_kept, (const char *)(vx_kept + vx_kept_len));
-    if (vx_roots_lo) vx_mark_range(vx_roots_lo, vx_roots_hi);
-    // The stacks of the tasks that aren't running, the program's own
-    // included, from their saved registers up.
-    if (vx_cur != &vx_main_task) vx_mark_range(vx_main_task.sp, vx_main_task.top);
-    for (size_t i = 0; i < vx_tasks_len; i++) {
-        if (vx_tasks[i] != vx_cur) vx_mark_range(vx_tasks[i]->sp, vx_tasks[i]->top);
-    }
-    vx_async_mark();
-    vx_mark_gray();
-    if (vx_gc_verify && !major) vx_verify();
+    vx_mark_roots();
 
     // Sweep: rebuild the free lists from the unmarked objects, keeping the
     // marks. A page with nothing live is empty again, and a full one has
@@ -591,6 +660,7 @@ static void vx_collect(void) {
     // The young objects may grow as large as the old ones before a minor
     // collection.
     vx_gc_next = vx_heap_bytes + (vx_heap_bytes > (size_t)(4 << 20) ? vx_heap_bytes : (size_t)(4 << 20));
+    if (vx_gc_verify) vx_verify_copy();
 }
 
 static void *vx_alloc_large(size_t n, bool atomic) {

@@ -35,7 +35,7 @@ Conservative marking can keep a dead object alive when an unrelated number happe
 |---|---|
 | `VEX_GC_STATS=1` | Prints collections, total bytes allocated, the peak heap and the live heap at exit |
 | `VEX_GC_STRESS=N` | Collects every N allocations; `1` collects on every one, and every fourth collection is major. The tests run every program this way to catch objects freed too early |
-| `VEX_GC_VERIFY=1` | After each minor collection, checks that no marked object points to an unmarked one, which would mean a write barrier is missing. The tests set it along with `VEX_GC_STRESS` |
+| `VEX_GC_VERIFY=1` | Each collection keeps a copy of the old objects, and the next minor collection fails if an old object changed since to point at a young one isn't in the remembered set, which would mean a write barrier is missing. The tests set it along with `VEX_GC_STRESS` |
 
 ### Benchmarks
 

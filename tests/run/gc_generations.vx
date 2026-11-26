@@ -2,6 +2,10 @@
 // them unless they were written since. Each part makes something old,
 // churns through garbage so collections run, writes new objects into it,
 // and reads them back after more collections.
+//
+// Verifying copies the old objects at each collection, so they run every
+// 7th allocation rather than every one.
+// stress: 7
 import "vex:isolate"
 
 struct Leaf {
