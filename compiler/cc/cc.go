@@ -14,7 +14,7 @@ import (
 
 // Flags passed to every compile. `-fwrapv` makes int overflow wrap around
 // instead of being undefined; `-w` hides warnings about generated code.
-var flags = []string{"-std=gnu11", "-fwrapv", "-O2", "-w", "-pthread"}
+var flags = []string{"-std=gnu11", "-fwrapv", "-O3", "-w", "-pthread"}
 
 // Returns the C compiler command: `$CC` if set (it may include arguments),
 // otherwise clang, otherwise cc.
