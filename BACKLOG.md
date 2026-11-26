@@ -131,7 +131,7 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-115** Print values through one growing buffer; deeply nested values print in quadratic time today (S)
 - [ ] **V-116** Unicode-aware strings: `upper`/`lower` beyond A–Z, and counting visible characters (grapheme clusters) (M)
 - [ ] **V-111** GC stage 2: precise roots and object layouts (L)
-- [ ] **V-112** GC stage 3: generational collection, returning memory to the OS (XL)
+- [ ] **V-112** GC stage 3: generational collection (done), returning memory to the OS (XL)
 
 ---
 
@@ -268,3 +268,4 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-26 | Extensions follow Swift: `extension Type { ... }`, with members used without `self.`. Structs and enums get methods, accessors, statics and constants; built-in types get methods and getters, and lists and maps take type parameters as in Dart (`extension<T: Comparable> [T]`). No fields, no replacing existing members. An extension applies in its own module and, for its `pub` members, in files that import that module |
 | 2026-11-26 | Tear-offs follow Dart: a method named without a call is a function bound to its receiver, `x?.m` is nil for a nil `x`, and constructors are torn off as `Type.new`. Built-in members tear off too; async and generic methods wait until function values can be async and generic |
 | 2026-11-26 | Operators follow Dart: `operator +(other: T) -> T` inside a struct, with `self` as the left operand. Structs define `+ - * / %`, unary `-`, `==`, `<`, `[]` and `[]=`; `!=` comes from `==` and the other orderings from `<`, and `==` and `<` make a struct Equatable and Comparable. Enums, interfaces and built-in types don't define operators yet |
+| 2026-11-26 | GC: generational with sticky mark bits, since a conservative collector can't move objects: survivors stay marked, minor collections trace only from roots and a remembered set filled by write barriers after each pointer store, and `VEX_GC_VERIFY` checks for missed barriers under stress (part of V-112) |
