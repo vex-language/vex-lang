@@ -42,7 +42,7 @@ fn main() {
     println([1].first2())
     let p = Point(x: 1)
     println(p.nope())
-    println("a".shout)
+    println("a".shout())
 }
 
 // error: 7:8: 'x' is already a field of Point
@@ -58,4 +58,3 @@ fn main() {
 // error: 37:11: unknown type 'Missing'
 // error: 42:17: 'first2' of [int] is declared by more than one extension, on lines 32 and 35
 // error: 44:15: Point has no method 'nope'
-// error: 45:17: method 'shout' must be called

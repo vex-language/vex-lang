@@ -1,0 +1,129 @@
+import "geo"
+
+interface Shape {
+    fn area() -> float
+    fn twice() -> float => area() * 2.0
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+}
+
+enum Fail { odd }
+
+struct User {
+    name: string
+    n: int
+    fn greet(other: string) -> string => "{name} greets {other}"
+    static fn named(name: string) -> User => User(name: name, n: 0)
+    fn add(k: int) -> int => n + k
+    fn half() throws(Fail) -> int {
+        if n % 2 == 1 {
+            throw Fail.odd
+        }
+        return n / 2
+    }
+
+    /// Bare names tear off `self` and the type.
+    fn adder() -> fn(int) -> int => add
+    static fn all(names: [string]) -> [User] => names.map(named)
+}
+
+struct Counter {
+    n: int
+    fn bump() {
+        n = n + 1
+    }
+}
+
+struct Box<T> {
+    value: T
+    fn get() -> T => value
+    fn getter() -> fn() -> T => get
+}
+
+enum Shape2 {
+    circle(radius: float)
+    dot
+    static fn unit() -> Shape2 => .circle(radius: 1.0)
+}
+
+enum Light {
+    red
+    green
+    fn next() -> Light => match self {
+        red => .green,
+        green => .red,
+    }
+}
+
+enum Maybe<T> {
+    some(value: T)
+    none
+}
+
+extension string {
+    fn shout() -> string => upper() + "!"
+    fn shouter() -> fn() -> string => upper
+}
+
+fn areaOf<T: Shape>(s: T) -> float {
+    let area = s.area
+    return area()
+}
+
+fn even(x: int) -> bool => x % 2 == 0
+
+fn main() {
+    // Methods bind the value they are torn off.
+    var host = User(name: "Ann", n: 4)
+    let greet = host.greet
+    host = User(name: "Bo", n: 3)
+    println(greet("Cy"), ["x", "y"].map(host.greet))
+    println(host.adder()(10), User.all(["a", "b"])[1].name)
+    let half = host.half
+    println(try? half(), try? User(name: "D", n: 8).half())
+
+    // Constructors, static methods and cases.
+    let made = ["a", "b"].map(User.named)
+    println(made[0].name, [1.0, 2.0].map(Shape2.circle), Shape2.unit())
+    let box: fn(int) -> Box<int> = Box.new
+    let some: fn(string) -> Maybe<string> = Maybe.some
+    println(box(3).getter()(), some("v"), Light.red.next())
+
+    // Interfaces, generics and mutation.
+    let shapes: [Shape] = [Square(side: 2.0)]
+    let twice = shapes[0].twice
+    println(twice(), areaOf(Square(side: 3.0)))
+    var c = Counter(n: 0)
+    let bump = c.bump
+    bump()
+    bump()
+    println(c.n)
+
+    // Optional chains.
+    let maybe: Square? = Square(side: 4.0)
+    if let area = maybe?.area {
+        println(area())
+    }
+    let none: Square? = nil
+    println(none?.area == nil)
+
+    // Built-in members and extensions.
+    let items = [1, 2, 3, 4]
+    let push = items.push
+    push(5)
+    let keep = items.filter
+    println(keep(even), items, [3, 9].map(items.contains))
+    let shout = "hi".shout
+    println(shout(), "ab".shouter()())
+
+    // Members from another module.
+    let p = geo.Point(x: 1, y: 2)
+    let sum = p.sum
+    let origin = geo.Point.origin
+    let point: fn(int, int) -> geo.Point = geo.Point.new
+    let bag: fn(string) -> geo.Bag<string> = geo.Bag.new
+    println(sum(), origin().x, point(4, 5).sum(), bag("z").item, [3].map(geo.Dir.up))
+}
