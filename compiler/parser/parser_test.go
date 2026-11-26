@@ -458,6 +458,43 @@ typedef Point = shapes.Point
 	}
 }
 
+func TestExtensions(t *testing.T) {
+	src := `extension string {
+    fn shout() -> string => upper()
+    get isBlank -> bool => trim().len == 0
+}
+pub extension<T: Comparable> [T] {
+    fn largest() -> T? => nil
+}
+extension shapes.Point {
+    static fn origin() -> Point => Point(x: 0)
+    static const dimensions = 2
+}
+`
+	f, errs := parse(t, src)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	want := []string{
+		"(extension string (fn shout -> string (=> (call upper))) (get isBlank -> bool (=> (== (. (call trim) len) 0))))",
+		"(pub extension<T: Comparable> [T] (pub fn largest -> T? (=> nil)))",
+		"(extension shapes.Point (const dimensions 2) (static fn origin -> Point (=> (call Point (x: 0)))))",
+	}
+	if len(f.Decls) != len(want) {
+		t.Fatalf("got %d declarations, want %d", len(f.Decls), len(want))
+	}
+	for i, d := range f.Decls {
+		if got := ast.Sexpr(d); got != want[i] {
+			t.Errorf("decl %d\n got: %s\nwant: %s", i, got, want[i])
+		}
+	}
+	for _, m := range f.Decls[0].(*ast.ExtensionDecl).Methods {
+		if ast.TypeString(m.Recv) != "string" {
+			t.Errorf("%s: receiver %v, want string", m.Name.Name, m.Recv)
+		}
+	}
+}
+
 func TestErrorHandling(t *testing.T) {
 	cases := []struct{ src, want string }{
 		{"let t = try load(p)", "(let t (try (call load p)))"},
@@ -730,6 +767,9 @@ func TestErrors(t *testing.T) {
 		{"guard without let", "fn main() {\n guard x else { return }\n}", "2:8", "expected 'let' after 'guard', found 'x'", "write guard let name = optionalValue else { return }"},
 		{"guard without else", "fn main() {\n guard let x = y { return }\n}", "2:18", "expected 'else' after the guard value, found '{'", "add else { return } after the value"},
 		{"enum in function", "fn main() {\n enum E { a }\n}", "2:2", "enums can't be declared inside functions", "declare it at the top level of the file"},
+		{"field in extension", "extension string {\n    count: int\n}", "2:5", "extensions can't add fields", "compute it instead: get count -> T { ... }"},
+		{"public field in extension", "extension string {\n    pub count: int\n}", "2:9", "extensions can't add fields", "compute it instead: get count -> T { ... }"},
+		{"unclosed extension", "extension string {\n    fn f() {}\n", "1:18", "unclosed extension body", "add a matching }"},
 		{"typedef in function", "fn main() {\n typedef T = int\n}", "2:2", "typedefs can't be declared inside functions", "declare it at the top level of the file"},
 		{"typedef without =", "typedef T int", "1:11", "expected '=' after the type's name, found 'int'", "write typedef T = the type it names, e.g. typedef T = [string: int]"},
 		{"typedef without name", "typedef = int", "1:9", "expected a name for the type, found '='", ""},

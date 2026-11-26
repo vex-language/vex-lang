@@ -303,6 +303,19 @@ func build(n Node) *tree {
 			label = "pub " + label
 		}
 		return leaf(label)
+	case *ExtensionDecl:
+		label := "extension" + typeParamsString(n.TypeParams) + " " + TypeString(n.Type)
+		if n.Pub {
+			label = "pub " + label
+		}
+		t := branch(label)
+		for _, k := range n.Consts {
+			t.kids = append(t.kids, build(k))
+		}
+		for _, m := range n.Methods {
+			t.kids = append(t.kids, build(m))
+		}
+		return t
 	case *TypeAliasDecl:
 		label := "typedef " + n.Name.Name + typeParamsString(n.TypeParams) + " = " + TypeString(n.Type)
 		if n.Pub {

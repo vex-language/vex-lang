@@ -199,7 +199,7 @@ func (p *parser) syncDecl() {
 				return
 			}
 		case lexer.Ident:
-			if p.tok().Text == "export" && p.peek(1).Kind == lexer.Fn && depth <= 0 {
+			if (p.tok().Text == "export" && p.peek(1).Kind == lexer.Fn || p.tok().Text == "extension") && depth <= 0 {
 				return
 			}
 		}
@@ -290,6 +290,15 @@ func (p *parser) decl() ast.Decl {
 		case *ast.TypeAliasDecl:
 			d.Pub = true
 			return d
+		case *ast.ExtensionDecl:
+			d.Pub = true
+			for _, m := range d.Methods {
+				m.Pub = true
+			}
+			for _, k := range d.Consts {
+				k.Pub = true
+			}
+			return d
 		}
 		return nil
 	}
@@ -306,6 +315,9 @@ func (p *parser) decl() ast.Decl {
 	case lexer.Ident:
 		if t.Text == "export" && (p.peek(1).Kind == lexer.Fn || p.peek(1).Kind == lexer.Async) {
 			return p.exportDecl()
+		}
+		if t.Text == "extension" {
+			return p.extensionDecl()
 		}
 	case lexer.Const:
 		return p.constDecl()
@@ -2222,6 +2234,43 @@ func (p *parser) patternAhead() bool {
 		return next.Kind == lexer.LParen && next.Pos.Offset == p.tok().End
 	}
 	return false
+}
+
+// Parses `extension Type { ... }` or `extension<T> [T] { ... }`.
+func (p *parser) extensionDecl() *ast.ExtensionDecl {
+	start := p.next().Pos
+	d := &ast.ExtensionDecl{TypeParams: p.typeParams()}
+	d.Type = p.typeExpr()
+	open := p.expect(lexer.LBrace)
+	body := &ast.StructDecl{}
+	for {
+		for p.at(lexer.Semi) || p.at(lexer.Comma) {
+			p.next()
+		}
+		if p.at(lexer.RBrace) {
+			break
+		}
+		if p.at(lexer.EOF) {
+			p.fail(open, "add a matching }", "unclosed extension body")
+		}
+		p.guard(func() {
+			i := 0
+			if p.at(lexer.Pub) {
+				i = 1
+			}
+			if name := p.peek(i); name.Kind == lexer.Ident && p.peek(i+1).Kind == lexer.Colon {
+				p.fail(name, fmt.Sprintf("compute it instead: get %s -> T { ... }", name.Text), "extensions can't add fields")
+			}
+			p.member(body)
+		}, p.syncStmt)
+	}
+	p.next()
+	for _, m := range body.Methods {
+		m.Recv = d.Type
+	}
+	d.Methods, d.Consts = body.Methods, body.Consts
+	d.Span = p.span(start)
+	return d
 }
 
 // Parses `typedef Name<T> = Type`.

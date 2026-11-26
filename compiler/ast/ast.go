@@ -118,6 +118,9 @@ type FuncDecl struct {
 
 	// What kind of struct member this is: a method, or a property accessor.
 	Accessor Accessor
+
+	// The type an extension adds this member to, or nil.
+	Recv TypeExpr
 }
 
 // The kind of a struct member declared like a function.
@@ -204,6 +207,18 @@ type EnumDecl struct {
 	Consts     []*ConstDecl
 }
 
+// An extension: `extension string { ... }` adds methods, properties and
+// static members to an existing type. [TypeParams] are set for an
+// extension of a built-in generic type, as in `extension<T> [T]`.
+type ExtensionDecl struct {
+	Span
+	Pub        bool
+	TypeParams []*TypeParam
+	Type       TypeExpr
+	Methods    []*FuncDecl
+	Consts     []*ConstDecl
+}
+
 // A type alias: `typedef Name = Type`, or with type parameters
 // `typedef Pair<T> = (T, T)`. It is another name for [Type].
 type TypeAliasDecl struct {
@@ -253,6 +268,7 @@ func (*InterfaceDecl) declNode()  {}
 func (*ExternTypeDecl) declNode() {}
 func (*ConstDecl) declNode()      {}
 func (*TypeAliasDecl) declNode()  {}
+func (*ExtensionDecl) declNode()  {}
 
 // --- Types ---
 
