@@ -1165,7 +1165,11 @@ async fn main() {
 |---|---|
 | `print(a, b, ...)` / `println(...)` | Print values separated by spaces |
 | `input(prompt)` | Read a line from standard input; the prompt is optional |
-| `int(x)`, `float(x)`, `str(x)` | Convert between types; `int` and `float` ignore spaces around the number |
+| `int(x)`, `float(x)`, `str(x)` | Convert between types; `int` and `float` ignore spaces around the number, and stop the program if the text isn't one |
+| `int.parse(s)`, `float.parse(s)` | Parse text that may not be a number, giving `int?` and `float?`: `int.parse(field.text) ?? 0`. `int.parse(s, radix: 16)` reads other bases from 2 to 36 |
+| `str(n, radix: 16)` | An int in another base from 2 to 36, with lowercase letters: `str(255, radix: 16)` is `"ff"` |
+| `int.max`, `int.min`, `float.infinity`, `float.nan` | Limits and special values; constants can use them |
+| `x.isNaN`, `x.isFinite`, `x.toFixed(2)` | Float members. `toFixed` gives text with exactly that many digits after the point, from 0 to 20, rounding halves away from zero as in Dart: `2.5.toFixed(0)` is `"3"` |
 | `panic(msg)`, `assert(cond, msg)` | Stop the program with a message; `assert`'s message is optional |
 | `list.len`, `.push(x)`, `.pop()`, `.contains(x)`, `.filter(f)`, `.map(f)` | List members |
 | `map.len`, `.keys`, `.values`, `.contains(k)`, `.remove(k)` | Map members |
@@ -1248,7 +1252,7 @@ error: index 5 is out of range for a list of length 3
  --> main.vx:12
 ```
 
-These cover list indexes out of range, `pop()` on an empty list, division by zero, integer overflow, shifts by less than 0 or more than 63, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`.
+These cover list indexes out of range, `pop()` on an empty list, division by zero, integer overflow, shifts by less than 0 or more than 63, a radix outside 2 to 36, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`.
 
 ## Planned
 
