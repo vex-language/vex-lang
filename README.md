@@ -340,6 +340,10 @@ for s in shapes {
 }
 let rect = shapes[1] as? Rect                // Rect?
 
+struct Point: Hashable { x: int; y: int }   // == compares fields; usable as a map key
+let seen = [Point(x: 1, y: 2): "home"]
+println(Point(x: 1, y: 2) == Point(x: 1, y: 2), seen[Point(x: 1, y: 2)] ?? "?")
+
 interface Ordered<T> { fn compare(other: T) -> int }
 interface Sized { get size -> int }
 
@@ -554,7 +558,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 41 of 80 tasks; next are equality and shared state |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 42 of 80 tasks; next are shared state and async closures |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |
