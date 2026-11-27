@@ -430,6 +430,8 @@ func ctype(t types.Type) string {
 		return "bool"
 	case types.String:
 		return "vx_str"
+	case types.Range:
+		return "vx_range"
 	}
 	return "void"
 }
@@ -772,6 +774,8 @@ func repr(t types.Type, x string) string {
 		return "vx_bool_str(" + x + ")"
 	case types.String:
 		return "vx_str_quote(" + x + ")"
+	case types.Range:
+		return "vx_range_str(" + x + ")"
 	}
 	return "VX_LIT(\"\")"
 }
@@ -1180,6 +1184,21 @@ func (g *gen) forStmt(s *ast.ForStmt) {
 		head := fmt.Sprintf("for (int64_t %s = %s, %s = %s; %s %s %s; %s++)", v, g.expr(r.Lo), hi, g.expr(r.Hi), v, cmp, hi, v)
 		g.loopRange(s, r)
 		g.block(head, s.Body)
+		return
+	}
+	if g.info.Types[s.Iter] == types.Range {
+		r, k := g.temp(), g.temp()
+		g.line("{")
+		g.ind++
+		g.line("vx_range %s = %s;", r, g.expr(s.Iter))
+		g.line("for (uint64_t %s = 0; %s < %s.n; %s++) {", k, k, r, k)
+		g.ind++
+		g.line("int64_t %s = vx_range_at(%s, %s);", g.declare(g.info.Defs[s.Elem]), r, k)
+		g.ind--
+		g.body(s.Body)
+		g.line("}")
+		g.ind--
+		g.line("}")
 		return
 	}
 	// Items added during the loop aren't visited, so pushing inside the
@@ -1787,6 +1806,10 @@ func (g *gen) value(e ast.Expr) string {
 		})
 	case *ast.CallExpr:
 		return g.call(e)
+	case *ast.RangeExpr:
+		return g.ordered([]ast.Expr{e.Lo, e.Hi}, func(cs []string) string {
+			return fmt.Sprintf("vx_range_new(%s, %s, %t)", cs[0], cs[1], e.Inclusive)
+		})
 	case *ast.IndexExpr:
 		if m, ok := g.info.Types[e.X].(*types.Map); ok {
 			return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
@@ -1799,6 +1822,9 @@ func (g *gen) value(e ast.Expr) string {
 			return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
 				return g.memberCall(f, g.info.Types[e.X], cs[0], cs[1])
 			})
+		}
+		if g.info.Types[e.Index] == types.Range {
+			return g.slice(e)
 		}
 		if g.rng != nil && g.rng.inBounds(e.X, e.Index) {
 			return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
@@ -1839,7 +1865,9 @@ func (g *gen) value(e ast.Expr) string {
 		case "float.nan":
 			return "((double)NAN)"
 		case "isEmpty", "first", "last":
-			return g.listProperty(e, m.Builtin, g.info.Types[e.X].(*types.List), g.expr(e.X))
+			if l, ok := g.info.Types[e.X].(*types.List); ok {
+				return g.listProperty(e, m.Builtin, l, g.expr(e.X))
+			}
 		case "isCancelled":
 			return "((" + g.expr(e.X) + ")->state == 3)"
 		case "stream":
@@ -1863,6 +1891,17 @@ func (g *gen) value(e ast.Expr) string {
 		}
 		if g.info.Types[e.X] == types.String {
 			return "vx_str_len(" + x + ")"
+		}
+		if g.info.Types[e.X] == types.Range {
+			switch m.Builtin {
+			case "start":
+				return "(" + x + ").start"
+			case "end":
+				return "(" + x + ").end"
+			case "isEmpty":
+				return "((" + x + ").n == 0)"
+			}
+			return fmt.Sprintf("vx_range_count(%s, %d)", x, g.lineOf(e))
 		}
 		switch m.Builtin {
 		case "keys":
@@ -2156,6 +2195,17 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 		}
 		if recv == types.Float && c.Builtin == "toFixed" {
 			return fmt.Sprintf("vx_float_fixed(%s, %s, %d)", cs[0], cs[1], line)
+		}
+		if recv == types.Range {
+			switch c.Builtin {
+			case "contains":
+				return fmt.Sprintf("vx_range_contains(%s, %s)", cs[0], cs[1])
+			case "step":
+				return fmt.Sprintf("vx_range_step(%s, %s, %d)", cs[0], cs[1], line)
+			case "reversed":
+				return "vx_range_reversed(" + cs[0] + ")"
+			}
+			return fmt.Sprintf("vx_range_list(%s, %d)", cs[0], line)
 		}
 		if m, ok := recv.(*types.Map); ok {
 			k := g.temp()

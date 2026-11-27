@@ -1,0 +1,27 @@
+/// Misused ranges: float bounds, assigning to slices and indexing strings.
+struct P {
+    x: int
+}
+
+fn main() {
+    let b = 1.5..3.0
+    var xs = [1, 2, 3]
+    xs[0..2] = [9]
+    let m = ["a": 1]
+    println(m[0..1])
+    let s = "abc"
+    println(s[1])
+    let r = 0..5
+    for i, x in r { }
+    println(r.foo, r < r, P(x: 1)[0..1])
+}
+
+// error: 7:13: range bounds must be int, found float
+// error: 7:18: range bounds must be int, found float
+// error: 9:8: a slice is a copy, so it can't be assigned to
+// error: 11:15: map key: expected string, found Range
+// error: 13:15: a string can't be indexed by int
+// error: 15:9: a range has no separate index
+// error: 16:15: Range has no member 'foo'
+// error: 16:20: values of type Range can't be ordered with <
+// error: 16:27: can't index a value of type P
