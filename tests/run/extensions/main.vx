@@ -33,12 +33,12 @@ extension Names {
 }
 
 extension [int] {
-    fn sum() -> int {
+    fn summed() -> int {
         var t = 0
         for x in self { t += x }
         return t
     }
-    async fn total() -> int => sum()
+    async fn total() -> int => summed()
 }
 
 extension<T: Comparable> [T] {
@@ -86,7 +86,7 @@ async fn main() {
     println("hi".shout(), "  ".isBlank, "x".isBlank, "a".wrapped())
     let names: Names = ["ann", "bo"]
     println(names.joined(), names.joined(sep: "/"))
-    println([1, 2, 3].sum(), [3, 9, 2].largest() ?? 0, ["b", "c", "a"].largest() ?? "")
+    println([1, 2, 3].summed(), [3, 9, 2].largest() ?? 0, ["b", "c", "a"].largest() ?? "")
     let empty: [int] = []
     println(empty.largest() ?? -1, [1, 2].pairs(["x"]))
     println(["a": 1, "b": 2].size, 7.squared, (1 + 3).isEven())

@@ -2,6 +2,7 @@ package tests
 
 import (
 	"bytes"
+	"cmp"
 	"flag"
 	"fmt"
 	"math"
@@ -9,6 +10,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -746,6 +748,33 @@ func (g *generator) intExpr(leaf bool) expr {
 		return binInt(g.expr(tInt), intLit(k), "%", func(a, b int64) int64 { return a % b })
 	case 4:
 		l := g.expr(tList)
+		switch g.r.Intn(5) {
+		case 0:
+			return expr{l.code + ".sum()", func(e env) any {
+				s := int64(0)
+				for _, v := range l.eval(e).([]int64) {
+					s = addC(s, v)
+				}
+				return s
+			}}
+		case 1:
+			return expr{"(" + l.code + ".max() ?? 0)", func(e env) any {
+				xs := l.eval(e).([]int64)
+				if len(xs) == 0 {
+					return int64(0)
+				}
+				return slices.Max(xs)
+			}}
+		case 2:
+			a, b := g.name("y"), g.name("y")
+			return expr{fmt.Sprintf("%s.reduce(1, fn(%s, %s) => %s &* 3 &+ %s)", l.code, a, b, a, b), func(e env) any {
+				acc := int64(1)
+				for _, v := range l.eval(e).([]int64) {
+					acc = acc*3 + v
+				}
+				return acc
+			}}
+		}
 		return expr{l.code + ".len", func(e env) any { return int64(len(l.eval(e).([]int64))) }}
 	case 5:
 		s := g.expr(tStr)
@@ -930,6 +959,29 @@ func (g *generator) listExpr(leaf bool) expr {
 	l := g.expr(tList)
 	y := g.name("y")
 	k := int64(g.r.Intn(5) + 2)
+	switch g.r.Intn(6) {
+	case 0:
+		return expr{l.code + ".sorted()", func(e env) any {
+			out := slices.Clone(l.eval(e).([]int64))
+			slices.Sort(out)
+			return out
+		}}
+	case 1:
+		// Sorting by the last digit checks that equal elements keep their
+		// order.
+		a, b := g.name("y"), g.name("y")
+		return expr{fmt.Sprintf("%s.sorted(by: fn(%s, %s) => %s %% 10 < %s %% 10)", l.code, a, b, a, b), func(e env) any {
+			out := slices.Clone(l.eval(e).([]int64))
+			slices.SortStableFunc(out, func(x, y int64) int { return cmp.Compare(x%10, y%10) })
+			return out
+		}}
+	case 2:
+		return expr{l.code + ".reversed()", func(e env) any {
+			out := slices.Clone(l.eval(e).([]int64))
+			slices.Reverse(out)
+			return out
+		}}
+	}
 	if g.r.Intn(2) == 0 {
 		return expr{fmt.Sprintf("%s.filter(fn(%s) => %s %% %d == 0)", l.code, y, y, k), func(e env) any {
 			out := []int64{}
