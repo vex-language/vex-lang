@@ -1475,6 +1475,15 @@ func (p *parser) blockWith(params *[]*ast.Ident) *ast.Block {
 	return b
 }
 
+// Parses a function declared inside another: `fn name(...) { ... }`.
+func (p *parser) localFunc() *ast.LocalFuncStmt {
+	start := p.tok().Pos
+	fn := p.funcDecl(false)
+	fn.Span = p.span(start)
+	lit := &ast.FuncLit{Span: fn.Span, Async: fn.Async, Params: fn.Params, Result: fn.Result, Throws: fn.Throws, Body: fn.Body, ExprBody: fn.ExprBody}
+	return &ast.LocalFuncStmt{Span: fn.Span, Decl: fn, Lit: lit}
+}
+
 // Checks that a statement is followed by a line break, `;` or `}`.
 func (p *parser) endStmt() {
 	switch t := p.tok(); t.Kind {
@@ -1550,9 +1559,11 @@ func (p *parser) stmt() ast.Stmt {
 		return p.block()
 	case lexer.Fn:
 		if p.peek(1).Kind == lexer.Ident {
-			name := p.peek(1).Text
-			p.fail(t, fmt.Sprintf("declare it at the top level, or store a closure: let %s = fn(...) { ... }", name),
-				"functions can't be declared inside other functions")
+			return p.localFunc()
+		}
+	case lexer.Async:
+		if p.peek(1).Kind == lexer.Fn && p.peek(2).Kind == lexer.Ident {
+			return p.localFunc()
 		}
 	case lexer.Struct:
 		p.fail(t, "declare it at the top level of the file", "structs can't be declared inside functions")

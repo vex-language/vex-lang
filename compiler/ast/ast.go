@@ -483,6 +483,16 @@ type ForStmt struct {
 	Await bool
 }
 
+// A function declared inside another function's body. It is a closure
+// held in a variable named after it, which its own body can call.
+type LocalFuncStmt struct {
+	Span
+	Decl *FuncDecl
+
+	// The closure that makes its value, sharing [Decl]'s body.
+	Lit *FuncLit
+}
+
 // A `yield` statement, which gives the next value of a stream function.
 type YieldStmt struct {
 	Span
@@ -507,19 +517,20 @@ type BreakStmt struct{ Span }
 // A `continue` statement.
 type ContinueStmt struct{ Span }
 
-func (*Block) stmtNode()        {}
-func (*LetStmt) stmtNode()      {}
-func (*AssignStmt) stmtNode()   {}
-func (*ExprStmt) stmtNode()     {}
-func (*IfStmt) stmtNode()       {}
-func (*GuardStmt) stmtNode()    {}
-func (*WhileStmt) stmtNode()    {}
-func (*ForStmt) stmtNode()      {}
-func (*YieldStmt) stmtNode()    {}
-func (*ReturnStmt) stmtNode()   {}
-func (*ThrowStmt) stmtNode()    {}
-func (*BreakStmt) stmtNode()    {}
-func (*ContinueStmt) stmtNode() {}
+func (*Block) stmtNode()         {}
+func (*LetStmt) stmtNode()       {}
+func (*AssignStmt) stmtNode()    {}
+func (*ExprStmt) stmtNode()      {}
+func (*IfStmt) stmtNode()        {}
+func (*GuardStmt) stmtNode()     {}
+func (*WhileStmt) stmtNode()     {}
+func (*ForStmt) stmtNode()       {}
+func (*YieldStmt) stmtNode()     {}
+func (*LocalFuncStmt) stmtNode() {}
+func (*ReturnStmt) stmtNode()    {}
+func (*ThrowStmt) stmtNode()     {}
+func (*BreakStmt) stmtNode()     {}
+func (*ContinueStmt) stmtNode()  {}
 
 // --- Expressions ---
 
