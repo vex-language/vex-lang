@@ -57,7 +57,8 @@ type gen struct {
 	litNames map[*ast.FuncLit]string
 
 	// Encoders and decoders of values sent between isolates, by mangled
-	// type, and the entry functions of new isolates.
+	// type, the entry functions of new isolates, and the comparisons that
+	// sort lists.
 	codecs     map[string]bool
 	codecDecls strings.Builder
 	codecDefs  strings.Builder
@@ -1680,6 +1681,8 @@ func (g *gen) value(e ast.Expr) string {
 			return "((double)INFINITY)"
 		case "float.nan":
 			return "((double)NAN)"
+		case "isEmpty", "first", "last":
+			return g.listProperty(e, m.Builtin, g.info.Types[e.X].(*types.List), g.expr(e.X))
 		case "isNaN":
 			return "((bool)isnan(" + g.expr(e.X) + "))"
 		case "isFinite":
@@ -1975,6 +1978,9 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 			}
 		}
 		if l, ok := recv.(*types.List); ok {
+			if s := g.listMember(e, c, l, cs, line); s != "" {
+				return s
+			}
 			elem := ctype(l.Elem)
 			switch c.Builtin {
 			case "push":

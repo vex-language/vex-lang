@@ -401,8 +401,15 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 		c.errorAt(m.Name, hint, "%s has no method '%s'", recv, name)
 		return Invalid
 	}
-	if l, ok := recv.(*List); ok && name == "map" {
-		return c.mapCall(e, m, l)
+	if l, ok := recv.(*List); ok {
+		switch name {
+		case "map":
+			return c.mapCall(e, m, l)
+		case "flatMap":
+			return c.flatMapCall(e, m, l)
+		case "reduce":
+			return c.reduceCall(e, m, l)
+		}
 	}
 	sig := builtinMember(recv, name)
 	if sig == nil {
@@ -415,27 +422,44 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 		}
 		if hint := mapMethodHint(recv, name); hint != "" {
 			c.errorAt(m.Name, hint, "%s has no method '%s'", recv, name)
-		} else if name == "len" || name == "keys" || name == "values" {
+		} else if name == "len" || name == "keys" || name == "values" || name == "first" || name == "last" || name == "isEmpty" {
 			c.errorAt(m.Name, "write it without (): ."+name, "%s is a property, not a method", name)
 		} else {
 			c.errorAt(m.Name, didYouMean(name, builtinMemberNames(recv)), "%s has no method '%s'", recv, name)
 		}
 		return Invalid
 	}
-	if name == "contains" {
-		if l, ok := recv.(*List); ok && !comparable(l.Elem) && l.Elem != Invalid {
-			c.checkArgs(e)
-			hint := ""
+	if l, ok := recv.(*List); ok && l.Elem != Invalid {
+		hint := ""
+		switch {
+		case (name == "contains" || name == "indexOf") && !comparable(l.Elem):
 			if s, ok := l.Elem.(*Struct); ok {
 				hint = fmt.Sprintf("define it in %s: operator ==(other: %s) -> bool", s.Name, s.Name)
 			}
-			c.errorAt(m.Name, hint, "contains can't be used on a list of %s", l.Elem)
+		case (name == "min" || name == "max" || ((name == "sort" || name == "sorted") && len(e.Args) == 0)) && !sortable(l.Elem):
+			if s, ok := l.Elem.(*Struct); ok {
+				hint = fmt.Sprintf("define it in %s: operator <(other: %s) -> bool", s.Name, s.Name)
+			}
+			if name == "sort" || name == "sorted" {
+				hint = fmt.Sprintf("pass the order: %s(by: fn(a, b) => ...)", name)
+			}
+		case name == "sum" && l.Elem != Int && l.Elem != Float:
+			c.checkArgs(e)
+			c.errorAt(m.Name, "", "sum needs a list of int or float, found %s", recv)
+			return Invalid
+		default:
+			hint = "-"
+		}
+		if hint != "-" {
+			c.checkArgs(e)
+			c.errorAt(m.Name, hint, "%s can't be used on a list of %s", name, l.Elem)
 			return Invalid
 		}
 	}
 	switch recv.(type) {
 	case *List:
-		if name == "push" || name == "pop" {
+		switch name {
+		case "push", "pop", "sort", "insert", "remove", "removeWhere", "clear":
 			c.constChange(m.X, "list")
 		}
 	case *Map:
@@ -725,6 +749,73 @@ func (c *checker) mapCall(e *ast.CallExpr, m *ast.MemberExpr, l *List) Type {
 	return &List{Elem: ft.Result}
 }
 
+// Reports whether lists of [t] can be sorted without an order given: [t]
+// is ordered, or a struct that defines `<`.
+func sortable(t Type) bool {
+	if s, ok := t.(*Struct); ok {
+		return s.Operator("<") != nil
+	}
+	return ordered(t)
+}
+
+// Returns the type of a function telling whether one [t] goes before
+// another.
+func lessFunc(t Type) *FuncType { return &FuncType{Params: []Type{t, t}, Result: Bool} }
+
+// Checks `list.flatMap(fn(x) => [...])`, whose result joins the lists the
+// function returns.
+func (c *checker) flatMapCall(e *ast.CallExpr, m *ast.MemberExpr, l *List) Type {
+	if len(e.Args) != 1 || e.Args[0].Name != nil || e.Trailing != nil {
+		c.checkArgs(e)
+		c.errorAt(m.Name, "e.g. xs.flatMap(fn(x) => [x, x])", "flatMap takes 1 function")
+		return Invalid
+	}
+	arg := e.Args[0].Value
+	t := c.expr(arg, &FuncType{Params: []Type{l.Elem}})
+	ft, ok := t.(*FuncType)
+	if t == Invalid {
+		return Invalid
+	}
+	var out *List
+	if ok && len(ft.Params) == 1 && Identical(ft.Params[0], l.Elem) {
+		out, _ = ft.Result.(*List)
+	}
+	if out == nil {
+		c.errorAt(arg, "e.g. xs.flatMap(fn(x) => [x, x])", "flatMap needs a function that takes %s and returns a list, found %s", l.Elem, t)
+		return Invalid
+	}
+	c.info.Calls[e] = &Call{Kind: MemberBuiltinCall, Builtin: "flatMap", Recv: m.X, Args: []ast.Expr{arg}}
+	return out
+}
+
+// Checks `list.reduce(initial, fn(acc, x) => ...)`, whose result has the
+// type of [initial].
+func (c *checker) reduceCall(e *ast.CallExpr, m *ast.MemberExpr, l *List) Type {
+	if e.Trailing != nil || len(e.Args) != 2 || e.Args[0].Name != nil || e.Args[1].Name != nil {
+		c.checkArgs(e)
+		c.errorAt(m.Name, "e.g. xs.reduce(0, fn(sum, x) => sum + x)", "reduce takes a starting value and a function")
+		return Invalid
+	}
+	init, arg := e.Args[0].Value, e.Args[1].Value
+	r := c.expr(init, nil)
+	if r == Invalid {
+		c.expr(arg, nil)
+		return Invalid
+	}
+	if r == Void {
+		c.errorAt(init, "", "this expression has no value to start from")
+		return Invalid
+	}
+	want := &FuncType{Params: []Type{r, l.Elem}, Result: r}
+	t := c.expr(arg, want)
+	if t != Invalid && !Identical(t, want) {
+		c.errorAt(arg, "e.g. xs.reduce(0, fn(sum, x) => sum + x)", "reduce needs %s, found %s", want, t)
+		return Invalid
+	}
+	c.info.Calls[e] = &Call{Kind: MemberBuiltinCall, Builtin: "reduce", Recv: m.X, Args: []ast.Expr{init, arg}}
+	return r
+}
+
 // Returns the signature of the built-in method [name] of [recv], or nil.
 func builtinMember(recv Type, name string) *memberSig {
 	if l, ok := recv.(*List); ok {
@@ -737,8 +828,34 @@ func builtinMember(recv Type, name string) *memberSig {
 			return &memberSig{[]slot{{name: "item", typ: l.Elem}}, Bool}
 		case "filter":
 			return &memberSig{[]slot{{name: "keep", typ: &FuncType{Params: []Type{l.Elem}, Result: Bool}}}, &List{Elem: l.Elem}}
-		case "copy":
+		case "copy", "reversed":
 			return &memberSig{nil, l}
+		case "sort":
+			return &memberSig{[]slot{{name: "by", typ: lessFunc(l.Elem), optional: true}}, Void}
+		case "sorted":
+			return &memberSig{[]slot{{name: "by", typ: lessFunc(l.Elem), optional: true}}, l}
+		case "insert":
+			return &memberSig{[]slot{{name: "item", typ: l.Elem}, {name: "at", typ: Int}}, Void}
+		case "remove":
+			return &memberSig{[]slot{{name: "at", typ: Int}}, l.Elem}
+		case "removeWhere":
+			return &memberSig{[]slot{{name: "test", typ: &FuncType{Params: []Type{l.Elem}, Result: Bool}}}, Void}
+		case "indexOf":
+			return &memberSig{[]slot{{name: "item", typ: l.Elem}}, &Optional{Elem: Int}}
+		case "find":
+			return &memberSig{[]slot{{name: "test", typ: &FuncType{Params: []Type{l.Elem}, Result: Bool}}}, &Optional{Elem: l.Elem}}
+		case "any", "all":
+			return &memberSig{[]slot{{name: "test", typ: &FuncType{Params: []Type{l.Elem}, Result: Bool}}}, Bool}
+		case "join":
+			return &memberSig{[]slot{{name: "separator", typ: String, optional: true}}, String}
+		case "clear":
+			return &memberSig{nil, Void}
+		case "min", "max":
+			return &memberSig{nil, &Optional{Elem: l.Elem}}
+		case "sum":
+			return &memberSig{nil, l.Elem}
+		case "slice":
+			return &memberSig{[]slot{{name: "from", typ: Int}, {name: "to", typ: Int}}, l}
 		}
 		return nil
 	}
@@ -796,7 +913,9 @@ func builtinMember(recv Type, name string) *memberSig {
 
 func builtinMemberNames(recv Type) []string {
 	if _, ok := recv.(*List); ok {
-		return []string{"len", "push", "pop", "contains", "filter", "map", "copy"}
+		return []string{"len", "first", "last", "isEmpty", "push", "pop", "insert", "remove", "removeWhere", "clear",
+			"contains", "indexOf", "find", "any", "all", "filter", "map", "flatMap", "reduce",
+			"sort", "sorted", "reversed", "min", "max", "sum", "join", "slice", "copy"}
 	}
 	if _, ok := recv.(*Map); ok {
 		return []string{"len", "keys", "values", "contains", "remove", "copy"}

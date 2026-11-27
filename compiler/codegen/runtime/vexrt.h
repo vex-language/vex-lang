@@ -1168,6 +1168,83 @@ static void *vx_list_pop(vx_list *l, int line) {
     return l->data + l->len * l->esz;
 }
 
+// Reports whether the element at [a] goes before the one at [b].
+typedef bool (*vx_less_fn)(void *ctx, const void *a, const void *b);
+
+// Sorts [l] in place with a stable merge sort. The sort works on a copy, so
+// a comparison that changes the list can't break it, but is an error.
+static void vx_list_sort(vx_list *l, vx_less_fn less, void *ctx, int line) {
+    int64_t n = l->len, esz = l->esz;
+    if (n < 2) return;
+    bool atomic = vx_is_atomic(l->data);
+    size_t size = (size_t)(n * esz);
+    char *a = atomic ? vx_alloc_atomic(size) : vx_alloc(size);
+    char *b = atomic ? vx_alloc_atomic(size) : vx_alloc(size);
+    memcpy(a, l->data, size);
+    for (int64_t w = 1; w < n; w *= 2) {
+        for (int64_t lo = 0; lo < n; lo += 2 * w) {
+            int64_t mid = lo + w < n ? lo + w : n, hi = lo + 2 * w < n ? lo + 2 * w : n;
+            int64_t i = lo, j = mid, k = lo;
+            // Takes from the right run only when it is strictly smaller,
+            // which keeps equal elements in order.
+            // A comparison may collect, after which [b] is old, so each
+            // write goes through the barrier.
+            while (i < mid && j < hi) {
+                if (less(ctx, a + j * esz, a + i * esz)) memcpy(b + k++ * esz, a + j++ * esz, (size_t)esz);
+                else memcpy(b + k++ * esz, a + i++ * esz, (size_t)esz);
+                if (!atomic) vx_remember(b);
+            }
+            memcpy(b + k * esz, a + i * esz, (size_t)((mid - i) * esz));
+            k += mid - i;
+            memcpy(b + k * esz, a + j * esz, (size_t)((hi - j) * esz));
+            if (!atomic) vx_remember(b);
+        }
+        char *t = a;
+        a = b;
+        b = t;
+    }
+    if (l->len != n) vx_fail(line, "the list changed while it was being sorted");
+    memcpy(l->data, a, size);
+    if (!atomic) vx_remember(l->data);
+}
+
+static void vx_list_insert(vx_list *l, const void *item, int64_t at, int line) {
+    if (at < 0 || at > l->len) {
+        vx_fail(line, "insert at %" PRId64 " is out of range for a list of length %" PRId64, at, l->len);
+    }
+    vx_list_push(l, item);
+    char *p = l->data + at * l->esz;
+    memmove(p + l->esz, p, (size_t)((l->len - 1 - at) * l->esz));
+    memcpy(p, item, (size_t)l->esz);
+}
+
+// Removes the element at [at], storing it in [out].
+static void vx_list_remove_at(vx_list *l, int64_t at, int line, void *out) {
+    char *p = vx_list_at(l, at, line);
+    memcpy(out, p, (size_t)l->esz);
+    memmove(p, p + l->esz, (size_t)((l->len - 1 - at) * l->esz));
+    l->len--;
+    if (!vx_is_atomic(l->data)) vx_remember(l->data);
+}
+
+static vx_list *vx_list_slice(vx_list *l, int64_t from, int64_t to, int line) {
+    if (from < 0 || to > l->len || from > to) {
+        vx_fail(line, "slice(%" PRId64 ", %" PRId64 ") is out of range for a list of length %" PRId64, from, to, l->len);
+    }
+    return vx_list_make(l->esz, to - from, 0, l->data + from * l->esz, vx_is_atomic(l->data));
+}
+
+static vx_list *vx_list_reversed(vx_list *l) {
+    vx_list *r = vx_list_copy(l);
+    for (int64_t i = 0, j = r->len - 1; i < j; i++, j--) {
+        char t[r->esz];
+        memcpy(t, r->data + i * r->esz, (size_t)r->esz);
+        memcpy(r->data + i * r->esz, r->data + j * r->esz, (size_t)r->esz);
+        memcpy(r->data + j * r->esz, t, (size_t)r->esz);
+    }
+    return r;
+}
+
 // Adds the elements of [src], which have the same size, to the end of [l].
 static void vx_list_append(vx_list *l, vx_list *src) {
     int64_t n = src->len;

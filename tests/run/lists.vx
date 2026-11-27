@@ -1,0 +1,84 @@
+// List essentials: sorting, searching, changing and combining lists.
+struct Task {
+    title: string
+    priority: int
+}
+
+struct Version {
+    major: int
+    minor: int
+
+    operator <(other: Version) -> bool => major < other.major || (major == other.major && minor < other.minor)
+}
+
+enum Level { low, mid, high }
+
+/// Returns [n] pseudo-random numbers below 1000.
+fn randoms(n: int) -> [int] {
+    var seed = 12345
+    var out: [int] = []
+    for i in 0..n {
+        seed = seed &* 6364136223846793005 &+ 1442695040888963407
+        out.push(((seed >> 33) % 1000 + 1000) % 1000)
+    }
+    return out
+}
+
+fn main() {
+    var nums = [5, 3, 8, 1, 9, 2]
+    println(nums.first, nums.last, nums.isEmpty, nums.sorted(), nums)
+    nums.sort()
+    println(nums, nums.sorted(by: fn(a, b) => a > b), nums.reversed())
+
+    var tasks = [Task(title: "write", priority: 2), Task(title: "test", priority: 1), Task(title: "ship", priority: 2), Task(title: "plan", priority: 1)]
+    tasks.sort(by: fn(a, b) => a.priority < b.priority)
+    println(tasks.map(fn(t) => t.title).join(", "))
+    println([Version(major: 1, minor: 2), Version(major: 0, minor: 9), Version(major: 1, minor: 0)].sorted().map(fn(v) => "{v.major}.{v.minor}"))
+    println([Level.high, Level.low, Level.mid].sorted(), ["pear", "fig", "apple"].sorted(), [2.5, -1.0, 0.5].max())
+
+    var xs = [10, 20, 30]
+    xs.insert(5, at: 0)
+    xs.insert(40, at: xs.len)
+    xs.insert(25, at: 3)
+    let removed = xs.remove(at: 1)
+    println(xs, removed)
+    xs.removeWhere(fn(x) => x % 10 == 0)
+    println(xs, xs.indexOf(25), xs.indexOf(7))
+
+    let words = ["apple", "kiwi", "banana", "fig"]
+    println(words.find(fn(w) => w.len > 4), words.find(fn(w) => w.len > 9), words.any(fn(w) => w.startsWith("k")), words.all(fn(w) => w.len > 2))
+    println(words.reduce(0, fn(n, w) => n + w.len), words.reduce("", fn(s, w) => s + w.substring(0, 1)))
+    println([1, 2, 3].sum(), [0.5, 0.25].sum(), words.min(), words.max(), [3, 1, 2].flatMap(fn(x) => [x, -x]))
+    println(words.slice(1, 3), words.slice(2, 2), [1, 2, 3].join(), words.join(" / "), [[1, 2], [3]].join(" + "))
+
+    let empty: [int] = []
+    println(empty.first, empty.last, empty.isEmpty, empty.min(), empty.sum(), empty.join(","), empty.sorted(), empty.reversed())
+    xs.clear()
+    println(xs, xs.isEmpty)
+
+    // A big sort whose comparison allocates, so the collector runs while it
+    // sorts; the result must be ordered and keep equal keys in order.
+    let big = randoms(3000)
+    var pairs: [(int, int)] = []
+    for i in 0..big.len {
+        pairs.push((big[i] % 50, i))
+    }
+    let sorted = pairs.sorted(by: fn(a, b) => "{a.$1}".len >= 0 && a.$1 < b.$1)
+    var ok = true
+    for i in 1..sorted.len {
+        let (k0, i0) = sorted[i - 1]
+        let (k1, i1) = sorted[i]
+        if k0 > k1 || (k0 == k1 && i0 > i1) {
+            ok = false
+        }
+    }
+    let once = big.sorted()
+    let twice = once.sorted()
+    var same = true
+    for i in 0..big.len {
+        if twice[i] != once[i] {
+            same = false
+        }
+    }
+    println(sorted.len, ok, same, once.first, once.last, big.min(), big.max())
+}

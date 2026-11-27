@@ -168,6 +168,36 @@ let snapshot = nums.copy()   // a separate list with the same elements
 let empty: [string] = []
 ```
 
+**Working with lists.**
+
+```swift
+if tasks.isEmpty { return }
+let next = tasks.first ?? defaultTask      // first and last are optionals
+tasks.sort(by: fn(a, b) => a.priority < b.priority)
+let names = users.map(fn(u) => u.name).sorted().join(", ")
+let total = prices.sum()
+let adults = people.filter(fn(p) => p.age >= 18)
+let firstAdmin = users.find(fn(u) => u.admin)        // User?
+let words = lines.flatMap(fn(l) => l.split(" "))
+let letters = words.reduce(0, fn(n, w) => n + w.len)
+```
+
+| Member | Result |
+|---|---|
+| `.len`, `.isEmpty`, `.first`, `.last` | Properties; `first` and `last` are `nil` for an empty list |
+| `.push(x)`, `.pop()`, `.insert(x, at: i)`, `.remove(at: i)`, `.removeWhere(f)`, `.clear()` | Change the list in place; `remove` and `pop` give the element removed |
+| `.sort()`, `.sort(by: f)` | Sort in place. `sort()` needs elements that `<` orders: numbers, strings, enums whose cases carry no values, and structs that define `operator <`. `by:` takes whether `a` goes before `b`. Sorting is stable: equal elements keep their order |
+| `.sorted()`, `.sorted(by: f)`, `.reversed()`, `.slice(from, to)`, `.copy()` | New lists; the original is unchanged. `slice` takes the elements from `from` up to `to` |
+| `.contains(x)`, `.indexOf(x)` | Whether `x` is in the list, and the index of the first match as an `int?`; elements need `==` |
+| `.find(f)`, `.any(f)`, `.all(f)` | The first element `f` accepts, as an optional; whether any or every element passes |
+| `.filter(f)`, `.map(f)`, `.flatMap(f)` | New lists: the elements `f` accepts; what `f` returns for each; the lists `f` returns, joined |
+| `.reduce(initial, f)` | Combines the elements, starting from `initial`: `xs.reduce(0, fn(sum, x) => sum + x)` |
+| `.min()`, `.max()`, `.sum()` | The smallest and largest element as optionals; the total of an `[int]` or `[float]`, which stops the program if an int total overflows |
+| `.join(separator)` | The elements as text, as `str` shows them, with the separator between; it may be left out |
+
+- An index out of range stops the program, for `insert`, `remove` and `slice` as for `xs[i]`.
+- Changing the list from inside the function passed to `sort(by:)` or `removeWhere` stops the program. `filter`, `map`, `find` and the others visit the elements there were at the start, as a `for` loop does.
+
 **Collection `if`, `for` and spread.** Inside a list or map literal, `if` and `for` produce elements and `...` adds every element of another collection, as in Dart:
 
 ```swift
@@ -1171,7 +1201,7 @@ async fn main() {
 | `int.max`, `int.min`, `float.infinity`, `float.nan` | Limits and special values; constants can use them |
 | `x.isNaN`, `x.isFinite`, `x.toFixed(2)` | Float members. `toFixed` gives text with exactly that many digits after the point, from 0 to 20, rounding halves away from zero as in Dart: `2.5.toFixed(0)` is `"3"` |
 | `panic(msg)`, `assert(cond, msg)` | Stop the program with a message; `assert`'s message is optional |
-| `list.len`, `.push(x)`, `.pop()`, `.contains(x)`, `.filter(f)`, `.map(f)` | List members |
+| `list.len`, `.push(x)`, `.sort()`, `.filter(f)`, `.map(f)`, `.join(sep)` and the rest | List members; see [Lists](#lists) |
 | `map.len`, `.keys`, `.values`, `.contains(k)`, `.remove(k)` | Map members |
 | `s.len`, `.upper()`, `.lower()`, `.contains(x)`, `.split(sep)` | String members. `len` counts Unicode code points, so an emoji with a modifier counts as more than one; `upper` and `lower` change only the letters A–Z for now |
 | `.replace(old, with)`, `.trim()`, `.trimStart()`, `.trimEnd()` | New strings: every `old` replaced; spaces, tabs and line endings removed from the ends |
@@ -1252,7 +1282,7 @@ error: index 5 is out of range for a list of length 3
  --> main.vx:12
 ```
 
-These cover list indexes out of range, `pop()` on an empty list, division by zero, integer overflow, shifts by less than 0 or more than 63, a radix outside 2 to 36, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`.
+These cover list indexes out of range, `pop()` on an empty list, a list changed while it is being sorted, division by zero, integer overflow, shifts by less than 0 or more than 63, a radix outside 2 to 36, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`.
 
 ## Planned
 
