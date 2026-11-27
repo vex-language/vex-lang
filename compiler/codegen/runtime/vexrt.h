@@ -50,11 +50,30 @@ static const char *const *vx_files = vx_main_src;
 
 #define VX_LIT(s) ((vx_str){(s), (int64_t)(sizeof(s) - 1)})
 
+// --- Tests ---
+//
+// `vex test` runs each test in a child process, so a runtime error fails
+// only that test. The child prints why it failed; [vx_test_marked] lives in
+// memory shared with the parent, which prints the line for a test that
+// passed or crashed.
+
+static const char *vx_test_name;   // the test this process runs, or NULL
+static int *vx_test_marked;        // set once the test is reported as failed
+
+// Reports the running test as failed, printing its name the first time.
+static void vx_test_mark(void) {
+    if (!vx_test_name || *vx_test_marked) return;
+    *vx_test_marked = 1;
+    printf("\u2717 %s\n", vx_test_name);
+    fflush(stdout);
+}
+
 // --- Errors ---
 
 // Prints a runtime error with the source line and stops the program.
 __attribute__((noreturn, format(printf, 2, 3)))
 static void vx_fail(int line, const char *fmt, ...) {
+    vx_test_mark();
     fflush(stdout);
     fputs("error: ", stderr);
     va_list ap;
@@ -1883,6 +1902,7 @@ static int64_t vx_float_to_int(double v, int line) {
 // Stops the program after an error passed up out of main.
 __attribute__((noreturn))
 static void vx_uncaught(vx_str message) {
+    vx_test_mark();
     fflush(stdout);
     fprintf(stderr, "error: %.*s\n", (int)message.len, message.ptr);
     exit(1);
@@ -2004,6 +2024,27 @@ static void vx_assert(bool cond, vx_str msg, int line) {
     if (cond) return;
     if (msg.len == 0) vx_fail(line, "assertion failed");
     vx_fail(line, "assertion failed: %.*s", (int)msg.len, msg.ptr);
+}
+
+// Reports a failed `expect([text])` at [line], with [msg] when it isn't
+// empty, and the values [left] and [right] of a comparison when [sides].
+// The test goes on, so one run shows every failure.
+static void vx_expect_fail(int line, const char *text, vx_str msg, bool sides, vx_str left, vx_str right) {
+    vx_test_mark();
+    printf("  %s:%d: expect(%s)\n", vx_files[line >> 20], line & 0xFFFFF, text);
+    if (msg.len > 0) printf("    %.*s\n", (int)msg.len, msg.ptr);
+    if (sides) {
+        printf("    left:  %.*s\n", (int)left.len, left.ptr);
+        printf("    right: %.*s\n", (int)right.len, right.ptr);
+    }
+    fflush(stdout);
+}
+
+// Reports an error passed up out of the running test.
+static void vx_test_error(vx_str message) {
+    vx_test_mark();
+    printf("  error: %.*s\n", (int)message.len, message.ptr);
+    fflush(stdout);
 }
 
 // --- Files and the system ---
@@ -3211,4 +3252,54 @@ static void vx_chan_close(vx_chan *c) {
 static int64_t vx_cores(void) {
     long n = sysconf(_SC_NPROCESSORS_ONLN);
     return n > 0 ? n : 1;
+}
+
+// Runs the [n] tests [fns], named [names], whose names contain the text
+// given as the program's first argument, and prints a summary. Returns the
+// exit status: 1 when a test failed.
+static int vx_test_run(int n, const char *const names[], void (*const fns[])(void)) {
+    const char *filter = vx_argc > 1 ? vx_argv[1] : "";
+    vx_test_marked = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
+    if (vx_test_marked == MAP_FAILED) vx_out_of_memory();
+    int ran = 0, failed = 0;
+    for (int i = 0; i < n; i++) {
+        if (!strstr(names[i], filter)) continue;
+        ran++;
+        *vx_test_marked = 0;
+        fflush(stdout);
+        fflush(stderr);
+        pid_t pid = fork();
+        if (pid < 0) {
+            perror("fork");
+            return 1;
+        }
+        if (pid == 0) {
+            vx_test_name = names[i];
+            fns[i]();
+            vx_loop();
+            fflush(stdout);
+            _exit(*vx_test_marked ? 1 : 0);
+        }
+        int status = 0;
+        while (waitpid(pid, &status, 0) < 0 && errno == EINTR) {}
+        if (WIFEXITED(status) && WEXITSTATUS(status) == 0 && !*vx_test_marked) {
+            printf("\u2713 %s\n", names[i]);
+            continue;
+        }
+        failed++;
+        if (!*vx_test_marked) {
+            printf("\u2717 %s\n", names[i]);
+            if (WIFSIGNALED(status)) {
+                printf("  crashed with signal %d\n", WTERMSIG(status));
+            } else {
+                printf("  stopped with exit status %d\n", WEXITSTATUS(status));
+            }
+        }
+    }
+    if (ran == 0) {
+        printf(*filter ? "no tests match '%s'\n" : "no tests\n", filter);
+        return *filter ? 1 : 0;
+    }
+    printf("\n%d %s: %d passed, %d failed\n", ran, ran == 1 ? "test" : "tests", ran - failed, failed);
+    return failed > 0;
 }

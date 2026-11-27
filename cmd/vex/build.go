@@ -21,7 +21,13 @@ import (
 // folder, reporting any problems to [stderr]. Returns the exit code to
 // use when it fails.
 func load(target string, stderr io.Writer) (*modules.Program, *types.Info, int) {
-	prog, err := modules.Load(target)
+	return loadWith(modules.Load, target, stderr)
+}
+
+// Loads and checks the program at [target] with [loadFn], which is
+// [modules.Load] or [modules.LoadTests].
+func loadWith(loadFn func(string) (*modules.Program, error), target string, stderr io.Writer) (*modules.Program, *types.Info, int) {
+	prog, err := loadFn(target)
 	if prog != nil {
 		warn(prog.Warnings(), stderr)
 	}
@@ -38,7 +44,11 @@ func load(target string, stderr io.Writer) (*modules.Program, *types.Info, int) 
 // Translates the program at [target] to C. Returns the exit code to use
 // when it fails.
 func translate(target string, stderr io.Writer) (string, *modules.Program, int) {
-	prog, info, code := load(target, stderr)
+	return translateWith(modules.Load, target, stderr)
+}
+
+func translateWith(loadFn func(string) (*modules.Program, error), target string, stderr io.Writer) (string, *modules.Program, int) {
+	prog, info, code := loadWith(loadFn, target, stderr)
 	if code != exitOK {
 		return "", nil, code
 	}
@@ -147,6 +157,12 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "vex: %v\n", err)
 		return exitError
 	}
+	return execute(exe, args, stdout, stderr)
+}
+
+// Runs the program [exe] with [args] and returns its exit code, reporting
+// a crash.
+func execute(exe string, args []string, stdout, stderr io.Writer) int {
 	cmd := exec.Command(exe, args...)
 	cmd.Stdin, cmd.Stdout, cmd.Stderr = os.Stdin, stdout, stderr
 	if err := cmd.Run(); err != nil {
@@ -177,4 +193,42 @@ func same(a, b string) bool {
 	x, err1 := os.Stat(a)
 	y, err2 := os.Stat(b)
 	return err1 == nil && err2 == nil && os.SameFile(x, y)
+}
+
+func runTest(args []string, stdout, stderr io.Writer) int {
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	filter := fs.String("filter", "", "run only the tests whose names contain this text")
+	fs.Usage = func() { fmt.Fprintln(stderr, "Usage: vex test [file or folder] [-filter text]") }
+	var files []string
+	for len(args) > 0 {
+		if err := fs.Parse(args); err != nil {
+			return exitUsage
+		}
+		if fs.NArg() == 0 {
+			break
+		}
+		files = append(files, fs.Arg(0))
+		args = fs.Args()[1:]
+	}
+	if len(files) > 1 {
+		fs.Usage()
+		return exitUsage
+	}
+	src, prog, code := translateWith(modules.LoadTests, target(files), stderr)
+	if code != exitOK {
+		return code
+	}
+	dir, err := os.MkdirTemp("", "vex-test-")
+	if err != nil {
+		fmt.Fprintf(stderr, "vex: %v\n", err)
+		return exitError
+	}
+	defer os.RemoveAll(dir)
+	exe := filepath.Join(dir, "test")
+	if err := cc.CompileWith(src, exe, prog.CCOptions()); err != nil {
+		fmt.Fprintf(stderr, "vex: %v\n", err)
+		return exitError
+	}
+	return execute(exe, []string{*filter}, stdout, stderr)
 }
