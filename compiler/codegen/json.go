@@ -174,6 +174,10 @@ func (g *gen) fromJSONFunc(t types.Type) string {
 	jt := g.jsonType()
 	sig := fmt.Sprintf("static %s(%sj, const vx_jpath *p, void **vx_err)", decl(t, name), jt)
 	fmt.Fprintf(&g.codecDecls, "%s;\n", sig)
+	if j, _ := g.jsonTypes(); t == types.Type(j) {
+		fmt.Fprintf(&g.jsonDefs, "%s { (void)p; (void)vx_err; return j; }\n", sig)
+		return name
+	}
 
 	savedB, savedInd, savedTries, savedFrames := g.b, g.ind, g.tries, g.frames
 	var b strings.Builder

@@ -99,7 +99,22 @@ fn dynamic() throws {
     println(try json.parse("\"\\ud83d\\ude00 \\u00e9\""), try json.parse("12345678901234567890"), try json.parse("-0"))
 }
 
+/// A document whose payload can be any JSON.
+struct Message: Codable {
+    kind: string
+    payload: json.Json
+}
+
+/// Reads JSON into Json values, alone and as fields.
+fn untyped() throws {
+    let any: json.Json = try json.decode("[1, \{\"a\": null}]")
+    let m: Message = try json.decode("\{\"kind\": \"point\", \"payload\": [1, 2]}")
+    let all: [string: json.Json] = try json.decode("\{\"x\": true}")
+    println(any, m.kind, m.payload, all, json.encode(m))
+}
+
 fn main() throws {
+    try untyped()
     try typed()
     try custom()
     try dynamic()
