@@ -1,0 +1,33 @@
+// Mistakes with the list members.
+struct Plain {
+    v: int
+}
+
+fn main() {
+    let ps = [Plain(v: 1)]
+    var nums = [3, 1, 2]
+    ps.sort()
+    let a = ps.sorted()
+    println(ps.min(), ps.indexOf(Plain(v: 1)))
+    println(["a"].sum(), nums.first(), nums.isEmpty())
+    nums.sort(by: fn(a, b) => a)
+    let b = nums.reduce(0, fn(s, x) => "x")
+    let c = nums.flatMap(fn(x) => x)
+    let d = nums.map
+    nums.insert("x", at: 0)
+    let e: int = nums.first
+}
+
+// error: 9:8: sort can't be used on a list of Plain
+// error: 10:16: sorted can't be used on a list of Plain
+// error: 11:16: min can't be used on a list of Plain
+// error: 11:26: indexOf can't be used on a list of Plain
+// error: 12:19: sum needs a list of int or float, found [string]
+// error: 12:31: first is a property, not a method
+// error: 12:45: isEmpty is a property, not a method
+// error: 13:31: closure result: expected bool, found int
+// error: 14:40: closure result: expected int, found string
+// error: 15:26: flatMap needs a function that takes int and returns a list, found fn(int) -> int
+// error: 16:18: 'map' can't be used as a value
+// error: 17:17: argument 'item': expected int, found string
+// error: 18:18: expected int, found int?

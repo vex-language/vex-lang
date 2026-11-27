@@ -860,9 +860,16 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		c.errorAt(e.Name, didYouMean(name, memberNames(x)), "%s has no field '%s'", x.Name, name)
 		return Invalid
 	case *List:
-		if name == "len" {
+		switch name {
+		case "len":
 			c.info.Members[e] = &Member{Builtin: "len"}
 			return Int
+		case "isEmpty":
+			c.info.Members[e] = &Member{Builtin: "isEmpty"}
+			return Bool
+		case "first", "last":
+			c.info.Members[e] = &Member{Builtin: name}
+			return &Optional{Elem: x.Elem}
 		}
 	case *Map:
 		switch name {
@@ -911,8 +918,8 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 	if sig := builtinMember(x, name); sig != nil {
 		return c.tearOff(e, memberSigOf(sig), x, called, want)
 	}
-	if _, ok := x.(*List); ok && name == "map" {
-		c.errorAt(e.Name, "call it in a closure: fn(x) => ...", "'map' can't be used as a value")
+	if _, ok := x.(*List); ok && (name == "map" || name == "flatMap" || name == "reduce") {
+		c.errorAt(e.Name, "call it in a closure: fn(x) => ...", "'%s' can't be used as a value", name)
 		return Invalid
 	}
 	if r, b := c.findRecv(x, name, ast.Method, e.Name); r != nil {
