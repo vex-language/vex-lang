@@ -631,20 +631,21 @@ func (c *checker) trailing(e *ast.CallExpr, slots []slot, set []bool, callee str
 		c.errorAt(e.Trailing, "", "%s takes no arguments, so it can't take a trailing block", callee)
 		return -1
 	}
+	_, isList := slots[i].typ.(*List)
+	if _, isFunc := slots[i].typ.(*FuncType); !isList && !isFunc && slots[i].typ != Invalid {
+		c.errorAt(e.Trailing, "", "a trailing block needs the last parameter of %s to be a function or a list, but '%s' is %s", callee, slots[i].name, slots[i].typ)
+		return -1
+	}
 	if set[i] {
 		c.errorAt(e.Trailing, "", "the last argument of %s is given twice: in the call and as a trailing block", callee)
 		return -1
 	}
-	if _, ok := slots[i].typ.(*List); ok {
+	if isList {
 		if len(e.BlockParams) > 0 {
 			c.errorAt(e.BlockParams[0], "remove the parameters and write one element per line", "a builder block for '%s' takes no parameters", slots[i].name)
 			return -1
 		}
 		return i
-	}
-	if _, ok := slots[i].typ.(*FuncType); !ok {
-		c.errorAt(e.Trailing, "", "a trailing block needs the last parameter of %s to be a function or a list, but '%s' is %s", callee, slots[i].name, slots[i].typ)
-		return -1
 	}
 	return i
 }
