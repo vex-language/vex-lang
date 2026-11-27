@@ -240,6 +240,26 @@ func (p *parser) parseFile() (file *ast.File) {
 	return file
 }
 
+// Parses `test "name" { ... }`, optionally with `throws` before the body.
+func (p *parser) testDecl() *ast.TestDecl {
+	start := p.next().Pos
+	t := p.next()
+	if t.Value == "" {
+		p.fail(t, `e.g. test "adds two numbers" { ... }`, "a test needs a name")
+	}
+	nameSpan := ast.Span{Start: t.Pos, End: t.End}
+	fn := &ast.FuncDecl{Name: &ast.Ident{Span: nameSpan}, Test: t.Value}
+	fn.Throws = p.throws()
+	if p.at(lexer.Arrow) {
+		p.fail(p.tok(), "a test returns nothing; check values with expect", "a test can't return a value")
+	}
+	fn.Body = p.block()
+	d := &ast.TestDecl{Name: t.Value, NameSpan: nameSpan, Fn: fn}
+	d.Span = p.span(start)
+	fn.Span = d.Span
+	return d
+}
+
 // Parses `import "path"` or `import "path" as name`.
 func (p *parser) importDecl() *ast.Import {
 	start := p.next().Pos
@@ -318,6 +338,9 @@ func (p *parser) decl() ast.Decl {
 		}
 		if t.Text == "extension" {
 			return p.extensionDecl()
+		}
+		if t.Text == "test" && p.peek(1).Kind == lexer.String {
+			return p.testDecl()
 		}
 	case lexer.Const:
 		return p.constDecl()

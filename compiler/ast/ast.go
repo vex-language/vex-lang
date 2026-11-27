@@ -121,6 +121,19 @@ type FuncDecl struct {
 
 	// The type an extension adds this member to, or nil.
 	Recv TypeExpr
+
+	// The name of the test this function runs, for the function a
+	// [TestDecl] stands for; empty otherwise.
+	Test string
+}
+
+// A test block: `test "adds numbers" { ... }`. `vex test` runs it as [Fn],
+// a function without parameters; other builds leave it out.
+type TestDecl struct {
+	Span
+	Name     string
+	NameSpan Span
+	Fn       *FuncDecl
 }
 
 // The kind of a struct member declared like a function.
@@ -273,6 +286,7 @@ type EnumCase struct {
 }
 
 func (*FuncDecl) declNode()       {}
+func (*TestDecl) declNode()       {}
 func (*StructDecl) declNode()     {}
 func (*EnumDecl) declNode()       {}
 func (*InterfaceDecl) declNode()  {}
