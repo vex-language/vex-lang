@@ -86,6 +86,10 @@ func (g *gen) descriptor(t implementer) {
 	for _, i := range t.ifaces {
 		var entries []string
 		for slot, im := range i.Methods {
+			if !im.InTable() {
+				entries = append(entries, "NULL")
+				continue
+			}
 			thunk := fmt.Sprintf("th_%s_%s_%d", t.ident, ifaceName(i), slot)
 			kind := im.Decl.Accessor
 			var f *types.Field

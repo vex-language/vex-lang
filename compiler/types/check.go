@@ -57,6 +57,13 @@ type checker struct {
 	// The field whose type is being worked out from its default, or nil.
 	inferring *Field
 
+	// Methods of interface extensions whose signatures aren't resolved yet.
+	pendingExts []*Func
+
+	// Set while resolving a constraint or an interface list, where an
+	// interface that can only be a constraint is allowed.
+	asConstraint bool
+
 	// The names of the closures that make local functions.
 	localNames map[*ast.FuncLit]string
 
@@ -379,6 +386,7 @@ func (c *checker) collect() {
 	for _, i := range c.info.Interfaces {
 		c.ifaceMembers(i)
 	}
+	c.ifaceExts()
 	for _, s := range append([]*Struct(nil), c.info.Structs...) {
 		if s != c.info.Error && s.generic == nil {
 			c.structMembers(s)
@@ -576,11 +584,16 @@ func (c *checker) ifaceTaken(id *ast.Ident) bool {
 // Resolves the parameter and result types of [f].
 func (c *checker) signature(f *Func) {
 	defer c.enter(f.Decl)()
-	if f.Decl.Recv != nil && f.Owner == nil && f.Enum == nil {
+	if f.Decl.Recv != nil && f.Owner == nil && f.Enum == nil && f.Iface == nil {
 		f.Recv = c.resolveType(f.Decl.Recv)
 	}
-	if len(f.Decl.TypeParams) > 0 && (f.Iface != nil || f.Decl.Accessor != ast.Method) {
-		c.errorAt(f.Decl.TypeParams[0], "make it a method of a struct or enum", "interface methods and accessors can't have their own type parameters yet")
+	if self := selfOf(f); self != nil {
+		saved := c.env
+		c.env = withSelf(c.env, self)
+		defer func() { c.env = saved }()
+	}
+	if len(f.Decl.TypeParams) > 0 && f.Decl.Accessor != ast.Method {
+		c.errorAt(f.Decl.TypeParams[0], "make it a method of a struct or enum", "accessors can't have their own type parameters")
 		env := map[string]Type{}
 		for n, t := range c.env {
 			env[n] = t
@@ -663,6 +676,18 @@ func ToString(t Type) *Func {
 
 // Returns the type written as [te].
 func (c *checker) resolveType(te ast.TypeExpr) Type {
+	t := c.typeOf(te)
+	if i, ok := t.(*Interface); ok && !c.asConstraint {
+		if _, named := te.(*ast.NamedType); named && c.constraintOnly(i) {
+			c.errorAt(te, fmt.Sprintf("use it as a constraint: fn f<T: %s>(x: T)", i.Name), "%s can only be a constraint, since it has %s", i.Name, constraintReason(i))
+			return Invalid
+		}
+	}
+	return t
+}
+
+// Resolves [te] for [checker.resolveType].
+func (c *checker) typeOf(te ast.TypeExpr) Type {
 	switch te := te.(type) {
 	case *ast.ListType:
 		return &List{Elem: c.resolveType(te.Elem)}
@@ -758,6 +783,10 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 		for n := range c.env {
 			names = append(names, n)
 		}
+		if te.Name == "Self" {
+			c.errorAt(te, "", "Self can only be used in the requirements of an interface and in the methods of a struct or enum")
+			return Invalid
+		}
 		c.errorAt(te, didYouMean(te.Name, names), "unknown type '%s'", te.Name)
 	}
 	return Invalid
@@ -780,7 +809,11 @@ func (c *checker) checkStructCycles() {
 			if inner, ok := f.Type.(*Struct); ok && visit(inner, depth+1) {
 				if inner == s || depth == 0 {
 					defer c.enter(s.Decl)()
-					c.errorAt(f.Decl.Type, "use a list instead, e.g. children: ["+inner.Name+"]",
+					var at ast.Node = f.Decl.Name
+					if f.Decl.Type != nil {
+						at = f.Decl.Type
+					}
+					c.errorAt(at, "use a list instead, e.g. children: ["+inner.Name+"]",
 						"struct '%s' contains itself through field '%s', so it could never be created", s.Name, f.Name)
 				}
 				state[s] = 2
@@ -986,6 +1019,11 @@ func (c *checker) funcBody(f *Func) {
 		return
 	}
 	defer c.enter(f.Decl)()
+	if f.Owner != nil || f.Enum != nil {
+		saved := c.env
+		c.env = withSelf(c.env, selfOf(f))
+		defer func() { c.env = saved }()
+	}
 	c.fn, c.self, c.loops, c.lits = f, nil, 0, nil
 	c.scope = nil
 	c.push()

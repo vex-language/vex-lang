@@ -737,7 +737,57 @@ struct Money: Ordered<Money> { ... }
 fn largest<T: Ordered<T>>(xs: [T]) -> T? { ... }
 ```
 
-- Not yet: generic methods in interfaces, and static members.
+**Static requirements and `Self`.** An interface can require a `static fn`, and `Self` in a requirement stands for the type that implements it, as in Swift. Generic code calls a static requirement through its type parameter:
+
+```swift
+interface Parse {
+    static fn parse(text: string) -> Self?
+}
+
+interface Same {
+    fn same(other: Self) -> bool
+}
+
+struct Point: Parse, Same {
+    x: int
+    y: int
+    static fn parse(text: string) -> Point? { ... }
+    fn same(other: Point) -> bool => x == other.x && y == other.y
+}
+
+fn read<T: Parse>(texts: [string]) -> [T] {
+    var out: [T] = []
+    for t in texts {
+        if let v = T.parse(text: t) { out.push(v) }
+    }
+    return out
+}
+
+let points: [Point] = read(texts: ["1,2", "3,4"])
+```
+
+Requirements can also have their own type parameters: `fn apply<U>(f: fn(int) -> U) -> [U]`.
+
+- An interface with a static requirement, a generic method, or a requirement that uses `Self` can only be a constraint, as in `<T: Parse>`. It can't be the type of a variable, parameter or list, since an interface value has no way to reach those members.
+- Those requirements can't have defaults, and the interface's defaults can't call them. Its other members work as usual.
+- Methods of structs and enums can also write `Self` for their own type: `static fn zero() -> Self`.
+
+**Extending interfaces.** `extension Shape { ... }` adds methods to every type that implements `Shape`, as in Swift. They work on interface values, in generic code and on the types themselves:
+
+```swift
+extension Shape {
+    fn isBig() -> bool => area() > 100.0
+}
+
+let s: Shape = Circle(radius: 9)
+println(s.isBig())                           // true
+println(Circle(radius: 1).isBig())           // false
+fn bigOnes<T: Shape>(xs: [T]) -> [T] => xs.filter { it.isBig() }
+```
+
+- Unlike a default, an added method can't be replaced: a type that implements the interface can't have a method of the same name.
+- An extension can add methods, not getters, setters or static members. Extensions of generic interfaces aren't supported yet.
+- In other modules, an added method needs `pub` (or `pub extension`), and the file needs to import the extension's module.
 
 **Type tests.** `is` asks whether an interface value holds a given struct, enum or interface, and `as?` gives it as that type, or `nil`:
 

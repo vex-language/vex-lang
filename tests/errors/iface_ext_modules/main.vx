@@ -1,0 +1,9 @@
+import "lib"
+
+fn named(p: lib.Pet, n: lib.Named) {
+    println(p.hello(), n.hello(), p.quietHello())
+}
+
+fn main() {}
+
+// error: 4:37: method 'quietHello' of the extension is private to lib

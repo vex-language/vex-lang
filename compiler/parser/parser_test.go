@@ -874,7 +874,7 @@ func TestErrors(t *testing.T) {
 		{"map entry without value", "fn main() {\n let m = [\"a\": 1, 2]\n}", "2:20", "expected ':' after a map key, found ']'", "write key: value"},
 		{"colon in a list", "fn main() {\n let m = [1, \"a\": 2]\n}", "2:17", "unexpected ':' in a list", "a list holds values, a map holds key: value pairs"},
 		{"interface field", "interface I {\n    x: int\n}", "2:5", "interfaces can't have fields", "require a getter instead, e.g. get name -> string"},
-		{"interface static method", "interface I {\n    static fn x()\n}", "2:5", "interfaces can't have static methods", ""},
+		{"interface static without fn", "interface I {\n    static let x = 1\n}", "2:12", "expected 'fn' after 'static' in an interface, found 'let'", "write static fn name(...)"},
 		{"extern body", "extern fn f() {\n}", "1:11", "extern functions have no body", "remove the body; the function is written in C"},
 		{"extern expression body", "extern fn f() -> int => 1", "1:11", "extern functions have no body", "remove the body; the function is written in C"},
 		{"extern generic", "extern fn f<T>(x: T)", "1:13", "extern functions can't be generic", "C has no generics; declare one extern fn per type"},

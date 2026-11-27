@@ -120,10 +120,11 @@ func (c *checker) genericIfaceInst(te *ast.NamedType, g *genericIface, args []Ty
 
 // Returns the type names in scope in the members of [i].
 func ifaceEnv(i *Interface) map[string]Type {
-	if i.generic == nil {
-		return nil
+	var env map[string]Type
+	if i.generic != nil {
+		env = envOf(i.generic.params, i.Args)
 	}
-	return envOf(i.generic.params, i.Args)
+	return withSelf(env, i.SelfType())
 }
 
 // Resolves the interfaces [i] extends and its members the first time it is
@@ -151,8 +152,12 @@ func (c *checker) ifaceMembers(i *Interface) {
 			}
 			i.Supers = append(i.Supers, j)
 		}
+		i.constraint = declConstraintOnly(i.Decl)
+		for _, j := range i.Supers {
+			i.constraint = i.constraint || j.constraint
+		}
 		for _, md := range i.Decl.Methods {
-			m := &Func{Name: md.Name.Name, Module: i.Module, Decl: md, Iface: i}
+			m := &Func{Name: md.Name.Name, Module: i.Module, Decl: md, Iface: i, Static: md.Static}
 			if c.reserved(md.Name, "a method") {
 				continue
 			}
@@ -165,7 +170,14 @@ func (c *checker) ifaceMembers(i *Interface) {
 				continue
 			}
 			i.Methods = append(i.Methods, m)
-			c.signature(m)
+			if c.genericMethod(m, true, false) {
+				c.methodSignature(m)
+			} else {
+				c.signature(m)
+			}
+			if !c.requirementOK(m) {
+				continue
+			}
 			if hasBody(md) && !i.abstract {
 				c.info.FuncOf[md] = m
 				c.info.Funcs = append(c.info.Funcs, m)
@@ -221,6 +233,9 @@ func (c *checker) ifaceRef(te *ast.NamedType, quiet bool, what string) *Interfac
 	if te.Module != "" {
 		return c.qualifiedIface(te, quiet)
 	}
+	saved := c.asConstraint
+	c.asConstraint = true
+	defer func() { c.asConstraint = saved }()
 	if c.genIfaces[te.Name] != nil || len(te.Args) > 0 && c.interfaces[te.Name] != nil || c.aliases[te.Name] != nil {
 		var t Type
 		if quiet {
@@ -275,6 +290,9 @@ type conformer struct {
 	// Reports whether [m] is declared by the type itself.
 	owns func(m *Func) bool
 
+	// The type, which `Self` in the requirements stands for.
+	typ Type
+
 	// Set for instances of generic types, which are checked through their
 	// generic form, so mismatches are reported in terms of its type
 	// parameters.
@@ -288,6 +306,7 @@ func (c *checker) conformances(s *Struct) {
 		ifaces: &s.Interfaces, methods: &s.Methods,
 		field: func(name string) *Field { return s.Field(name) },
 		owns:  func(m *Func) bool { return m.Owner == s },
+		typ:   s,
 		quiet: s.generic != nil && !s.abstract,
 	})
 }
@@ -299,6 +318,7 @@ func (c *checker) enumConformances(e *Enum) {
 		ifaces: &e.Interfaces, methods: &e.Methods,
 		owns:  func(m *Func) bool { return m.Enum == e },
 		quiet: e.generic != nil && !e.abstract,
+		typ:   e,
 	})
 }
 
@@ -334,6 +354,9 @@ func (c *checker) conform(t conformer) {
 			}
 		}
 	}
+	if !t.quiet {
+		c.extClashes(*t.ifaces, *t.methods, t.owns)
+	}
 }
 
 // Checks that the type of [t] provides member [im] of interface [i].
@@ -350,6 +373,10 @@ func (c *checker) conformMember(t conformer, i *Interface, im *Func, report func
 		f = t.field(im.Name)
 	}
 	m := memberOf(*t.methods, im.Name, kind)
+	if m != nil && m.gen != nil {
+		c.methodSignature(m)
+	}
+	im = c.forSelf(im, t.typ)
 	switch {
 	case f != nil:
 		if want := memberType(im); !Identical(f.Type, want) {
@@ -372,9 +399,15 @@ func (c *checker) conformMember(t conformer, i *Interface, im *Func, report func
 		report(t.node, hint, "%s doesn't implement %s from %s", t.name, memberDesc(im), i.Name)
 	case m.Iface != nil && m != im && hasBody(m.Decl) && hasBody(im.Decl):
 		report(t.node, fmt.Sprintf("write its own %s to choose", memberExample(im)), "%s gets a default %s from both %s and %s", t.name, memberDesc(im), m.Iface.Name, i.Name)
-	case m.Static:
+	case m.Static && !im.Static:
 		report(m.Decl.Name, "remove static", "'%s' can't be static, since it implements %s", m.Name, i.Name)
-	case !Identical(methodType(m), methodType(im)):
+	case !m.Static && im.Static:
+		report(at(m), "make it static: static fn "+m.Name+"(...)", "'%s' must be static, since it implements %s", m.Name, i.Name)
+	case (m.gen == nil) != (im.gen == nil):
+		report(at(m), "", "'%s' doesn't match %s: expected %s, found %s", m.Name, i.Name, methodDesc(im), methodDesc(m))
+	case m.gen != nil && !c.sameGenericMethod(m, im):
+		report(at(m), "", "'%s' doesn't match %s: expected %s, found %s", m.Name, i.Name, methodDesc(im), methodDesc(m))
+	case m.gen == nil && !Identical(methodType(m), methodType(im)):
 		report(at(m), "", "'%s' doesn't match %s: expected %s, found %s", m.Name, i.Name, memberType(im), memberType(m))
 	case m.Async && !im.Async:
 		report(at(m), "remove async", "'%s' can't be async, since it implements %s", m.Name, i.Name)
@@ -523,8 +556,94 @@ func ifaceProperty(t Type, name string) *Property {
 // Checks a call of interface method [m] on [recv], or on `self` when
 // [recv] is nil.
 func (c *checker) ifaceCall(e *ast.CallExpr, m *Func, recv ast.Expr) Type {
-	c.info.Calls[e] = &Call{Kind: InterfaceCall, Func: m, Recv: recv, Args: c.bind(e, paramSlots(m), m.Name)}
-	return m.Result
+	if !m.InTable() && c.fn != nil && c.fn.Iface != nil && (recv == nil || c.isSelf(recv)) {
+		c.checkArgs(e)
+		c.errorAt(e.Fn, "call it from generic code, where each type's own version is used", "a default method can't call '%s', which only generic code can reach", m.Name)
+		return Invalid
+	}
+	sig := m
+	if recv != nil {
+		if tp, ok := c.info.Types[recv].(*TypeParam); ok {
+			sig = c.forSelf(m, tp)
+		}
+	}
+	if m.gen != nil {
+		inst := c.genericRequirement(e, sig, m)
+		if inst == nil {
+			return Invalid
+		}
+		sig = inst
+	}
+	c.info.Calls[e] = &Call{Kind: InterfaceCall, Func: m, Recv: recv, Args: c.bind(e, paramSlots(sig), m.Name)}
+	return sig.Result
+}
+
+// Returns the generic requirement [m], with the signature [sig], for the
+// type arguments of the call [e], or nil after an error. Only generic code
+// calls it, so no body is made.
+func (c *checker) genericRequirement(e *ast.CallExpr, sig, m *Func) *Func {
+	args := c.inferTypeArgs(e, m.gen.params, paramSlots(sig), sig.Result, nil, m.Name)
+	if args == nil {
+		return nil
+	}
+	bound := bindOf(m.gen.params, args)
+	cp := *sig
+	cp.Params = nil
+	for _, p := range sig.Params {
+		cp.Params = append(cp.Params, &Param{Name: p.Name, Type: c.substType(p.Type, bound), Default: p.Default})
+	}
+	cp.Result = c.substType(sig.Result, bound)
+	return &cp
+}
+
+// Reports whether [x] is `self`.
+func (c *checker) isSelf(x ast.Expr) bool {
+	id, ok := x.(*ast.Ident)
+	if !ok {
+		return false
+	}
+	v, ok := c.info.Uses[id].(*Var)
+	return ok && v.Kind == SelfVar
+}
+
+// Returns the type parameter that [x] names, or nil.
+func (c *checker) typeParamRef(x ast.Expr) *TypeParam {
+	id, ok := x.(*ast.Ident)
+	if !ok || id.Module != "" || c.lookupVar(id.Name) != nil {
+		return nil
+	}
+	tp, _ := c.env[id.Name].(*TypeParam)
+	return tp
+}
+
+// Checks `T.name(...)`, a call of a static requirement of one of the
+// interfaces type parameter [tp] must implement.
+func (c *checker) staticRequirementCall(e *ast.CallExpr, m *ast.MemberExpr, tp *TypeParam, want Type) Type {
+	name := m.Name.Name
+	for _, i := range tp.Ifaces {
+		for _, j := range i.All() {
+			im := j.Method(name)
+			if im == nil {
+				continue
+			}
+			if !im.Static {
+				c.checkArgs(e)
+				c.errorAt(m.Name, fmt.Sprintf("call it on a value of type %s", tp.Name), "'%s' isn't a static requirement of %s", name, j.Name)
+				return Invalid
+			}
+			sig := c.forSelf(im, tp)
+			if im.gen != nil {
+				if sig = c.genericRequirement(e, sig, im); sig == nil {
+					return Invalid
+				}
+			}
+			c.info.Calls[e] = &Call{Kind: StaticCall, Func: im, Args: c.bind(e, paramSlots(sig), tp.Name+"."+name)}
+			return sig.Result
+		}
+	}
+	c.checkArgs(e)
+	c.errorAt(m.Name, fmt.Sprintf("require an interface with static fn %s: <%s: Name>", name, tp.Name), "%s has no static requirement '%s'", tp.Name, name)
+	return Invalid
 }
 
 // Returns the names of the methods available on [t], for hints.

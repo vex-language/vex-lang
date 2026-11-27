@@ -642,7 +642,6 @@ func TestErrors(t *testing.T) {
 		{"generic method too deep", "enum Opt<T> {\n    some(value: T)\n    none\n}\nfn first<T>(xs: [T]) -> T? => nil\nstruct B<T> {\n    v: T\n    fn deep<U>(u: U) { deep([u]) }\n    fn plain() {}\n}", "B(v: 1).deep(2)", "8:24", "generic 'deep' is used with types nested too deeply", "make sure generic code doesn't call itself with ever larger types, such as [T], then [[T]]"},
 		{"method arg count", "enum Opt<T> {\n    some(value: T)\n    none\n}\nfn first<T>(xs: [T]) -> T? => nil\nstruct B<T> {\n    v: T\n    fn deep<U>(u: U) { deep([u]) }\n    fn plain() {}\n}", "B(v: 1).deep<int, int>(2)", "12:14", "deep takes 1 type argument, found 2", ""},
 		{"plain method type args", "enum Opt<T> {\n    some(value: T)\n    none\n}\nfn first<T>(xs: [T]) -> T? => nil\nstruct B<T> {\n    v: T\n    fn deep<U>(u: U) { deep([u]) }\n    fn plain() {}\n}", "B(v: 1).plain<int>()", "12:15", "'plain' is not generic, so it takes no type arguments", "remove the <...>"},
-		{"interface generic method", "interface I {\n    fn m<T>(x: T)\n}", "", "2:10", "interface methods and accessors can't have their own type parameters yet", "make it a method of a struct or enum"},
 		{"trailing twice", "fn f(cb: fn()) {}", "f(fn() {}) { }", "3:12", "the last argument of f is given twice: in the call and as a trailing block", ""},
 		{"trailing on builtin", "", "println(1) { }", "2:12", "println doesn't take a trailing block", ""},
 		{"map void", "", "let r = [1].map(fn(x) { println(x) })", "2:17", "map needs a function that returns a value", ""},

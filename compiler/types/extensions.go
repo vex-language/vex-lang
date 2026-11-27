@@ -59,6 +59,14 @@ func (c *checker) declareExtension(d *ast.ExtensionDecl) {
 		c.extTargets[d] = target
 		return
 	}
+	if nt, ok := d.Type.(*ast.NamedType); ok && len(d.TypeParams) == 0 {
+		var i *Interface
+		c.scratch(false, func() { i = c.ifaceRef(nt, true, "") })
+		if i != nil {
+			c.declareIfaceExt(d, i)
+			return
+		}
+	}
 	var params []*TypeParam
 	if len(d.TypeParams) > 0 {
 		params = c.typeParams(d.TypeParams)
@@ -69,11 +77,7 @@ func (c *checker) declareExtension(d *ast.ExtensionDecl) {
 	case recv == Invalid:
 		return
 	case !extendable(recv):
-		hint := "extend a struct, an enum, int, float, bool, string, a list or a map"
-		if _, ok := recv.(*Interface); ok {
-			hint = "give the interface a default method instead"
-		}
-		c.errorAt(d.Type, hint, "%s can't be extended", recv)
+		c.errorAt(d.Type, "extend a struct, an enum, an interface, int, float, bool, string, a list or a map", "%s can't be extended", recv)
 		return
 	}
 	if len(d.Consts) > 0 {

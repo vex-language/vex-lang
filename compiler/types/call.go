@@ -157,6 +157,13 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 			return c.ifaceCall(e, m, nil)
 		}
 	}
+	if c.self != nil {
+		if t, ok := c.extCall(e, nil, id, c.self.Type, name); ok {
+			c.info.Uses[id] = c.info.Calls[e].Func
+			c.use(c.self)
+			return t
+		}
+	}
 	if c.fn != nil && c.fn.Enum != nil {
 		if m := c.fn.Enum.Method(name); m != nil {
 			if !m.Static && c.self == nil {
@@ -291,6 +298,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 		}
 		return Invalid
 	}
+	if tp := c.typeParamRef(m.X); tp != nil {
+		return c.staticRequirementCall(e, m, tp, want)
+	}
 	if en := c.enumRef(m.X); en != nil {
 		if method := en.Method(name); method != nil {
 			if c.methodPrivate(m.Name, method) {
@@ -347,6 +357,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 			if name == "copy" && s.Field(name) == nil && s.Property(name) == nil {
 				return c.copyCall(e, m, s)
 			}
+			if t, ok := c.extCall(e, m.X, m.Name, s, name); ok {
+				return t
+			}
 			c.checkArgs(e)
 			if s.Field(name) != nil {
 				c.errorAt(m.Name, "", "'%s' is a field, not a method", name)
@@ -380,6 +393,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 		method := en.Method(name)
 		switch {
 		case method == nil:
+			if t, ok := c.extCall(e, m.X, m.Name, en, name); ok {
+				return t
+			}
 			c.checkArgs(e)
 			c.errorAt(m.Name, didYouMean(name, enumNames(en)), "%s has no method '%s'", en.Name, name)
 			return Invalid
@@ -405,7 +421,15 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 	switch recv.(type) {
 	case *Interface, *TypeParam:
 		if _, method := ifaceMethod(recv, name); method != nil {
+			if method.Static {
+				c.checkArgs(e)
+				c.errorAt(m.Name, fmt.Sprintf("call it on the type: T.%s(...)", name), "'%s' is a static requirement", name)
+				return Invalid
+			}
 			return c.ifaceCall(e, method, m.X)
+		}
+		if t, ok := c.extCall(e, m.X, m.Name, recv, name); ok {
+			return t
 		}
 		c.checkArgs(e)
 		hint := didYouMean(name, ifaceNames(recv))

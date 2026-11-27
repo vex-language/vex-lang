@@ -317,7 +317,7 @@ func (c *checker) methodPrivate(at ast.Node, m *Func) bool {
 	if c.extensionHidden(at, m) {
 		return true
 	}
-	if m.Decl == nil || m.Decl.Pub || m.Iface != nil {
+	if m.Decl == nil || m.Decl.Pub || m.Iface != nil && m.Ext == nil {
 		return false
 	}
 	if m.Ext != nil {

@@ -581,7 +581,11 @@ func (p *parser) interfaceDecl() *ast.InterfaceDecl {
 			case lexer.Async:
 				d.Methods = append(d.Methods, p.funcDecl(false))
 			case lexer.Static:
-				p.fail(t, "", "interfaces can't have static methods")
+				p.next()
+				if !p.at(lexer.Fn) {
+					p.fail(p.tok(), "write static fn name(...)", "expected 'fn' after 'static' in an interface, found %s", describe(p.tok()))
+				}
+				d.Methods = append(d.Methods, p.funcDecl(true))
 			case lexer.Pub:
 				p.fail(t, "remove pub: interface methods are public whenever the interface is", "interface methods can't be marked pub")
 			case lexer.Ident, lexer.Let, lexer.Var:
