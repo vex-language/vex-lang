@@ -47,6 +47,13 @@ type checker struct {
 	// further down, by name.
 	pending map[string]int
 
+	// The names of the loops around the current statement, innermost
+	// last, with the loop depth inside each.
+	labels []label
+
+	// Set inside a `defer` block, which can't return or throw.
+	inDefer bool
+
 	// The names of the closures that make local functions.
 	localNames map[*ast.FuncLit]string
 
@@ -1018,11 +1025,13 @@ func terminates(s ast.Stmt) bool {
 	case *ast.IfStmt:
 		return s.Else != nil && terminates(s.Then) && terminates(s.Else)
 	case *ast.WhileStmt:
-		if s.Bind != nil {
+		if s.Bind != nil || len(s.More) > 0 {
 			return false
 		}
 		lit, ok := s.Cond.(*ast.BoolLit)
 		return ok && lit.Value && !breaks(s.Body)
+	case *ast.LabeledStmt:
+		return terminates(s.Loop)
 	case *ast.ExprStmt:
 		if m, ok := s.X.(*ast.MatchExpr); ok {
 			return matchTerminates(m)
@@ -1038,11 +1047,33 @@ func terminates(s ast.Stmt) bool {
 func breaks(s ast.Stmt) bool {
 	found := false
 	ast.Inspect(s, func(n ast.Node) bool {
-		switch n.(type) {
+		switch n := n.(type) {
 		case *ast.BreakStmt:
 			found = true
-		case *ast.WhileStmt, *ast.ForStmt, *ast.FuncLit:
-			return n == ast.Node(s)
+		case *ast.WhileStmt, *ast.ForStmt, *ast.RepeatStmt:
+			if n != ast.Node(s) {
+				// A nested loop's own breaks stay inside it, but a
+				// labelled one may leave this loop too.
+				found = found || labelledBreak(n)
+				return false
+			}
+		case *ast.FuncLit, *ast.FuncDecl:
+			return false
+		}
+		return !found
+	})
+	return found
+}
+
+// Reports whether [n] holds a `break` that names a loop.
+func labelledBreak(n ast.Node) bool {
+	found := false
+	ast.Inspect(n, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.BreakStmt:
+			found = found || n.Label != nil
+		case *ast.FuncLit, *ast.FuncDecl:
+			return false
 		}
 		return !found
 	})
@@ -1154,13 +1185,20 @@ func (c *checker) stmt(s ast.Stmt) {
 	case *ast.ThrowStmt:
 		c.throwStmt(s)
 	case *ast.BreakStmt:
-		if c.loops == 0 {
-			c.errorAt(s, "", "break can only be used inside a loop")
-		}
+		c.jump(s.Label, "break", s)
 	case *ast.ContinueStmt:
-		if c.loops == 0 {
-			c.errorAt(s, "", "continue can only be used inside a loop")
-		}
+		c.jump(s.Label, "continue", s)
+	case *ast.LabeledStmt:
+		c.labeled(s)
+	case *ast.DeferStmt:
+		c.deferStmt(s)
+	case *ast.RepeatStmt:
+		c.push()
+		c.loops++
+		c.stmts(s.Body.Stmts)
+		c.loops--
+		c.pop()
+		c.cond(s.Cond, "repeat ... while")
 	}
 }
 
@@ -1375,6 +1413,13 @@ func (c *checker) forLoop(s *ast.ForStmt, body func()) {
 }
 
 func (c *checker) returnStmt(s *ast.ReturnStmt) {
+	if c.inDefer {
+		if s.Value != nil {
+			c.expr(s.Value, nil)
+		}
+		c.errorAt(s, "a defer block runs as its block ends, so it can't return", "return can't be used in a defer block")
+		return
+	}
 	if len(c.lits) > 0 {
 		c.closureReturn(s, c.lits[len(c.lits)-1])
 		return

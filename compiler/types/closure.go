@@ -119,6 +119,8 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 	outerTries := c.tries
 	c.tries = nil
 	c.loops = 0
+	outerLabels, outerDefer := c.labels, c.inDefer
+	c.labels, c.inDefer = nil, false
 	c.push()
 	for i, p := range e.Params {
 		c.declare(p.Name, ft.Params[i], false, ParamVar)
@@ -151,6 +153,7 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 	}
 	c.pop()
 	c.loops = ctx.outerLoops
+	c.labels, c.inDefer = outerLabels, outerDefer
 	c.tries = outerTries
 	c.lits = c.lits[:len(c.lits)-1]
 	ft.Result = ctx.result

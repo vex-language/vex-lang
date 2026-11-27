@@ -42,6 +42,9 @@ func (c *checker) throwsType(th *ast.Throws) Type {
 // Returns what the enclosing function or closure throws, and how errors
 // name it.
 func (c *checker) curThrows() (Type, string) {
+	if c.inDefer {
+		return nil, "a defer block"
+	}
 	if len(c.lits) > 0 {
 		ctx := c.lits[len(c.lits)-1]
 		return ctx.throws, ctx.name
@@ -213,10 +216,16 @@ func errorName(t Type) string { return t.String() }
 
 func (c *checker) throwStmt(s *ast.ThrowStmt) {
 	th, where := c.curThrows()
+	if c.inDefer {
+		c.expr(s.Value, nil)
+		c.errorAt(s, "a defer block runs as its block ends, so it can't throw", "throw can't be used in a defer block")
+		return
+	}
 	if th == nil {
 		c.expr(s.Value, nil)
 		hint := "declare the closure fn(...) throws"
-		if where != "the closure" {
+		switch {
+		case where != "the closure":
 			hint = fmt.Sprintf("declare fn %s(...) throws", where)
 		}
 		c.errorAt(s, hint, "throw can only be used in a function that throws")
