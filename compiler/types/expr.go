@@ -882,6 +882,8 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 			if sig := c.funcSig(e.Name, m); sig != nil {
 				return c.tearOff(e, sig, x, called, want)
 			}
+		} else if t, ok := c.extTearOff(e, x, name, called, want); ok {
+			return t
 		} else {
 			c.errorAt(e.Name, "read the values a case carries with match, e.g. match v { circle(r) => r, ... }", "%s has no member '%s'", x.Name, name)
 		}
@@ -910,6 +912,9 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 				return c.tearOff(e, sig, x, called, want)
 			}
 			return Invalid
+		}
+		if t, ok := c.extTearOff(e, x, name, called, want); ok {
+			return t
 		}
 		c.errorAt(e.Name, didYouMean(name, memberNames(x)), "%s has no field '%s'", x.Name, name)
 		return Invalid
@@ -985,6 +990,8 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 			if sig := c.funcSig(e.Name, m); sig != nil {
 				return c.tearOff(e, sig, x, called, want)
 			}
+		} else if t, ok := c.extTearOff(e, x, name, called, want); ok {
+			return t
 		} else {
 			c.errorAt(e.Name, c.narrowHint(e.X, didYouMean(name, ifaceNames(x))), "%s has no member '%s'", x, name)
 		}
@@ -1000,24 +1007,8 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		c.errorAt(e.Name, "call it in a closure: fn(x) => ...", "'%s' can't be used as a value", name)
 		return Invalid
 	}
-	if r, b := c.findRecv(x, name, ast.Method, e.Name); r != nil {
-		f := r.plain
-		if f == nil {
-			args := make([]Type, len(r.gen.params))
-			for i, p := range r.gen.params {
-				if args[i] = b.types[p]; args[i] == nil {
-					c.errorAt(e.Name, fmt.Sprintf("call it in a closure: fn(...) => %s(...)", name), "generic method '%s' can't be used as a value", name)
-					return Invalid
-				}
-			}
-			if f = c.instFunc(r.gen, args, e); f == nil {
-				return Invalid
-			}
-		}
-		if sig := c.funcSig(e.Name, f); sig != nil {
-			return c.tearOff(e, sig, x, called, want)
-		}
-		return Invalid
+	if t, ok := c.extTearOff(e, x, name, called, want); ok {
+		return t
 	}
 	if c.recvUnavailable(e.Name, x, name) {
 		return Invalid

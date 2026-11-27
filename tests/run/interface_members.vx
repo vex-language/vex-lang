@@ -140,6 +140,11 @@ fn extensions() {
     println(Tile.small.isBig(), Tile.large.report())
     println(bigOnes([Circle(r: 1), Circle(r: 9)]).len)
     println(c.twice())
+    // Added methods can be torn off a struct and an interface value.
+    let big = c.isBig
+    let s: Shape = Cube(side: 20)
+    let report = s.report
+    println(big(), report())
 }
 
 struct Money: Same {
