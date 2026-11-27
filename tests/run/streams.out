@@ -1,0 +1,24 @@
+tick 0
+tick 1
+tick 2
+sum 14
+make 0
+got 0
+make 1
+got 1
+make 2
+first over 20: 25
+point 1,2
+point 3,4
+closed: true
+point 5,6
+points done
+ab
+1 one
+2 two
+<Stream<int>>
+["x", "y"]
+[1.5, 1.5, 1.5]
+[0, 1, 2]
+[0, 1]
+hit 4

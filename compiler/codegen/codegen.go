@@ -93,6 +93,13 @@ type gen struct {
 	result types.Type
 	throws types.Type
 	tries  []tryGen
+
+	// The streams read by the for await loops around the current
+	// statement, stopped when a return leaves them.
+	streams []string
+
+	// The value type of the stream function being generated.
+	yields types.Type
 }
 
 // Returns the C source of the program described by [info]. [srcName] is
@@ -141,7 +148,7 @@ func Generate(info *types.Info, srcName string) string {
 		if g.throwingValues[f] {
 			g.fnValueWrapper(f, true)
 		}
-		if f.Async {
+		if f.Async && !f.Streams() {
 			g.spawnWrapper(f)
 		}
 	}
@@ -192,7 +199,7 @@ func Generate(info *types.Info, srcName string) string {
 	}
 	for _, f := range info.Funcs {
 		g.line("static %s;", g.signature(f, false))
-		if f.Async {
+		if f.Async && !f.Streams() {
 			g.line("static %s;", spawnSig(f))
 		}
 	}
@@ -388,6 +395,8 @@ func ctype(t types.Type) string {
 		return "vx_future *"
 	case *types.Channel:
 		return "vx_chan *"
+	case *types.Stream:
+		return "vx_stream *"
 	case *types.Record:
 		return "rec_" + mangle(t)
 	case *types.Struct:
@@ -469,6 +478,11 @@ func mangle(t types.Type) string {
 		return fmt.Sprintf("H%d%s", len(id), id)
 	case *types.Channel:
 		return "K_" + mangle(t.Elem)
+	case *types.Stream:
+		if t.Controller {
+			return "SC_" + mangle(t.Elem)
+		}
+		return "S_" + mangle(t.Elem)
 	case *types.Record:
 		var b strings.Builder
 		fmt.Fprintf(&b, "R%d_%d", len(t.Positional), len(t.Named))
@@ -581,6 +595,16 @@ func (g *gen) constructor(s *types.Struct) {
 
 // Returns the C signature of [f], declaring its parameters when [define] is set.
 func (g *gen) signature(f *types.Func, define bool) string {
+	params := g.params(f, define)
+	if len(params) == 0 {
+		params = []string{"void"}
+	}
+	return decl(f.Result, funcName(f)+"("+strings.Join(params, ", ")+")")
+}
+
+// Returns the C parameters of [f], named as in its body when [define] is
+// set.
+func (g *gen) params(f *types.Func, define bool) []string {
 	var params []string
 	if f.Owner != nil && !f.Static {
 		params = append(params, structName(f.Owner)+" *self")
@@ -604,10 +628,7 @@ func (g *gen) signature(f *types.Func, define bool) string {
 	if f.Throws != nil {
 		params = append(params, "void **vx_err")
 	}
-	if len(params) == 0 {
-		params = []string{"void"}
-	}
-	return decl(f.Result, funcName(f)+"("+strings.Join(params, ", ")+")")
+	return params
 }
 
 func (g *gen) function(f *types.Func) {
@@ -621,7 +642,11 @@ func (g *gen) function(f *types.Func) {
 	}
 	g.file = g.info.FileOf[f.Decl]
 	g.enter(g.b)
-	g.result, g.throws, g.tries = f.Result, f.Throws, nil
+	g.result, g.throws, g.tries, g.streams = f.Result, f.Throws, nil, nil
+	if f.Streams() {
+		g.streamFunction(f)
+		return
+	}
 	if f.Decl.ExprBody != nil {
 		g.rng = newRanges(g.info, f.Decl.ExprBody)
 	} else {
@@ -720,7 +745,7 @@ func repr(t types.Type, x string) string {
 		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
 	case *types.Handle:
 		return "vx_handle_str(" + cQuote(t.CName) + ", " + x + ")"
-	case *types.Future, *types.Channel:
+	case *types.Future, *types.Channel, *types.Stream:
 		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
 	}
 	switch t {
@@ -982,14 +1007,21 @@ func (g *gen) emitStmt(s ast.Stmt) {
 	case *ast.ForStmt:
 		g.forStmt(s)
 	case *ast.ReturnStmt:
-		if s.Value == nil {
-			g.line("return;")
-		} else {
+		switch {
+		case s.Value == nil:
+			g.line("%sreturn;", g.leaving())
+		case len(g.streams) > 0:
+			r := g.temp()
+			g.line("%s = %s;", decl(g.result, r), g.expr(s.Value))
+			g.line("%sreturn %s;", g.leaving(), r)
+		default:
 			g.line("return %s;", g.expr(s.Value))
 		}
+	case *ast.YieldStmt:
+		g.yieldStmt(s)
 	case *ast.ThrowStmt:
 		g.line("*vx_err = %s;", g.expr(s.Value))
-		g.line("%s", zeroReturn(g.result))
+		g.line("%s%s", g.leaving(), zeroReturn(g.result))
 	case *ast.BreakStmt:
 		g.line("break;")
 	case *ast.ContinueStmt:
@@ -1076,6 +1108,10 @@ func (g *gen) loopRange(s *ast.ForStmt, r *ast.RangeExpr) {
 }
 
 func (g *gen) forStmt(s *ast.ForStmt) {
+	if s.Await {
+		g.forAwait(s)
+		return
+	}
 	if r, ok := s.Iter.(*ast.RangeExpr); ok {
 		v := g.declare(g.info.Defs[s.Elem])
 		hi := g.temp()
@@ -1334,7 +1370,8 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 	}
 
 	outer, ind, vals, boxes, used, tmp, self, rng := g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self, g.rng
-	result, throws, tries := g.result, g.throws, g.tries
+	result, throws, tries, streams := g.result, g.throws, g.tries, g.streams
+	g.streams = nil
 	var body strings.Builder
 	g.enter(&body)
 	if e.ExprBody != nil {
@@ -1385,7 +1422,7 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 	g.ind--
 	g.line("}")
 	g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self, g.rng = outer, ind, vals, boxes, used, tmp, self, rng
-	g.result, g.throws, g.tries = result, throws, tries
+	g.result, g.throws, g.tries, g.streams = result, throws, tries, streams
 
 	if len(caps) > 0 {
 		fmt.Fprintf(&g.lamDecls, "struct %s {", env)
@@ -1758,6 +1795,10 @@ func (g *gen) value(e ast.Expr) string {
 			return g.listProperty(e, m.Builtin, g.info.Types[e.X].(*types.List), g.expr(e.X))
 		case "isCancelled":
 			return "((" + g.expr(e.X) + ")->state == 3)"
+		case "stream":
+			return g.expr(e.X)
+		case "isClosed":
+			return "((" + g.expr(e.X) + ")->closed)"
 		case "isNaN":
 			return "((bool)isnan(" + g.expr(e.X) + "))"
 		case "isFinite":
@@ -1958,6 +1999,8 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 			return g.timeoutCall(e, c)
 		case "Channel":
 			return "vx_chan_new()"
+		case "StreamController":
+			return "vx_stream_new(" + valueSize(g.info.Types[e].(*types.Stream).Elem) + ")"
 		}
 		return g.builtin(c, g.info.Types[e], line)
 	case types.MemberBuiltinCall:
@@ -2047,6 +2090,13 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 	return g.ordered(append([]ast.Expr{c.Recv}, c.Args...), func(cs []string) string {
 		if ch, ok := recv.(*types.Channel); ok {
 			return g.channelCall(e, c, ch, cs, line)
+		}
+		if s, ok := recv.(*types.Stream); ok {
+			if c.Builtin == "add" {
+				x := g.temp()
+				return fmt.Sprintf("({ %s = %s; vx_stream_add(%s, &%s, %d); })", decl(s.Elem, x), cs[1], cs[0], x, line)
+			}
+			return "vx_stream_close(" + cs[0] + ")"
 		}
 		if _, ok := recv.(*types.Future); ok && c.Builtin == "cancel" {
 			return "vx_cancel(" + cs[0] + ")"
