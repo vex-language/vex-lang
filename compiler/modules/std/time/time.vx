@@ -11,3 +11,7 @@ pub extern fn unix() -> int as "vx_time_unix"
 /// Returns a future that completes after [ms] milliseconds. `await sleep(500)`
 /// pauses the async function it is in, while other tasks keep running.
 pub extern fn sleep(ms: int) -> Future<void> as "vx_sleep"
+
+// `timeout(future, ms)` is built into the compiler: it gives a future of the
+// value as an optional, nil when [ms] milliseconds pass first, and cancels
+// the late task.

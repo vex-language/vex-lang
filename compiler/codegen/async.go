@@ -93,7 +93,7 @@ func (g *gen) spawnWrapper(f *types.Func) {
 		g.line("    a->%s = %s;", n, n)
 	}
 	g.line("    vx_remember(a);")
-	g.line("    vx_go(en_%s, a);", name)
+	g.line("    vx_go_f(en_%s, a, a->f);", name)
 	g.line("    return a->f;")
 	g.line("}")
 }
@@ -160,7 +160,7 @@ func (g *gen) valueSpawner(ft *types.FuncType) string {
 		b.WriteString("if (err) { vx_future_fail(a->f, err); return; } ")
 	}
 	fmt.Fprintf(&b, "vx_future_done(a->f, %s); }\n", value)
-	fmt.Fprintf(&b, "static vx_future *%s(%s) { arv_%s *a = vx_alloc(sizeof(arv_%s)); a->f = vx_future_new(%s); a->fn = fn; %s vx_remember(a); vx_go(env_%s, a); return a->f; }\n",
+	fmt.Fprintf(&b, "static vx_future *%s(%s) { arv_%s *a = vx_alloc(sizeof(arv_%s)); a->f = vx_future_new(%s); a->fn = fn; %s vx_remember(a); vx_go_f(env_%s, a, a->f); return a->f; }\n",
 		name, strings.Join(append([]string{"vx_fn fn"}, params...), ", "), m, m, valueSize(ft.Result), strings.Join(sets, " "), m)
 	g.codecDefs.WriteString(b.String())
 	return name
@@ -205,4 +205,32 @@ func (g *gen) callee(e *ast.CallExpr, f *types.Func) string {
 		return "sp_" + funcName(f)
 	}
 	return funcName(f)
+}
+
+// Generates `time.timeout(future, ms)`: a task that waits for the future
+// or the timer, whichever settles first, and cancels the other.
+func (g *gen) timeoutCall(e *ast.CallExpr, c *types.Call) string {
+	src := g.info.Types[c.Args[0]].(*types.Future)
+	res := g.info.Types[e].(*types.Future)
+	m := mangle(res.Elem)
+	name := "tmo_" + m
+	if !g.codecs[name] {
+		g.codecs[name] = true
+		var value string
+		if o, ok := res.Elem.(*types.Optional); ok {
+			value = fmt.Sprintf("%s r = %s;", ctype(o), wrapOpt(o, fmt.Sprintf("*(%s *)a->src->value", ctype(src.Elem))))
+		} else {
+			value = "bool r = true;"
+		}
+		fmt.Fprintf(&g.codecDefs, "typedef struct { vx_future *f; vx_future *src; int64_t ms; } artmo_%s;\n", m)
+		fmt.Fprintf(&g.codecDefs, "static void entmo_%s(void *p) { artmo_%s *a = p; vx_future *timer = vx_sleep(a->ms); vx_wait_settled(vx_first(a->src, timer)); "+
+			"switch (a->src->state) { case 0: { %s r = (%s){0}; vx_cancel(a->src); vx_future_done(a->f, &r); break; } "+
+			"case 1: { %s vx_future_done(a->f, &r); break; } case 2: vx_future_fail(a->f, a->src->err); break; default: vx_future_settle(a->f, 3); } vx_cancel(timer); }\n",
+			m, m, ctype(res.Elem), ctype(res.Elem), value)
+		fmt.Fprintf(&g.codecDefs, "static vx_future *%s(vx_future *src, int64_t ms) { artmo_%s *a = vx_alloc(sizeof(artmo_%s)); a->f = vx_future_new(sizeof(%s)); a->src = src; a->ms = ms; vx_remember(a); vx_go_f(entmo_%s, a, a->f); return a->f; }\n",
+			name, m, m, ctype(res.Elem), m)
+	}
+	return g.ordered(c.Args, func(cs []string) string {
+		return fmt.Sprintf("%s(%s, %s)", name, cs[0], cs[1])
+	})
 }

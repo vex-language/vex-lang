@@ -156,3 +156,39 @@ func (c *checker) asyncCall(e *ast.CallExpr) (bool, Type) {
 	}
 	return false, nil
 }
+
+// Checks `time.timeout(future, ms)`, a future of the value, or nil when
+// the time runs out first. A future of void gives whether it finished.
+func (c *checker) timeoutCall(e *ast.CallExpr, want Type) Type {
+	call := &Call{Kind: BuiltinCall, Builtin: "time.timeout"}
+	c.info.Calls[e] = call
+	if len(e.Args) != 2 || e.Args[0].Name != nil || e.Args[1].Name != nil || e.Trailing != nil {
+		c.checkArgs(e)
+		c.errorAt(e.Fn, "write time.timeout(load(), 5000)", "time.timeout takes a future and the milliseconds to wait")
+		return Invalid
+	}
+	var hint Type
+	if o, ok := want.(*Optional); ok {
+		hint = &Future{Elem: o.Elem}
+	}
+	t := c.expr(e.Args[0].Value, hint)
+	if ms := c.expr(e.Args[1].Value, Int); ms != Int && ms != Invalid {
+		c.errorAt(e.Args[1].Value, "", "the milliseconds must be int, found %s", ms)
+	}
+	call.Args = []ast.Expr{e.Args[0].Value, e.Args[1].Value}
+	f, ok := t.(*Future)
+	switch {
+	case t == Invalid:
+		return Invalid
+	case !ok:
+		c.errorAt(e.Args[0].Value, "pass the future an async call gives, e.g. time.timeout(load(), 5000)", "time.timeout needs a future, found %s", t)
+		return Invalid
+	case f.Elem == Void:
+		return &Future{Elem: Bool, Throws: f.Throws}
+	}
+	if _, ok := f.Elem.(*Optional); ok {
+		c.errorAt(e.Args[0].Value, "wrap the value, e.g. in a record, to tell nil from a timeout", "time.timeout gives nil when the time runs out, so the future's value can't be optional itself")
+		return Invalid
+	}
+	return &Future{Elem: &Optional{Elem: f.Elem}, Throws: f.Throws}
+}

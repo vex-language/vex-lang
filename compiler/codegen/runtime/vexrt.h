@@ -187,6 +187,7 @@ static VX_TLS size_t vx_kept_len, vx_kept_cap;
 // is the main task. A task that isn't running keeps its registers on its
 // stack, below [sp].
 typedef struct vx_task vx_task;
+struct vx_future;
 struct vx_task {
     void *sp;
     char *stack;              // the mapping, starting with a guard page
@@ -197,6 +198,10 @@ struct vx_task {
     void (*entry)(void *);
     void *arg;
     bool done;
+    bool cancelled;           // stops at its next await
+    struct vx_future *future; // the future it settles, or NULL
+    struct vx_future *waiting;// the future it waits for, while it waits
+    vx_task *parent;          // the task that started it; cancelling one cancels the other
     void *asan_fake;
     const void *asan_bottom;
     size_t asan_size;
@@ -2299,6 +2304,10 @@ static void vx_task_free(vx_task *t) {
             break;
         }
     }
+    // Its children now belong to its own parent.
+    for (size_t i = 0; i < vx_tasks_len; i++) {
+        if (vx_tasks[i]->parent == t) vx_tasks[i]->parent = t->parent;
+    }
     if (vx_spare_len < 64) {
 #ifdef VX_ASAN
         // Frames that ended without returning leave their redzones behind.
@@ -2327,6 +2336,8 @@ static void vx_suspend(void) {
     vx_switch(vx_cur->caller, false);
 }
 
+__attribute__((noreturn)) static void vx_task_end(vx_task *t);
+
 void vx_task_main(vx_task *t) {
 #ifdef VX_ASAN
     const void *bottom;
@@ -2339,16 +2350,20 @@ void vx_task_main(vx_task *t) {
     }
 #endif
     t->entry(t->arg);
-    t->done = true;
-    vx_switch(t->caller, true);
-    __builtin_unreachable();
+    vx_task_end(t);
 }
 
-// Starts a task that runs [entry] with [arg], and runs it until it first
-// waits.
-static void vx_go(void (*entry)(void *), void *arg) {
+static void vx_future_own(struct vx_future *f, vx_task *t);
+
+// Starts a task that runs [entry] with [arg] and settles [f], which may be
+// NULL, and runs it until it first waits. It is a child of the running
+// task.
+static void vx_go_f(void (*entry)(void *), void *arg, struct vx_future *f) {
     vx_task *t = calloc(1, sizeof(vx_task));
     if (!t) vx_out_of_memory();
+    t->parent = vx_cur;
+    t->future = f;
+    if (f) vx_future_own(f, t);
     t->size = VX_TASK_STACK;
     if (vx_spare_len > 0) {
         t->stack = vx_spare_stacks[--vx_spare_len];
@@ -2376,15 +2391,20 @@ static void vx_go(void (*entry)(void *), void *arg) {
     vx_resume(t);
 }
 
+static void vx_go(void (*entry)(void *), void *arg) { vx_go_f(entry, arg, NULL); }
+
 // A future: the result of async work, filled in once it is done. The
 // value of [size] bytes follows the header.
-typedef struct {
-    int32_t state;            // 0 while pending, 1 when done, 2 when it failed
+typedef struct vx_future {
+    int32_t state;            // 0 while pending, 1 when done, 2 when it failed, 3 when cancelled
     vx_task *waiters;
+    vx_task *task;            // the task that settles it, while it runs
     void *err;
     int64_t size;
     _Alignas(16) char value[];
 } vx_future;
+
+static void vx_future_own(struct vx_future *f, vx_task *t) { f->task = t; }
 
 static vx_future *vx_future_new(int64_t size) {
     vx_future *f = vx_alloc(sizeof(vx_future) + (size_t)size);
@@ -2406,6 +2426,7 @@ static void vx_ready(vx_task *t) {
 }
 
 static void vx_future_settle(vx_future *f, int32_t state) {
+    if (f->state != 0) return;
     f->state = state;
     vx_task *w = f->waiters;
     f->waiters = NULL;
@@ -2419,6 +2440,7 @@ static void vx_future_settle(vx_future *f, int32_t state) {
     }
     while (rev) {
         vx_task *n = rev->next;
+        rev->waiting = NULL;
         vx_ready(rev);
         rev = n;
     }
@@ -2426,29 +2448,102 @@ static void vx_future_settle(vx_future *f, int32_t state) {
 
 // Completes [f] with the [f->size] bytes at [value].
 static void vx_future_done(vx_future *f, const void *value) {
+    if (f->state != 0) return;
     if (f->size > 0) memcpy(f->value, value, (size_t)f->size);
     vx_remember(f);
     vx_future_settle(f, 1);
 }
 
 static void vx_future_fail(vx_future *f, void *err) {
+    if (f->state != 0) return;
     f->err = err;
     vx_remember(f);
     vx_future_settle(f, 2);
 }
 
-// Waits until [f] is settled, letting other tasks run meanwhile, and
-// returns its error, or NULL when it is done.
-static void *vx_await(vx_future *f) {
-    while (f->state == 0) {
+static void vx_remote_remove(vx_future *f);
+static void vx_timer_remove(vx_future *f);
+
+// Cancels task [t] and the tasks it started: its future is cancelled now,
+// and the task stops at its next await. A waiting task wakes to stop.
+static void vx_task_cancel(vx_task *t) {
+    if (t->cancelled || t->done) return;
+    t->cancelled = true;
+    if (t->future) vx_future_settle(t->future, 3);
+    if (t->waiting) {
+        vx_task **p = &t->waiting->waiters;
+        while (*p && *p != t) p = &(*p)->next;
+        if (*p) *p = t->next;
+        t->waiting = NULL;
+        vx_ready(t);
+    }
+    for (size_t i = 0; i < vx_tasks_len; i++) {
+        if (vx_tasks[i]->parent == t) vx_task_cancel(vx_tasks[i]);
+    }
+}
+
+// Cancels [f]: the task settling it stops, and so does every task waiting
+// for it. Settled futures don't change.
+static void vx_cancel(vx_future *f) {
+    if (f->state != 0) return;
+    if (f->task) {
+        vx_task_cancel(f->task);
+        return;
+    }
+    vx_remote_remove(f);
+    vx_timer_remove(f);
+    vx_future_settle(f, 3);
+}
+
+// Finishes the running task [t], which never runs again.
+__attribute__((noreturn))
+static void vx_task_end(vx_task *t) {
+    if (t->future) t->future->task = NULL;
+    t->done = true;
+    vx_switch(t->caller, true);
+    __builtin_unreachable();
+}
+
+// Stops the running task, abandoning its stack, after cancelling the
+// tasks it started.
+__attribute__((noreturn))
+static void vx_stop(void) {
+    vx_task *t = vx_cur;
+    t->cancelled = false;
+    vx_task_cancel(t);
+    vx_task_end(t);
+}
+
+// Waits until [f] is settled in any way, letting other tasks run
+// meanwhile. A cancelled task stops here.
+static void vx_wait_settled(vx_future *f) {
+    for (;;) {
+        if (vx_cur->cancelled) vx_stop();
+        if (f->state != 0) return;
         if (vx_cur == &vx_main_task) {
             fflush(stdout);
             fputs("error: await outside a task\n", stderr);
             exit(1);
         }
+        vx_cur->waiting = f;
         vx_cur->next = f->waiters;
         f->waiters = vx_cur;
         vx_suspend();
+    }
+}
+
+// Waits until [f] is settled, letting other tasks run meanwhile, and
+// returns its error, or NULL when it is done. A cancelled task stops here,
+// and so does one whose future was cancelled.
+static void *vx_await(vx_future *f) {
+    vx_wait_settled(f);
+    if (f->state == 3) {
+        if (vx_cur == &vx_main_task) {
+            fflush(stdout);
+            fputs("error: awaited a cancelled task\n", stderr);
+            exit(1);
+        }
+        vx_stop();
     }
     return f->state == 2 ? f->err : NULL;
 }
@@ -2477,6 +2572,23 @@ static void vx_timer_push(vx_timer t) {
         i = (i - 1) / 2;
     }
     vx_timers[i] = t;
+}
+
+// Takes the timer of [f] off the heap, if it has one.
+static void vx_timer_remove(vx_future *f) {
+    for (size_t i = 0; i < vx_timers_len; i++) {
+        if (vx_timers[i].future != f) continue;
+        size_t n = vx_timers_len;
+        vx_timer *old = malloc(n * sizeof(vx_timer));
+        if (!old) vx_out_of_memory();
+        memcpy(old, vx_timers, n * sizeof(vx_timer));
+        vx_timers_len = 0;
+        for (size_t j = 0; j < n; j++) {
+            if (j != i) vx_timer_push(old[j]);
+        }
+        free(old);
+        return;
+    }
 }
 
 static vx_timer vx_timer_pop(void) {
@@ -2558,9 +2670,10 @@ int64_t vex_poll(void) { return vx_poll(); }
 
 static void vx_idle(void);
 
-// Runs tasks and timers until nothing is pending.
+// Runs tasks and timers until nothing is pending. Once no task is alive,
+// timers left behind, such as those of cancelled tasks, can wake nothing.
 static void vx_loop(void) {
-    while (vx_poll() >= 0) vx_idle();
+    while (vx_poll() >= 0 && (vx_tasks_len > 0 || vx_remote_len > 0)) vx_idle();
 }
 
 // Runs tasks and timers until [f] is settled, for `run` in code that isn't
@@ -2571,7 +2684,33 @@ static void *vx_run(vx_future *f, int line) {
         if (vx_poll() < 0 && f->state == 0) vx_fail(line, "run: the future can never complete, since nothing is left to run");
         if (f->state == 0) vx_idle();
     }
+    if (f->state == 3) vx_fail(line, "run: the future was cancelled");
     return f->state == 2 ? f->err : NULL;
+}
+
+// The work of [vx_first] for one of its futures.
+typedef struct {
+    vx_future *out;
+    vx_future *in;
+} vx_first_arg;
+
+static void vx_first_task(void *p) {
+    vx_first_arg *a = p;
+    vx_wait_settled(a->in);
+    vx_future_settle(a->out, 1);
+}
+
+// Returns a future that is done once [x] or [y] is settled in any way.
+static vx_future *vx_first(vx_future *x, vx_future *y) {
+    vx_future *out = vx_future_new(0);
+    vx_future *in[2] = {x, y};
+    for (int i = 0; i < 2 && out->state == 0; i++) {
+        vx_first_arg *a = vx_alloc(sizeof(vx_first_arg));
+        *a = (vx_first_arg){out, in[i]};
+        vx_remember(a);
+        vx_go(vx_first_task, a);
+    }
+    return out;
 }
 
 // The work of `all`: waits for each future in turn and collects their
@@ -2601,7 +2740,7 @@ static vx_future *vx_all(vx_list *futures, int64_t esz) {
     vx_all_arg *a = vx_alloc(sizeof(vx_all_arg));
     *a = (vx_all_arg){vx_future_new(esz > 0 ? (int64_t)sizeof(vx_list *) : 0), futures, esz};
     vx_remember(a);
-    vx_go(vx_all_task, a);
+    vx_go_f(vx_all_task, a, a->result);
     return a->result;
 }
 

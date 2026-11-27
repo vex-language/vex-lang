@@ -1,0 +1,11 @@
+false
+true
+true
+["start x", "start y", "waiting", "start a", "start b"]
+page fast
+late
+-1 true
+true false
+true
+-1
+page done false

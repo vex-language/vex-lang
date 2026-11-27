@@ -1729,6 +1729,8 @@ func (g *gen) value(e ast.Expr) string {
 			return "((double)NAN)"
 		case "isEmpty", "first", "last":
 			return g.listProperty(e, m.Builtin, g.info.Types[e.X].(*types.List), g.expr(e.X))
+		case "isCancelled":
+			return "((" + g.expr(e.X) + ")->state == 3)"
 		case "isNaN":
 			return "((bool)isnan(" + g.expr(e.X) + "))"
 		case "isFinite":
@@ -1922,6 +1924,8 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 			return g.asyncBuiltin(e, c)
 		case "isolate.run", "isolate.spawn":
 			return g.isolateCall(e, c)
+		case "time.timeout":
+			return g.timeoutCall(e, c)
 		case "Channel":
 			return "vx_chan_new()"
 		}
@@ -2013,6 +2017,9 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 	return g.ordered(append([]ast.Expr{c.Recv}, c.Args...), func(cs []string) string {
 		if ch, ok := recv.(*types.Channel); ok {
 			return g.channelCall(e, c, ch, cs, line)
+		}
+		if _, ok := recv.(*types.Future); ok && c.Builtin == "cancel" {
+			return "vx_cancel(" + cs[0] + ")"
 		}
 		if recv == types.Float && c.Builtin == "toFixed" {
 			return fmt.Sprintf("vx_float_fixed(%s, %s, %d)", cs[0], cs[1], line)

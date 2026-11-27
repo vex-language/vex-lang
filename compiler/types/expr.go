@@ -888,6 +888,11 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		}
 		c.errorAt(e.Name, didYouMean(name, memberNames(x)), "%s has no field '%s'", x.Name, name)
 		return Invalid
+	case *Future:
+		if name == "isCancelled" {
+			c.info.Members[e] = &Member{Builtin: name}
+			return Bool
+		}
 	case *List:
 		switch name {
 		case "len":
