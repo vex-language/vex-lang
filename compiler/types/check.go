@@ -29,6 +29,10 @@ var builtinFuncs = map[string]bool{
 type scope struct {
 	vars   map[string]*Var
 	parent *scope
+
+	// Names a type test showed to have a narrower type that couldn't be
+	// narrowed because they can change, with the type tested for.
+	tested map[string]Type
 }
 
 type checker struct {
@@ -117,6 +121,8 @@ func newChecker() *checker {
 			ThrowingRefs:   map[ast.Expr]bool{},
 			Elements:       map[*ast.ExprStmt]ast.Expr{},
 			IfValues:       map[*ast.ExprStmt]*ast.IfExpr{},
+			TypeTests:      map[*ast.TypeTest]Type{},
+			PatternTests:   map[ast.Pattern]Type{},
 			Observers:      map[*ast.AssignStmt]*Func{},
 			Chains:         map[ast.Expr]bool{},
 			TearOffs:       map[*ast.MemberExpr]ast.Expr{},
@@ -1032,7 +1038,9 @@ func (c *checker) stmt(s ast.Stmt) {
 			c.pop()
 		} else {
 			c.cond(s.Cond, "if")
+			c.pushNarrowed(s.Cond)
 			c.stmt(s.Then)
+			c.pop()
 		}
 		if s.Else != nil {
 			c.stmt(s.Else)
@@ -1051,13 +1059,12 @@ func (c *checker) stmt(s ast.Stmt) {
 			c.declare(s.Bind, elem, false, LocalVar)
 		} else {
 			c.cond(s.Cond, "while")
+			c.pushNarrowed(s.Cond)
 		}
 		c.loops++
 		c.stmt(s.Body)
 		c.loops--
-		if s.Bind != nil {
-			c.pop()
-		}
+		c.pop()
 	case *ast.ForStmt:
 		c.forStmt(s)
 	case *ast.ReturnStmt:

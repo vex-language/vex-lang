@@ -549,6 +549,30 @@ fn largest<T: Ordered<T>>(xs: [T]) -> T? { ... }
 
 - Not yet: generic methods in interfaces, and static members.
 
+**Type tests.** `is` asks whether an interface value holds a given struct, enum or interface, and `as?` gives it as that type, or `nil`:
+
+```swift
+fn render(view: View) -> string {
+    if view is Text {
+        return view.content                 // view is a Text here
+    }
+    if view is Image && view.width > 0 { ... }
+    if let b = view as? Button { b.press() }
+    let width = (view as? Image)?.width ?? 0
+    return match view {
+        Button(:label) => "button {label}"  // a struct pattern tests the type too
+        t: Text => t.content                // binds the whole value as a Text
+        _ => "other"
+    }
+}
+```
+
+- After `x is T`, `x` has type `T` in the `if` block, the rest of an `&&` chain, an `if` value's branch and a `while` body. This needs a name that can't change: a `let`, a parameter, a loop variable or a pattern name. A `var` keeps its type; bind it with `if let t = x as? T`.
+- The value tested must be an interface (unwrap an optional first), and the type must be able to hold it: a struct or enum that implements the interface, or another interface.
+- Interfaces are open, so a `match` on one needs a `_` arm.
+- Vex has no `as` without `?`, as it has no force unwrap.
+- A test is one comparison: each struct and enum value carries a pointer to its type's method tables.
+
 ## Extensions
 
 `extension` adds methods, getters and static members to a type that already exists, as in Swift, including built-in types and types from other modules:
@@ -1043,7 +1067,8 @@ for Point(:x, :y) in points {
 | `1..=9`, `0..10` | an `int` or `float` in the range |
 | `> 100`, `<= 0` | an `int`, `float` or `string` that compares so |
 | `circle(r)`, `rect(height: h)` | that enum case, its values matching the inner patterns |
-| `Point(x: 0, :y)` | a struct whose named fields match; others are ignored |
+| `Point(x: 0, :y)` | a struct whose named fields match; others are ignored. On an interface value, it also tests that the value is a `Point` |
+| `t: Text` | an interface value that is a `Text`, bound to `t` as one |
 | `(a, b)`, `(:min, max: _)` | a record, every field given |
 | `[a, b]`, `[first, ...rest]`, `[..., last]` | a list of that length, or at least that long with `...` |
 | `a \|\| b` | either pattern; each binds the same names |

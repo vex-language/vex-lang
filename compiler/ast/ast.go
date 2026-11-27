@@ -690,6 +690,15 @@ type Catch struct {
 	Body *Block
 }
 
+// A type test `x is T`, or with [Cast] set, a conversion `x as? T` that
+// gives nil when [X] isn't a [Type].
+type TypeTest struct {
+	Span
+	X    Expr
+	Type TypeExpr
+	Cast bool
+}
+
 // An `if` used as a value: `if ok { a } else { b }`. Each branch of [If]
 // should hold one expression, and each `if` in the chain an `else`; the
 // checker reports those that don't.
@@ -740,6 +749,14 @@ type CasePattern struct {
 	Span
 	Name *Ident
 	Args []*PatternField
+}
+
+// A typed pattern `t: Text`: matches a value whose type is [Type],
+// binding it to [Name] as that type.
+type TypedPattern struct {
+	Span
+	Name *Ident
+	Type TypeExpr
 }
 
 // A record pattern: `(a, b)`, `(min: lo, max: _)` or `(:min, :max)`.
@@ -804,11 +821,13 @@ func (*RestPattern) patternNode()       {}
 func (*RangePattern) patternNode()      {}
 func (*RelationalPattern) patternNode() {}
 func (*OrPattern) patternNode()         {}
+func (*TypedPattern) patternNode()      {}
 func (*LiteralPattern) patternNode()    {}
 
 func (*ImplicitMember) exprNode()     {}
 func (*MatchExpr) exprNode()          {}
 func (*IfExpr) exprNode()             {}
+func (*TypeTest) exprNode()           {}
 func (*NilLit) exprNode()             {}
 func (*KnownExpr) exprNode()          {}
 func (*FuncLit) exprNode()            {}

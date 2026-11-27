@@ -1,0 +1,73 @@
+// Mistakes with type tests and type patterns.
+interface View {
+    fn describe() -> string
+}
+
+interface Tappable {
+    fn tap() -> string
+}
+
+struct Text: View {
+    content: string
+    fn describe() -> string => "text {content}"
+}
+
+struct Button: View, Tappable {
+    label: string
+    fn describe() -> string => "button {label}"
+    fn tap() -> string => "tapped {label}"
+}
+
+struct Image: View {
+    width: int
+    fn describe() -> string => "image {width}"
+}
+
+struct Loose {
+    v: int
+}
+
+fn main() {
+    let v: View = Text(content: "a")
+    var m: View = Text(content: "b")
+    let maybe: View? = v
+    println(v is Loose, v is View, 5 is Text, maybe is Text, v is int)
+    if m is Text {
+        println(m.content)
+    }
+    if v is Text || v is Image {
+        println(v.content)
+    }
+    if v is Text {
+        println(v.content)
+    } else {
+        println(v.content)
+    }
+    let a = match v {
+        Text(:content) => content
+    }
+    let b = match v {
+        t: Text => 1
+        Text() => 2
+        s: Spacer => 3
+        small => 4
+        _ => 5
+    }
+    if v case n: Loose {
+        println(n)
+    }
+}
+
+// error: 34:18: Loose doesn't implement View, so a View value is never one
+// error: 34:30: every View is a View, so this always holds
+// error: 34:36: 'is' tests an interface value, but this is int
+// error: 34:47: 'is' tests an interface value, but this is View?
+// error: 34:67: 'is' tests for a struct, enum or interface, found int
+// error: 36:19: View has no member 'content'
+// error: 39:19: View has no member 'content'
+// error: 44:19: View has no member 'content'
+// error: 46:13: match doesn't handle every View value
+// error: 51:9: Text() is already handled on line 50
+// error: 52:12: unknown type 'Spacer'
+// error: 53:9: 'small' isn't a case: the match is on View
+// error: 56:18: Loose doesn't implement View, so a View value is never one

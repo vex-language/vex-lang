@@ -790,6 +790,10 @@ func (p *parser) primaryPattern() ast.Pattern {
 			return &ast.WildcardPattern{Span: p.span(t.Pos)}
 		}
 		name := &ast.Ident{Span: ast.Span{Start: t.Pos, End: t.End}, Name: t.Text}
+		if p.at(lexer.Colon) {
+			p.next()
+			return &ast.TypedPattern{Name: name, Type: p.typeExpr(), Span: p.span(t.Pos)}
+		}
 		if !p.at(lexer.LParen) {
 			return &ast.NamePattern{Span: name.Span, Name: name}
 		}
@@ -1153,7 +1157,8 @@ func (p *parser) observer(f *ast.Field) *ast.FuncDecl {
 func (p *parser) typeExpr() ast.TypeExpr {
 	start := p.tok().Pos
 	te := p.baseType()
-	if p.at(lexer.QuestionQuestion) {
+	// After a space, ?? is the operator, as in `v as? Text ?? fallback`.
+	if p.at(lexer.QuestionQuestion) && p.tok().Pos.Offset == p.lastEnd {
 		p.fail(p.tok(), "one ? is enough", "a type can only be optional once")
 	}
 	for p.at(lexer.Question) {
@@ -1846,12 +1851,14 @@ func precedence(k lexer.Kind) int {
 		return 4
 	case lexer.QuestionQuestion:
 		return 5
-	case lexer.Plus, lexer.Minus, lexer.AmpPlus, lexer.AmpMinus, lexer.Pipe, lexer.Caret:
+	case lexer.Is, lexer.As:
 		return 6
-	case lexer.Star, lexer.Slash, lexer.Percent, lexer.AmpStar, lexer.Amp:
+	case lexer.Plus, lexer.Minus, lexer.AmpPlus, lexer.AmpMinus, lexer.Pipe, lexer.Caret:
 		return 7
-	case lexer.Shl, lexer.Shr:
+	case lexer.Star, lexer.Slash, lexer.Percent, lexer.AmpStar, lexer.Amp:
 		return 8
+	case lexer.Shl, lexer.Shr:
+		return 9
 	}
 	return 0
 }
@@ -1886,6 +1893,10 @@ func (p *parser) binary(min int) ast.Expr {
 		if k == lexer.Minus && p.spacedInHead() && p.peek(1).Pos.Offset == p.tok().End {
 			return x
 		}
+		if k == lexer.Is || k == lexer.As {
+			x = p.typeTest(x)
+			continue
+		}
 		for range n {
 			p.next()
 		}
@@ -1901,6 +1912,21 @@ func (p *parser) binary(min int) ast.Expr {
 		}
 		x = &ast.BinaryExpr{Span: ast.Span{Start: x.Pos(), End: y.EndOffset()}, Op: k, X: x, Y: y}
 	}
+}
+
+// Parses `is T` or `as? T` after [x].
+func (p *parser) typeTest(x ast.Expr) ast.Expr {
+	t := p.next()
+	e := &ast.TypeTest{X: x, Cast: t.Kind == lexer.As}
+	if e.Cast {
+		if !p.at(lexer.Question) || p.tok().Pos.Offset != t.End {
+			p.fail(t, "write as? T, which gives nil when the value isn't a T", "Vex has only as?, not as")
+		}
+		p.next()
+	}
+	e.Type = p.typeExpr()
+	e.Span = ast.Span{Start: x.Pos(), End: p.lastEnd}
+	return e
 }
 
 func (p *parser) unary() ast.Expr {
