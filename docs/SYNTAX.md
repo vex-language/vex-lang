@@ -174,9 +174,48 @@ for fruit in fruits { println(fruit) }
 for i, fruit in fruits { println("{i}: {fruit}") }
 
 while running { tick() }
+
+repeat {
+    line = readLine()
+} while line != "quit"                    // runs at least once
 ```
 
-`else` must be on the same line as the closing `}`.
+`else` must be on the same line as the closing `}`, and so must the `while` of `repeat { } while`.
+
+**Named loops.** A name before a loop lets `break` and `continue` leave an outer loop from inside an inner one.
+
+```swift
+outer: for row in grid {
+    for cell in row {
+        if cell < 0 { continue outer }   // next row
+        if cell == target { break outer } // stop both loops
+    }
+}
+```
+
+A name can't repeat the name of a loop around it, and closures start without any loop names.
+
+**`defer`.** A `defer` block runs when the block it is in ends, however it ends: at its last line, or through `return`, `throw`, `break`, `continue` or an error passed up by `try`. Several deferred blocks run last first.
+
+```swift
+fn copy(from: string, to: string) throws {
+    let src = try open(from)
+    defer { src.close() }
+    let dst = try open(to)
+    defer { dst.close() }                // closes before src
+    try dst.write(src.read())
+}
+
+for job in jobs {
+    defer { println("{job} done") }      // after every pass, even one cut short by continue
+    if job.skip { continue }
+    job.run()
+}
+```
+
+- A deferred block runs only if the `defer` line was reached.
+- It sees the variables declared before it, with the values they have when it runs.
+- It can't `return` or `throw`, pass up an error with `try`, or `break` or `continue` a loop outside it. Errors inside it are handled with `try?` or `try ... catch`.
 
 **`if` as a value.** An `if` with an `else` gives a value, so it works anywhere an expression does. Vex has no `? :` operator.
 
@@ -1679,4 +1718,4 @@ warning: 'total' is never used
 - A local variable that is never used. Starting its name with `_` says it is meant to be unused; a `catch` can leave its name out.
 - Code after a `return`, `throw`, `break`, `continue`, `panic` or endless loop, which can never run.
 
-Features from other languages that Vex lacks get an error that names them and shows what to write instead: `x!` (use `??`, `if let` or `guard let`), `x++` (`x += 1`), `do`/`while`, `switch` (`match`) and `class` (`struct`). `defer` and loop labels are planned (V-163) and are reported as not supported yet.
+Features from other languages that Vex lacks get an error that names them and shows what to write instead: `x!` (use `??`, `if let` or `guard let`), `x++` (`x += 1`), `do`/`while` (`repeat { } while`), `switch` (`match`) and `class` (`struct`).
