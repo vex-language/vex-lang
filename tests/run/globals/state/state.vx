@@ -1,0 +1,19 @@
+// Variables shared by the whole program, each built on first use.
+pub var visits = 0
+pub let greeting = makeGreeting()
+var secret = 42
+
+fn makeGreeting() -> string {
+    println("making greeting")
+    return "hello"
+}
+
+pub fn visit() -> int {
+    visits += 1
+    return visits + secret - 42
+}
+
+pub struct Theme {
+    pub name: string
+    pub static var current = Theme(name: "light")
+}

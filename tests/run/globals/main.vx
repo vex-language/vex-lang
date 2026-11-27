@@ -1,0 +1,76 @@
+import "state"
+
+var hits = 0
+let names: [string] = load()
+var cache: [string: int] = [:]
+var last: string? = nil
+var shout = fn(s: string) -> string { return s.upper() }
+
+fn load() -> [string] {
+    println("loading")
+    return ["a", "b"]
+}
+
+fn bump() -> int {
+    hits += 100
+    return hits
+}
+
+fn count() -> int {
+    hits += 1
+    return hits
+}
+
+struct Router {
+    static var stack: [string] = []
+    pub static let home = "/"
+
+    static fn push(p: string) {
+        stack.push(p)
+        last = p
+    }
+}
+
+enum Level {
+    low
+    high
+    static var changes = 0
+}
+
+fn main() {
+    println("start")
+    count()
+    count()
+    println(hits, names, names.len)
+    names.push("c")
+    println(names)
+    cache["x"] = 1
+    cache["x"] = (cache["x"] ?? 0) + 41
+    println(cache)
+    Router.push(Router.home)
+    Router.push("/a")
+    println(Router.stack, last ?? "none")
+    Router.stack = ["reset"]
+    Level.changes += 2
+    println(Router.stack, Level.changes)
+    let f = fn() { hits = hits * 10 }
+    f()
+    println(hits)
+    match (5, 6) {
+        (hits, b) => println("bound", hits, b)
+    }
+
+    println(hits + bump(), [hits, bump(), hits])
+    println(shout("loud"))
+    shout = fn(s: string) -> string { return s + "!" }
+    println(shout("quiet"))
+
+    // Variables of another module.
+    println(state.visit(), state.visit(), state.visits)
+    state.visits = 10
+    println(state.visit(), state.greeting, state.greeting)
+    println(state.Theme.current.name)
+    state.Theme.current = state.Theme(name: "dark")
+    println(state.Theme.current.name)
+
+}
