@@ -1512,20 +1512,17 @@ func (p *parser) stmt() ast.Stmt {
 		return p.ifStmt()
 	case lexer.While:
 		p.next()
-		var bind *ast.Ident
+		w := &ast.WhileStmt{}
 		if p.at(lexer.Let) || p.at(lexer.Var) {
-			if p.at(lexer.Var) {
-				p.errorAt(p.tok(), "write while let; copy it into a var inside the block", "'while var' isn't supported")
-			}
-			p.next()
-			bind = p.ident("a name after 'while let'")
-			if !p.at(lexer.Assign) {
-				p.fail(p.tok(), fmt.Sprintf("write while let %s = optionalValue { ... }", bind.Name), "expected '=' after 'while let %s', found %s", bind.Name, describe(p.tok()))
-			}
-			p.next()
+			w.Bind, w.Cond = p.binding("while")
+		} else {
+			w.Cond = p.header("while")
 		}
-		cond := p.header("while")
-		return &ast.WhileStmt{Cond: cond, Body: p.block(), Bind: bind, Span: p.span(t.Pos)}
+		w.More = p.conds("while")
+		p.bodyStart("while")
+		w.Body = p.block()
+		w.Span = p.span(t.Pos)
+		return w
 	case lexer.For:
 		return p.forStmt()
 	case lexer.Guard:
@@ -1533,7 +1530,7 @@ func (p *parser) stmt() ast.Stmt {
 	case lexer.Return:
 		p.next()
 		r := &ast.ReturnStmt{}
-		if !p.at(lexer.Semi) && !p.at(lexer.RBrace) && !p.at(lexer.Comma) {
+		if !p.at(lexer.Semi) && !p.at(lexer.RBrace) && !p.at(lexer.Comma) && !p.at(lexer.RParen) && !p.at(lexer.RBracket) {
 			r.Value = p.expr()
 		}
 		r.Span = p.span(t.Pos)
@@ -1640,21 +1637,15 @@ func (p *parser) ifStmt() *ast.IfStmt {
 	start := p.expect(lexer.If).Pos
 	s := &ast.IfStmt{}
 	if p.at(lexer.Let) || p.at(lexer.Var) {
-		if p.at(lexer.Var) {
-			p.errorAt(p.tok(), "write if let; copy it into a var inside the block", "'if var' isn't supported")
-		}
-		p.next()
-		s.Bind = p.ident("a name after 'if let'")
-		if !p.at(lexer.Assign) {
-			p.fail(p.tok(), fmt.Sprintf("write if let %s = optionalValue { ... }", s.Bind.Name), "expected '=' after 'if let %s', found %s", s.Bind.Name, describe(p.tok()))
-		}
-		p.next()
-	}
-	if s.Bind == nil {
-		s.Cond, s.Case, s.Guard = p.caseHeader()
+		s.Bind, s.Cond = p.binding("if")
 	} else {
-		s.Cond = p.header("if")
+		s.Cond, s.Case, s.Guard = p.caseHeader()
 	}
+	if p.at(lexer.Comma) && s.Case != nil {
+		p.fail(p.tok(), "nest another if inside, or add the condition after when", "if case can't be combined with other conditions")
+	}
+	s.More = p.conds("if")
+	p.bodyStart("if")
 	s.Then = p.block()
 	if p.tok().IsAutoSemi() && p.peek(1).Kind == lexer.Else {
 		p.errorAt(p.peek(1), "write } else {", "'else' must be on the same line as the closing }")
@@ -1841,21 +1832,15 @@ func (p *parser) tryExpr() ast.Expr {
 // Parses `guard let name = value else { ... }`.
 func (p *parser) guardStmt() *ast.GuardStmt {
 	start := p.next().Pos
-	if !p.at(lexer.Let) {
-		p.fail(p.tok(), "write guard let name = optionalValue else { return }", "expected 'let' after 'guard', found %s", describe(p.tok()))
+	g := &ast.GuardStmt{}
+	if p.at(lexer.Let) || p.at(lexer.Var) {
+		g.Bind, g.Value = p.binding("guard")
+	} else {
+		g.Value = p.condExpr()
 	}
-	p.next()
-	g := &ast.GuardStmt{Bind: p.ident("a name after 'guard let'")}
-	if !p.at(lexer.Assign) {
-		p.fail(p.tok(), fmt.Sprintf("write guard let %s = optionalValue else { return }", g.Bind.Name), "expected '=' after 'guard let %s', found %s", g.Bind.Name, describe(p.tok()))
-	}
-	p.next()
-	saved := p.noTrailing
-	p.noTrailing = true
-	g.Value = p.expr()
-	p.noTrailing = saved
+	g.More = p.conds("guard")
 	if !p.at(lexer.Else) {
-		p.fail(p.tok(), "add else { return } after the value", "expected 'else' after the guard value, found %s", describe(p.tok()))
+		p.fail(p.tok(), "add else { return } after the condition", "expected 'else' after the guard condition, found %s", describe(p.tok()))
 	}
 	p.next()
 	if !p.at(lexer.LBrace) {
@@ -1893,8 +1878,53 @@ func (p *parser) caseHeader() (ast.Expr, ast.Pattern, ast.Expr) {
 		p.next()
 		guard = p.expr()
 	}
-	p.bodyStart("if")
+	if !p.at(lexer.Comma) {
+		p.bodyStart("if")
+	}
 	return cond, pat, guard
+}
+
+// Parses `let name = value`, or `let name`, short for `let name = name`,
+// in the header of [keyword].
+func (p *parser) binding(keyword string) (*ast.Ident, ast.Expr) {
+	if p.at(lexer.Var) {
+		p.errorAt(p.tok(), "write "+keyword+" let; copy it into a var inside the block", "'%s var' isn't supported", keyword)
+	}
+	p.next()
+	name := p.ident("a name after '" + keyword + " let'")
+	if !p.at(lexer.Assign) {
+		return name, &ast.Ident{Span: name.Span, Name: name.Name}
+	}
+	p.next()
+	return name, p.condExpr()
+}
+
+// Parses an expression in a header, where a `{` starts the body.
+func (p *parser) condExpr() ast.Expr {
+	saved := p.noTrailing
+	p.noTrailing = true
+	defer func() { p.noTrailing = saved }()
+	return p.expr()
+}
+
+// Parses the conditions after the first in the header of [keyword], each
+// after a comma.
+func (p *parser) conds(keyword string) []*ast.Cond {
+	var out []*ast.Cond
+	for p.at(lexer.Comma) {
+		p.next()
+		p.skipNewlines()
+		start := p.tok().Pos
+		c := &ast.Cond{}
+		if p.at(lexer.Let) || p.at(lexer.Var) {
+			c.Bind, c.Value = p.binding(keyword)
+		} else {
+			c.Value = p.condExpr()
+		}
+		c.Span = p.span(start)
+		out = append(out, c)
+	}
+	return out
 }
 
 // Finishes the header of [keyword] after its condition [cond], which
@@ -1908,7 +1938,9 @@ func (p *parser) headerRest(keyword string, first int, cond ast.Expr) ast.Expr {
 		rhs := p.expr()
 		cond = &ast.BinaryExpr{Span: ast.Span{Start: cond.Pos(), End: rhs.EndOffset()}, Op: lexer.Eq, X: cond, Y: rhs}
 	}
-	p.bodyStart(keyword)
+	if !p.at(lexer.Comma) {
+		p.bodyStart(keyword)
+	}
 	return cond
 }
 
@@ -2155,6 +2187,9 @@ func (p *parser) primary() ast.Expr {
 	t := p.tok()
 	sp := ast.Span{Start: t.Pos, End: t.End}
 	switch t.Kind {
+	case lexer.Return, lexer.Throw, lexer.Break, lexer.Continue:
+		s := p.stmt()
+		return &ast.JumpExpr{Span: p.span(t.Pos), Stmt: s}
 	case lexer.Ident:
 		p.next()
 		return &ast.Ident{Span: sp, Name: t.Text}

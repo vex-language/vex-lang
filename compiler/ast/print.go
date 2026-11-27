@@ -434,6 +434,9 @@ func build(n Node) *tree {
 		if n.Else != nil {
 			els = build(n.Else)
 		}
+		if len(n.More) > 0 {
+			return branch("if", append(conds(n.Bind, n.Cond, n.More), build(n.Then), els)...)
+		}
 		if n.Bind != nil {
 			return branch("if let "+n.Bind.Name, buildExpr(n.Cond), build(n.Then), els)
 		}
@@ -446,8 +449,14 @@ func build(n Node) *tree {
 		}
 		return branch("if", buildExpr(n.Cond), build(n.Then), els)
 	case *GuardStmt:
+		if n.Bind == nil || len(n.More) > 0 {
+			return branch("guard", append(conds(n.Bind, n.Value, n.More), build(n.Else))...)
+		}
 		return branch("guard let "+n.Bind.Name, buildExpr(n.Value), build(n.Else))
 	case *WhileStmt:
+		if len(n.More) > 0 {
+			return branch("while", append(conds(n.Bind, n.Cond, n.More), build(n.Body))...)
+		}
 		if n.Bind != nil {
 			return branch("while let "+n.Bind.Name, buildExpr(n.Cond), build(n.Body))
 		}
@@ -595,6 +604,8 @@ func buildExpr(e Expr) *tree {
 		return t
 	case *IfExpr:
 		return build(e.If)
+	case *JumpExpr:
+		return build(e.Stmt)
 	case *TypeTest:
 		op := "is"
 		if e.Cast {
@@ -665,4 +676,19 @@ func interfacesString(ifaces []*NamedType) string {
 		s += sep + TypeString(id)
 	}
 	return s
+}
+
+// Returns the trees of a header's conditions: its first, then [more].
+func conds(bind *Ident, value Expr, more []*Cond) []*tree {
+	one := func(bind *Ident, value Expr) *tree {
+		if bind != nil {
+			return branch("let "+bind.Name, buildExpr(value))
+		}
+		return buildExpr(value)
+	}
+	out := []*tree{one(bind, value)}
+	for _, c := range more {
+		out = append(out, one(c.Bind, c.Value))
+	}
+	return out
 }

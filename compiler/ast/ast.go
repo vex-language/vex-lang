@@ -440,6 +440,24 @@ type IfStmt struct {
 	// match, and the condition that must also hold, or nil.
 	Case  Pattern
 	Guard Expr
+
+	// The conditions after the first, as in `if let a = x, a > 0`.
+	More []*Cond
+}
+
+// A condition after the first in an `if`, `while` or `guard` header: a
+// boolean, or `let name = value` when [Bind] is set.
+type Cond struct {
+	Span
+	Bind  *Ident
+	Value Expr
+}
+
+// A `return`, `throw`, `break` or `continue` on the right of `??`, run
+// when the left side is nil.
+type JumpExpr struct {
+	Span
+	Stmt Stmt
 }
 
 // `guard let name = value else { ... }`: runs the else block, which must
@@ -447,8 +465,11 @@ type IfStmt struct {
 // block.
 type GuardStmt struct {
 	Span
+
+	// The name bound by `guard let`; nil for `guard condition else`.
 	Bind  *Ident
 	Value Expr
+	More  []*Cond
 	Else  *Block
 }
 
@@ -461,6 +482,7 @@ type WhileStmt struct {
 	// For `while let name = value`, the name bound each time [Cond], an
 	// optional, holds a value; the loop ends at nil.
 	Bind *Ident
+	More []*Cond
 }
 
 // A `for` loop: `for x in xs`, `for i, x in xs` or `for i in 0..10`.
@@ -878,6 +900,7 @@ func (*LiteralPattern) patternNode()    {}
 func (*ImplicitMember) exprNode()     {}
 func (*MatchExpr) exprNode()          {}
 func (*IfExpr) exprNode()             {}
+func (*JumpExpr) exprNode()           {}
 func (*TypeTest) exprNode()           {}
 func (*NilLit) exprNode()             {}
 func (*KnownExpr) exprNode()          {}
