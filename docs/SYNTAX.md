@@ -151,6 +151,22 @@ while running { tick() }
 
 `else` must be on the same line as the closing `}`.
 
+**`if` as a value.** An `if` with an `else` gives a value, so it works anywhere an expression does. Vex has no `? :` operator.
+
+```swift
+let color = if selected { blue } else { gray }
+let size = if n > 100 { "large" } else if n > 10 { "medium" } else { "small" }
+let label = if let name = user.name { "Hi {name}" } else { "Welcome" }
+println("{count} {if count == 1 { "item" } else { "items" }}")
+return if s case circle(r) { 3.14 * r * r } else { 0.0 }
+```
+
+- Every branch holds a single expression of the same type, and `else` is required. A branch holding only another `if` gives that `if`'s value.
+- A branch may be `panic(...)` instead of a value.
+- With a declared type, branches convert to it: `let n: int? = if ok { 5 } else { nil }`. Without one, `if ok { 5 } else { nil }` is an error, since `nil` doesn't fit the `int` the first branch gives.
+- Only the branch taken runs.
+- The `if` ends at its last `}`, so in `1 + if ok { 2 } else { 3 } * 4` the `* 4` applies to the value of the whole `if`.
+
 A loop over a list visits the items it had when the loop started: items pushed inside the loop aren't visited, and the loop ends early if items are removed.
 
 Conditions don't need parentheses, and lines don't need a `;` at the end. The compiler warns about both, as it does about other habits from C-style languages, but still builds the program.
