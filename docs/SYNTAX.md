@@ -1390,6 +1390,41 @@ async fn main() {
 - `isolate.cores()` gives the number of processor cores, for sizing a pool of workers.
 - The memory an isolate used is freed when it ends. A channel's own memory is kept until the program ends.
 
+## Tests
+
+A `test` block names a test and holds its code. `vex test` runs every test of the project, or of one file; other builds leave tests out.
+
+```swift
+// math_test.vx
+test "adds two numbers" {
+    expect(add(2, 3) == 5)
+}
+
+test "parses a list" throws {
+    let xs = try parse("[1, 2]")
+    expect(xs.len == 2, "two items")
+}
+```
+
+```text
+$ vex test
+✓ adds two numbers
+✗ parses a list
+  math_test.vx:7: expect(xs.len == 2)
+    two items
+    left:  3
+    right: 2
+
+2 tests: 1 passed, 1 failed
+```
+
+- Tests go in any file, or in files ending in `_test.vx`, which only `vex test` reads. Both see the private declarations of their module. Tests of imported modules don't run.
+- `expect(cond)` reports a failure and lets the test go on, so one run shows every problem. When `cond` compares two values (`==`, `!=`, `<`, `<=`, `>`, `>=`), the failure shows both; an optional second argument adds a message. `expect` only works in tests.
+- A test with `throws` may use `try`; an error passed up out of it fails the test.
+- Each test runs in its own process, so a runtime error or crash fails that test and the others still run. `vex test -filter parse` runs only the tests whose names contain `parse`.
+- A test can't await; use `run(future)` to wait for async work.
+- The exit status is 1 when a test fails.
+
 ## Built-ins
 
 | Name | Description |
@@ -1402,6 +1437,7 @@ async fn main() {
 | `int.max`, `int.min`, `float.infinity`, `float.nan` | Limits and special values; constants can use them |
 | `x.isNaN`, `x.isFinite`, `x.toFixed(2)` | Float members. `toFixed` gives text with exactly that many digits after the point, from 0 to 20, rounding halves away from zero as in Dart: `2.5.toFixed(0)` is `"3"` |
 | `panic(msg)`, `assert(cond, msg)` | Stop the program with a message; `assert`'s message is optional |
+| `expect(cond, msg)` | In tests, report `cond` as failed without stopping the test; see [Tests](#tests) |
 | `list.len`, `.push(x)`, `.sort()`, `.filter(f)`, `.map(f)`, `.join(sep)` and the rest | List members; see [Lists](#lists) |
 | `map.len`, `.keys`, `.values`, `.contains(k)`, `.remove(k)` | Map members |
 | `s.len`, `.upper()`, `.lower()`, `.contains(x)`, `.split(sep)` | String members. `len` counts Unicode code points, so an emoji with a modifier counts as more than one; `upper` and `lower` change only the letters A–Z for now |

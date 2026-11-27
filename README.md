@@ -137,6 +137,7 @@ source ~/.zshrc
 
 ```sh
 vex check hello.vx          # check for errors without building
+vex test                    # run the tests of the project in this folder
 vex run hello.vx            # compile and run
 vex build hello.vx -o hello # build a standalone native binary
 vex emit-c hello.vx         # print the generated C
@@ -561,7 +562,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 46 of 80 tasks; next are `vex test` and build modes |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 47 of 80 tasks; next are build modes and warnings |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |
