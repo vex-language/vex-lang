@@ -580,6 +580,45 @@ func (c *checker) signature(f *Func) {
 	if native {
 		c.nativeTypes(f)
 	}
+	if f.Name == "toString" && (f.Owner != nil || f.Enum != nil) && f.Decl.Accessor == ast.Method {
+		c.checkToString(f)
+	}
+}
+
+// Checks the `toString` method of a struct or enum, which printing calls:
+// it must be `fn toString() -> string`.
+func (c *checker) checkToString(f *Func) {
+	const hint = "printing calls it: write fn toString() -> string"
+	switch {
+	case f.Static:
+		c.errorAt(f.Decl.Name, hint, "toString can't be static")
+	case len(f.Params) > 0:
+		c.errorAt(f.Decl.Params[0], hint, "toString takes no parameters")
+	case len(f.Decl.TypeParams) > 0:
+		c.errorAt(f.Decl.TypeParams[0], hint, "toString can't have type parameters")
+	case f.Async:
+		c.errorAt(f.Decl.Name, hint, "toString can't be async")
+	case f.Throws != nil:
+		c.errorAt(f.Decl.Throws, hint, "toString can't throw")
+	case f.Result != String && f.Result != Invalid:
+		c.errorAt(f.Decl.Name, hint, "toString must return string, found %s", f.Result)
+	}
+}
+
+// Returns the `toString` method that prints values of [t], a struct or
+// enum, or nil.
+func ToString(t Type) *Func {
+	var m *Func
+	switch t := t.(type) {
+	case *Struct:
+		m = t.Method("toString")
+	case *Enum:
+		m = t.Method("toString")
+	}
+	if m == nil || m.Static || len(m.Params) > 0 || m.Async || m.Throws != nil || m.Result != String || len(m.Decl.TypeParams) > 0 {
+		return nil
+	}
+	return m
 }
 
 // Returns the type written as [te].

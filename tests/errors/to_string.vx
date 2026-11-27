@@ -1,0 +1,34 @@
+struct A {
+    static fn toString() -> string => "a"
+}
+
+struct B {
+    fn toString(full: bool) -> string => "b"
+}
+
+struct C {
+    fn toString() -> int => 1
+}
+
+enum D {
+    one
+
+    async fn toString() -> string => "d"
+}
+
+struct E {
+    fn toString() throws -> string => "e"
+}
+
+struct F {
+    fn toString<T>() -> string => "f"
+}
+
+fn main() {}
+
+// error: 2:15: toString can't be static
+// error: 6:17: toString takes no parameters
+// error: 10:8: toString must return string, found int
+// error: 16:14: toString can't be async
+// error: 20:19: toString can't throw
+// error: 24:17: toString can't have type parameters

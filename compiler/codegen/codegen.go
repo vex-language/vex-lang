@@ -783,6 +783,11 @@ func showsInline(t types.Type) bool {
 func (g *gen) repr(name string, t types.Type) {
 	g.line("")
 	g.line("static vx_str repr_%s(%s) {", name, decl(t, "v"))
+	if m := types.ToString(t); m != nil {
+		g.line("    return %s(v);", funcName(m))
+		g.line("}")
+		return
+	}
 	switch t := t.(type) {
 	case *types.List:
 		g.line("    vx_str s = VX_LIT(\"[\");")
