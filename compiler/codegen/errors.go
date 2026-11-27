@@ -124,13 +124,12 @@ func (g *gen) catchBody(body *ast.Block, info *types.Try, r string) string {
 	if info.Value {
 		stmts = stmts[:len(stmts)-1]
 	}
-	for _, s := range stmts {
-		g.stmt(s)
-	}
-	if info.Value {
-		x := body.Stmts[len(body.Stmts)-1].(*ast.ExprStmt).X
-		g.line("%s = %s;", r, g.expr(x))
-	}
+	g.stmtsIn(stmts, func() {
+		if info.Value {
+			x := body.Stmts[len(body.Stmts)-1].(*ast.ExprStmt).X
+			g.line("%s = %s;", r, g.expr(x))
+		}
+	})
 	g.b, g.ind = outer, ind
 	return b.String()
 }

@@ -32,9 +32,7 @@ func (g *gen) collection(lit ast.Expr, body *ast.Block, t types.Type) string {
 	outer, ind := g.b, g.ind
 	var b strings.Builder
 	g.b, g.ind = &b, ind+1
-	for _, s := range body.Stmts {
-		g.stmt(s)
-	}
+	g.stmtsIn(body.Stmts, nil)
 	g.b, g.ind = outer, ind
 	return fmt.Sprintf("({ %s\n%s%s%s%s; })", init, b.String(), strings.Repeat("    ", ind+1), done, r)
 }

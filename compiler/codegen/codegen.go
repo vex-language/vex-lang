@@ -94,9 +94,13 @@ type gen struct {
 	throws types.Type
 	tries  []tryGen
 
-	// The streams read by the for await loops around the current
-	// statement, stopped when a return leaves them.
-	streams []string
+	// The blocks and loops around the current statement, innermost last,
+	// with the work a jump out of them must do first.
+	frames []*frame
+
+	// The loops being generated, by body.
+	loopBodies map[*ast.Block]*loopInfo
+	nloops     int
 
 	// The value type of the stream function being generated.
 	yields types.Type
@@ -642,7 +646,7 @@ func (g *gen) function(f *types.Func) {
 	}
 	g.file = g.info.FileOf[f.Decl]
 	g.enter(g.b)
-	g.result, g.throws, g.tries, g.streams = f.Result, f.Throws, nil, nil
+	g.result, g.throws, g.tries, g.frames = f.Result, f.Throws, nil, nil
 	if f.Streams() {
 		g.streamFunction(f)
 		return
@@ -666,9 +670,7 @@ func (g *gen) function(f *types.Func) {
 			g.line("return %s;", g.expr(e))
 		}
 	} else {
-		for _, s := range f.Decl.Body.Stmts {
-			g.stmt(s)
-		}
+		g.stmtsIn(f.Decl.Body.Stmts, nil)
 		if f.Result != types.Void {
 			g.line("__builtin_unreachable();")
 		}
@@ -940,6 +942,7 @@ func (g *gen) stmt(s ast.Stmt) {
 		}
 		saved := r.save()
 		r.enterLoop(s)
+		g.loopOf(s.Body)
 		head := "while (" + cond(g.expr(s.Cond)) + ")"
 		r.assume(s.Cond)
 		g.block(head, s.Body)
@@ -997,6 +1000,7 @@ func (g *gen) emitStmt(s ast.Stmt) {
 	case *ast.IfStmt:
 		g.ifStmt(s)
 	case *ast.WhileStmt:
+		g.loopOf(s.Body)
 		switch {
 		case len(s.More) > 0:
 			g.whileConds(s)
@@ -1011,7 +1015,7 @@ func (g *gen) emitStmt(s ast.Stmt) {
 		switch {
 		case s.Value == nil:
 			g.line("%sreturn;", g.leaving())
-		case len(g.streams) > 0:
+		case g.hasCleanup():
 			r := g.temp()
 			g.line("%s = %s;", decl(g.result, r), g.expr(s.Value))
 			g.line("%sreturn %s;", g.leaving(), r)
@@ -1026,17 +1030,41 @@ func (g *gen) emitStmt(s ast.Stmt) {
 		g.line("*vx_err = %s;", g.expr(s.Value))
 		g.line("%s%s", g.leaving(), zeroReturn(g.result))
 	case *ast.BreakStmt:
-		g.line("break;")
+		g.jump(s.Label, false)
 	case *ast.ContinueStmt:
-		g.line("continue;")
+		g.jump(s.Label, true)
+	case *ast.DeferStmt:
+		f := g.frames[len(g.frames)-1]
+		f.defers = append(f.defers, s)
+	case *ast.LabeledStmt:
+		info := g.loopOf(loopBody(s.Loop))
+		info.label = s.Label.Name
+		g.stmt(s.Loop)
+		if info.breaks {
+			g.line("brk_%d: ;", info.id)
+		}
+	case *ast.RepeatStmt:
+		g.loopOf(s.Body)
+		g.line("do {")
+		g.body(s.Body)
+		g.line("} while (%s);", cond(g.expr(s.Cond)))
 	}
 }
 
-// Writes the statements of [b] one level deeper, without braces.
+// Writes the statements of [b] one level deeper, without braces. The body
+// of a loop also marks where its jumps go.
 func (g *gen) body(b *ast.Block) {
 	g.ind++
-	for _, s := range b.Stmts {
-		g.stmt(s)
+	info := g.loopBodies[b]
+	if info != nil {
+		g.frames = append(g.frames, &frame{loop: info})
+	}
+	g.stmtsIn(b.Stmts, nil)
+	if info != nil {
+		if info.conts {
+			g.line("cont_%d: ;", info.id)
+		}
+		g.frames = g.frames[:len(g.frames)-1]
 	}
 	g.ind--
 }
@@ -1115,6 +1143,7 @@ func (g *gen) loopRange(s *ast.ForStmt, r *ast.RangeExpr) {
 }
 
 func (g *gen) forStmt(s *ast.ForStmt) {
+	g.loopOf(s.Body)
 	if s.Await {
 		g.forAwait(s)
 		return
@@ -1377,8 +1406,8 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 	}
 
 	outer, ind, vals, boxes, used, tmp, self, rng := g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self, g.rng
-	result, throws, tries, streams := g.result, g.throws, g.tries, g.streams
-	g.streams = nil
+	result, throws, tries, frames := g.result, g.throws, g.tries, g.frames
+	g.frames = nil
 	var body strings.Builder
 	g.enter(&body)
 	if e.ExprBody != nil {
@@ -1419,9 +1448,7 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 			g.line("return %s;", g.expr(e.ExprBody))
 		}
 	} else {
-		for _, st := range e.Body.Stmts {
-			g.stmt(st)
-		}
+		g.stmtsIn(e.Body.Stmts, nil)
 		if ft.Result != types.Void {
 			g.line("__builtin_unreachable();")
 		}
@@ -1429,7 +1456,7 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 	g.ind--
 	g.line("}")
 	g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self, g.rng = outer, ind, vals, boxes, used, tmp, self, rng
-	g.result, g.throws, g.tries, g.streams = result, throws, tries, streams
+	g.result, g.throws, g.tries, g.frames = result, throws, tries, frames
 
 	if len(caps) > 0 {
 		fmt.Fprintf(&g.lamDecls, "struct %s {", env)
