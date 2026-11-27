@@ -1387,7 +1387,7 @@ static vx_list *vx_str_lines(vx_str s) {
 // --- Maps ---
 
 // How map keys are hashed and compared.
-enum { VX_KEY_INT, VX_KEY_BOOL, VX_KEY_STR, VX_KEY_ENUM };
+enum { VX_KEY_INT, VX_KEY_BOOL, VX_KEY_STR, VX_KEY_ENUM, VX_KEY_CUSTOM };
 
 // A hash map that keeps insertion order. Entries sit in one array in the
 // order they were added, and an index of slots points into it. Removing an
@@ -1407,6 +1407,9 @@ typedef struct {
     int32_t frozen;    // set for the maps of constants
     int32_t *index;    // -1 empty, -2 removed, otherwise an entry number
     char *entries;
+    // For VX_KEY_CUSTOM, the generated functions that hash and compare keys.
+    uint64_t (*khash)(const void *);
+    bool (*keq)(const void *, const void *);
 } vx_map;
 
 #define VX_MAP_KEY 16
@@ -1433,8 +1436,22 @@ static uint64_t vx_hash_bytes(const char *p, int64_t n) {
     return vx_mix(h ^ w);
 }
 
-static inline uint64_t vx_key_hash(int kind, const void *k) {
-    switch (kind) {
+// Combines the hash [h] built so far with the hash [v] of one more value.
+static inline uint64_t vx_hash_add(uint64_t h, uint64_t v) {
+    return vx_mix(h ^ (v + 0x9e3779b97f4a7c15ULL + (h << 6) + (h >> 2)));
+}
+
+// Hashes a float so that values == calls equal hash the same: 0.0 and -0.0.
+static inline uint64_t vx_hash_float(double v) {
+    if (v == 0) v = 0;
+    uint64_t bits;
+    memcpy(&bits, &v, 8);
+    return vx_mix(bits);
+}
+
+static inline uint64_t vx_key_hash(const vx_map *m, const void *k) {
+    switch (m->kind) {
+    case VX_KEY_CUSTOM: return m->khash(k);
     case VX_KEY_INT: return vx_mix(*(const uint64_t *)k);
     case VX_KEY_BOOL: return vx_mix(*(const bool *)k);
     case VX_KEY_STR: {
@@ -1446,8 +1463,9 @@ static inline uint64_t vx_key_hash(int kind, const void *k) {
     return vx_mix((uint64_t)**(int32_t *const *)k);
 }
 
-static inline bool vx_key_eq(int kind, const void *a, const void *b) {
-    switch (kind) {
+static inline bool vx_key_eq(const vx_map *m, const void *a, const void *b) {
+    switch (m->kind) {
+    case VX_KEY_CUSTOM: return m->keq(a, b);
     case VX_KEY_INT: return *(const int64_t *)a == *(const int64_t *)b;
     case VX_KEY_BOOL: return *(const bool *)a == *(const bool *)b;
     case VX_KEY_STR: return vx_str_eq(*(const vx_str *)a, *(const vx_str *)b);
@@ -1466,6 +1484,14 @@ static vx_map *vx_map_new(int kind, int ksz, int vsz) {
     return m;
 }
 
+// Returns a new map whose keys [khash] hashes and [keq] compares.
+static vx_map *vx_map_new_custom(uint64_t (*khash)(const void *), bool (*keq)(const void *, const void *), int ksz, int vsz) {
+    vx_map *m = vx_map_new(VX_KEY_CUSTOM, ksz, vsz);
+    m->khash = khash;
+    m->keq = keq;
+    return m;
+}
+
 #define VX_MAP_ENTRY(m, i) ((m)->entries + (size_t)(i) * (size_t)(m)->esz)
 #define VX_MAP_SEQ(e) (((uint64_t *)(e))[1])
 
@@ -1477,7 +1503,7 @@ static int64_t vx_map_slot(vx_map *m, const void *key, uint64_t h) {
         if (e == VX_MAP_EMPTY) return -1;
         if (e >= 0) {
             char *ent = VX_MAP_ENTRY(m, e);
-            if (*(uint64_t *)ent == h && vx_key_eq(m->kind, ent + VX_MAP_KEY, key)) return (int64_t)i;
+            if (*(uint64_t *)ent == h && vx_key_eq(m, ent + VX_MAP_KEY, key)) return (int64_t)i;
         }
     }
 }
@@ -1516,14 +1542,14 @@ static void vx_map_grow(vx_map *m) {
 
 // Returns a pointer to the value of [key], or NULL if it is missing.
 static inline void *vx_map_find(vx_map *m, const void *key) {
-    int64_t s = vx_map_slot(m, key, vx_key_hash(m->kind, key));
+    int64_t s = vx_map_slot(m, key, vx_key_hash(m, key));
     return s < 0 ? NULL : VX_MAP_ENTRY(m, m->index[s]) + m->voff;
 }
 
 // Returns a pointer to the value of [key], adding the key with a zero value
 // at the end when it is missing.
 static void *vx_map_set(vx_map *m, const void *key) {
-    uint64_t h = vx_key_hash(m->kind, key);
+    uint64_t h = vx_key_hash(m, key);
     int64_t s = vx_map_slot(m, key, h);
     if (s >= 0) {
         // The caller writes the value next, with nothing allocated between.
@@ -1546,7 +1572,7 @@ static void *vx_map_set(vx_map *m, const void *key) {
 // Removes [key], copying its value to [out]. Returns false if it was
 // missing.
 static bool vx_map_remove(vx_map *m, const void *key, void *out) {
-    int64_t s = vx_map_slot(m, key, vx_key_hash(m->kind, key));
+    int64_t s = vx_map_slot(m, key, vx_key_hash(m, key));
     if (s < 0) return false;
     char *e = VX_MAP_ENTRY(m, m->index[s]);
     memcpy(out, e + m->voff, (size_t)m->vsz);
@@ -1617,6 +1643,8 @@ static inline vx_map *vx_map_mut(vx_map *m, int line) {
 
 static vx_map *vx_map_copy(vx_map *src) {
     vx_map *m = vx_map_new(src->kind, src->ksz, src->vsz);
+    m->khash = src->khash;
+    m->keq = src->keq;
     vx_map_merge(m, src);
     return m;
 }

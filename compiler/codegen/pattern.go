@@ -35,7 +35,7 @@ func (g *gen) patCond(p ast.Pattern, x string) string {
 			case *types.Enum:
 				return fmt.Sprintf("%s->tag == (%s)->tag", x, v)
 			case *types.Record:
-				return equal(kt, x, v)
+				return g.eq(kt, x, v)
 			}
 			if k.Type == types.String {
 				return fmt.Sprintf("vx_str_eq(%s, %s)", x, v)

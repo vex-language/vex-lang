@@ -1,0 +1,59 @@
+interface Shape {
+    fn area() -> float
+}
+
+struct Holder: Equatable {
+    shape: Shape
+}
+
+struct Cell: Hashable {
+    ratio: float
+    action: fn()
+}
+
+struct Loose: Hashable {
+    name: string
+    operator ==(other: Loose) -> bool => name == other.name
+}
+
+struct BadHash: Hashable {
+    id: int
+    fn hash(seed: int) -> int => seed
+}
+
+struct Box<T>: Equatable {
+    item: T
+}
+
+struct Plain {
+    v: int
+}
+
+enum Tree: Equatable {
+    leaf
+    node(children: [Holder])
+}
+
+fn main() {
+    let a = Plain(v: 1)
+    let same = a == Plain(v: 1)
+    let n = 1
+    let ref = n === 1
+    let mixed = a === [1]
+    var m: [Plain: int] = [:]
+    let h = hash(a)
+    let fs = [fn() {}]
+    let eq = fs == fs
+}
+
+// error: 6:12: field 'shape' is Shape, which has no ==, so Holder can't be Equatable
+// error: 11:13: field 'action' is fn(), which has no ==, so Cell can't be Equatable
+// error: 14:8: Loose writes its own ==, so it needs a matching fn hash() -> int to be Hashable
+// error: 21:8: hash must take no parameters and return int, so maps can use it
+// error: 25:11: field 'item' is T, which has no ==, so Box can't be Equatable
+// error: 39:16: values of type Plain can't be compared with ==
+// error: 41:15: '===' compares references, but an int is a value
+// error: 42:17: can't compare Plain and [int] with '==='
+// error: 43:13: Plain can't be a map key
+// error: 44:18: Plain can't be hashed
+// error: 46:14: values of type [fn()] can't be compared with ==

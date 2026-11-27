@@ -73,7 +73,7 @@ func (c *checker) binaryOperator(e *ast.BinaryExpr, s *Struct) Type {
 		case !ok:
 			c.errorAt(e, "", "'%s' works only on int, found %s", written, s)
 		case name == "==":
-			c.errorAt(e, fmt.Sprintf("define it in %s: operator ==(other: %s) -> bool", s.Name, s.Name), "values of type %s can't be compared with %s", s, written)
+			c.errorAt(e, fmt.Sprintf("list Equatable on it to compare the fields: struct %s: Equatable", s.Name), "values of type %s can't be compared with %s", s, written)
 		case name == "<":
 			c.errorAt(e, fmt.Sprintf("define it in %s: operator <(other: %s) -> bool", s.Name, s.Name), "values of type %s can't be ordered with %s", s, written)
 		default:

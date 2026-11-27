@@ -473,7 +473,7 @@ func TestErrors(t *testing.T) {
 		{"type parameter equality", "fn eq<T>(a: T, b: T) -> bool => a == b", "", "1:33", "values of type T can't be compared with ==", "require it: <T: Equatable>"},
 		{"type parameter arithmetic", "fn add<T>(a: T) -> T => a + 1", "", "1:25", "can't use '+' with T and int", ""},
 		{"unmet constraint", "fn max<T: Comparable>(a: T, b: T) -> T => a", "println(max([1], [2]))", "3:9", "max needs T to be Comparable, but [int] isn't", "Comparable types are int, float, string, enums whose cases carry no values and structs that define operator < and operator =="},
-		{"unmet constraint in type", "struct Set<T: Hashable> {\n    items: [T: bool]\n}", "let s: Set<float>? = nil", "5:12", "Set needs T to be Hashable, but float isn't", "Hashable types are int, string, bool and enums whose cases carry no values"},
+		{"unmet constraint in type", "struct Set<T: Hashable> {\n    items: [T: bool]\n}", "let s: Set<float>? = nil", "5:12", "Set needs T to be Hashable, but float isn't", "Hashable types are int, string, bool, enums whose cases carry no values, records of those, and structs and enums that list Hashable"},
 		{"type argument not inferred", "fn empty<T>() -> [T] => []", "let e = empty()", "3:9", "can't tell the type of T in this call to empty", "write it: empty<int>(...)"},
 		{"wrong type argument count", "fn id<T>(x: T) -> T => x", "println(id<int, int>(1))", "3:12", "id takes 1 type argument, found 2", ""},
 		{"generic type without arguments", "struct Box<T> {\n    v: T\n}", "let b: Box? = nil", "5:8", "Box is generic, so it needs type arguments", "write its type arguments, e.g. Box<int>"},
@@ -489,7 +489,7 @@ func TestErrors(t *testing.T) {
 		{"instance body type error", "fn f<T>(x: T) {\n    let y: int = x\n}", "f(1)", "2:18", "expected int, found T", ""},
 
 		// Maps.
-		{"float key", "", "let m: [float: int] = [:]", "2:9", "float can't be a map key", "use int, string, bool or an enum whose cases carry no values"},
+		{"float key", "", "let m: [float: int] = [:]", "2:9", "float can't be a map key", "use int, string, bool, a record of those, or a struct or enum that lists Hashable"},
 		{"optional value", "", "let m: [string: int?] = [:]", "2:17", "map values can't be optional, since a missing key already reads as nil", "remove the key instead of storing nil"},
 		{"empty map without type", "", "let m = [:]", "2:9", "can't tell the type of an empty map", "give the type, e.g. let m: [string: int] = [:]"},
 		{"compound assign to entry", "", "var m = [\"a\": 1]\nm[\"a\"] += 1", "3:1", "the key may be missing, so '+=' can't be used on a map entry", "write m[k] = (m[k] ?? 0) + 1"},
@@ -553,7 +553,8 @@ func TestErrors(t *testing.T) {
 		{"int too big", "", "let n = 9223372036854775808", "2:9", "number 9223372036854775808 is too big for int", "the largest int is 9223372036854775807"},
 		{"modulo float", "", "let x = 5.5 % 2.0", "2:9", "'%' can't be used with float", ""},
 		{"compare types", "", "let b = 1 == \"1\"", "2:9", "can't compare int with string", "parse it with int(...)"},
-		{"compare lists", "", "let b = [1] == [1]", "2:9", "values of type [int] can't be compared with ==", ""},
+		{"list of no values", "fn f() {}", "let a = [f()]\na {}", "3:10", "this expression has no value", ""},
+		{"compare lists of functions", "", "let f = [fn() {}]\nlet b = f == f", "3:9", "values of type [fn()] can't be compared with ==", ""},
 		{"and on int", "", "let b = 1 && true", "2:9", "'&&' needs bool on both sides, found int", ""},
 		{"not on int", "", "let b = !1", "2:10", "'!' needs a bool, found int", ""},
 		{"if int", "", "let n = 1\nif n { }", "3:4", "if condition must be bool, found int", "compare it, e.g. x != 0"},
@@ -653,7 +654,7 @@ func TestErrors(t *testing.T) {
 		{"optional field read", "struct U {\n    n: int\n}", "let u: U? = nil\nlet x = u.n + 1", "6:11", "can't read 'n' from a U?: it may be nil", "use ?.n, or unwrap it first with if let"},
 		{"chain on a case", shapeDecl, "let s = Shape?.empty", "22:16", "?. is only for optional values, not types", "use . instead"},
 		{"chain on a static call", "struct S {\n static fn make() -> S => S()\n}", "let s = S?.make()", "5:12", "?. is only for optional values, not types", "use . instead"},
-		{"optional compare value", "", "let s: string? = nil\nlet b = s == \"x\"", "3:9", "can't compare string? with string", ""},
+		{"optional compare value", "", "let s: string? = nil\nlet b = s == 1", "3:9", "can't compare string? with int", ""},
 		{"optional arithmetic", "", "let n: int? = 1\nlet m = n + 1", "3:9", "can't use '+' with int? and int", ""},
 
 		{"list of only nil", "", "let xs = [nil, nil]", "2:11", "can't tell the type of nil", "write the type, e.g. let user: User? = nil"},

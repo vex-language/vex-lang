@@ -391,6 +391,10 @@ func (c *checker) listLit(e *ast.ListLit, want Type) Type {
 		c.expr(leadingNils[0], nil)
 		return Invalid
 	}
+	if elem == nil {
+		// Every item had no value.
+		return Invalid
+	}
 	return &List{Elem: elem}
 }
 
@@ -488,6 +492,8 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 		if isNil(e.X) || isNil(e.Y) {
 			return c.nilComparison(e)
 		}
+	case lexer.EqEq, lexer.NotEqEq:
+		return c.identity(e)
 	case lexer.AndAnd, lexer.OrOr:
 		for i, x := range []ast.Expr{e.X, e.Y} {
 			if i == 1 && e.Op == lexer.AndAnd {
@@ -507,8 +513,15 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 		operandWant = Float
 	}
 	x := c.expr(e.X, operandWant)
-	if s, ok := x.(*Struct); ok {
+	equality := e.Op == lexer.Eq || e.Op == lexer.NotEq
+	if s, ok := x.(*Struct); ok && !(equality && s.Operator("==") == nil && s.Equatable()) {
 		return c.binaryOperator(e, s)
+	}
+	switch x.(type) {
+	case *Struct, *List, *Map, *Optional:
+		if equality {
+			operandWant = x
+		}
 	}
 	if operandWant == nil && numeric(x) && x != Invalid {
 		operandWant = x
@@ -687,9 +700,15 @@ func ordered(t Type) bool {
 func comparable(t Type) bool {
 	switch t := t.(type) {
 	case *Enum:
-		return t.Simple()
+		return t.Simple() || t.Equatable()
 	case *Struct:
-		return t.Operator("==") != nil
+		return t.Operator("==") != nil || t.Equatable()
+	case *List:
+		return comparable(t.Elem)
+	case *Map:
+		return comparable(t.Value)
+	case *Optional:
+		return comparable(t.Elem)
 	case *TypeParam:
 		return t.Has("Equatable")
 	case *Record:

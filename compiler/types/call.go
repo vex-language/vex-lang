@@ -95,6 +95,9 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		return c.moduleCall(e, id, want)
 	}
 	name := id.Name
+	if name == "hash" && len(e.Args) > 0 && c.lookupVar(name) == nil && c.funcs[name] == nil && c.genFuncs[name] == nil && !c.ownHashWithParams() {
+		return c.hashCall(e)
+	}
 	if name == "Channel" && c.lookupVar(name) == nil && c.structs[name] == nil && c.genStructs[name] == nil && c.funcs[name] == nil && c.enums[name] == nil {
 		return c.newChannel(e, want)
 	}

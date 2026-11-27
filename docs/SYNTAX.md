@@ -252,7 +252,7 @@ let empty: [string: int] = [:]
 ```
 
 - Loops visit entries in the order their keys were first added. A loop sees the entries that existed when it started; entries removed during the loop are skipped.
-- Keys can be `int`, `string`, `bool` or an enum whose cases carry no values. Values can be any type except an optional, since a missing key already reads as `nil`.
+- Keys can be `int`, `string`, `bool`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable` (see [Equality and hashing](#equality-and-hashing)). Values can be any type except an optional, since a missing key already reads as `nil`.
 - Maps are shared references, like lists and structs.
 - `m[k] += 1` is an error, since the key may be missing. Write `m[k] = (m[k] ?? 0) + 1`.
 
@@ -369,9 +369,48 @@ grid[(1, 0)] += 1             // reads with [], then sets with []=
 
 - The operators are `+ - * / %`, unary `-` (no parameter), `==`, `<`, `[]` and `[]=`. The right operand of the arithmetic ones and the index can have any type.
 - `!=` is the opposite of `==`, and `>`, `<=` and `>=` come from `<`, so they can't be defined themselves.
-- `==` and `<` take the struct itself and return `bool`. A struct with `==` is `Equatable`, so it works with `contains` and in records compared with `==`; one with `<` and `==` is also `Comparable`.
+- `==` and `<` take the struct itself and return `bool`. A struct with `==` is `Equatable`, so it works with `contains` and in records compared with `==`; one with `<` and `==` is also `Comparable`. To compare all fields without writing `==`, list `Equatable` instead.
 - A compound assignment such as `+=` uses the operator, which must return the struct. Operands run left to right, as for other operators.
 - Operators can't be static, generic, async or throwing, and their parameters have no defaults. `pub` makes one visible to other modules, and extensions of structs can add them. Enums, interfaces and built-in types can't define operators yet.
+
+## Equality and hashing
+
+Structs are compared by reference until they ask for more. Listing `Equatable` gives a struct or enum an `==` that compares every field; `Hashable` adds a hash, so its values can be map keys.
+
+```swift
+struct Point: Hashable {
+    x: int
+    y: int
+}
+
+let a = Point(x: 1, y: 2)
+let b = Point(x: 1, y: 2)
+println(a == b)                    // true: same fields
+println(a === b)                   // false: two separate structs
+var names = [a: "home"]
+println(names[b] ?? "?")           // home
+
+enum Key: Hashable {
+    id(n: int)
+    name(s: string)
+}
+
+struct Email: Hashable {
+    address: string
+    operator ==(other: Email) -> bool => address.lower() == other.address.lower()
+    fn hash() -> int => hash(address.lower())
+}
+
+println([1, 2] == [1, 2], ["a": [1]] == ["a": [1]])   // true true
+let grid: [(int, int): string] = [(0, 0): "origin"]
+```
+
+- `Equatable` needs every field to have `==`, and `Hashable` needs every field to be hashable, or a `float`. A generic struct lists the constraint on its parameter: `struct Box<T: Equatable>: Equatable`.
+- A struct that writes its own `operator ==` and lists `Hashable` must also write `fn hash() -> int`, so that equal values hash the same. `hash` takes no parameters.
+- `hash(a, b, ...)` combines the hashes of its arguments into an `int`. Inside a type whose `hash` method takes parameters, `hash(x)` calls that method.
+- Lists compare element by element, maps entry by entry whatever their order, optionals by their value or both `nil`, and records field by field. Each works when its elements have `==`.
+- `===` and `!==` tell whether two references are the same object: structs, lists, maps, interface values, C handles and enums whose cases carry values. They don't apply to ints, strings and other values.
+- Records of key types are hashable, so they can be map keys without declaring anything.
 
 ## Generics
 
@@ -399,9 +438,9 @@ A type parameter can require what the generic code needs from it: an [interface]
 
 | Constraint | Allows | Met by |
 |---|---|---|
-| `Equatable` | `==`, `!=`, `list.contains` | int, float, bool, string, enums whose cases carry no values, structs that define `operator ==` |
+| `Equatable` | `==`, `!=`, `list.contains` | int, float, bool, string, enums whose cases carry no values, structs that define `operator ==`, structs and enums that list `Equatable` or `Hashable`, and lists, maps, optionals and records of these |
 | `Comparable` | `<`, `<=`, `>`, `>=`, and `==` | int, float, string, enums whose cases carry no values, structs that define `operator <` and `operator ==` |
-| `Hashable` | map keys, and `==` | int, bool, string, enums whose cases carry no values |
+| `Hashable` | map keys, and `==` | int, bool, string, enums whose cases carry no values, records of these, and structs and enums that list `Hashable` |
 | an interface, such as `Shape` | its methods | structs that implement it, and the interface itself |
 
 ```swift
@@ -480,7 +519,7 @@ fn largest<T: Shape>(items: [T]) -> T? { ... }
 - A struct can be used wherever an interface it implements is expected: in a `[Shape]`, a `Shape` parameter or a `Shape?`. Without a written type, values must have the same type, so write `let shapes: [Shape] = [...]` for a mixed list.
 - Methods with a body are defaults. A struct that leaves one out gets it, and a default calls the struct's own versions of the other methods.
 - Calls on an interface value go through a table of the struct's methods, which is as fast as Go's interfaces. In generic code like `largest<T: Shape>`, each type gets its own copy and calls go straight to its methods.
-- Interface values print as the value inside them, and can't be compared with `==`.
+- Interface values print as the value inside them. They can't be compared with `==`, but `===` tells whether two hold the same object.
 
 **Extending.** An interface can extend others after a `:`. It requires their members too, and its values can be used as any of them.
 
@@ -949,7 +988,8 @@ let name = findUser(2)?.name ?? "guest"   // ?. gives nil if the left side is ni
 let boss = user?.manager?.name            // string?: each step after an optional needs ?.
 user?.greet()                             // runs only when user isn't nil
 
-if user == nil { ... }                    // optionals compare only with nil
+if user == nil { ... }
+if id == 3 { ... }                        // true only when id isn't nil and is 3
 ```
 
 - `x ?? fallback` only runs `fallback` when `x` is nil. Chains like `a ?? b ?? 0` try each in turn.
@@ -988,7 +1028,7 @@ println(a.area(), b)                         // 12.56 Shape.rect(width: 2.0, hei
 - `.case` works wherever the enum is expected: a typed `let`, an argument, a `return`, a list of that enum, or a `==` comparison.
 - The values a case carries are read with `match`, not with `.`.
 - Enum values never change after they are created.
-- `==` and `!=` work on enums whose cases carry no values, like `Light`.
+- `==` and `!=` work on enums whose cases carry no values, like `Light`, and on enums that list `Equatable` or `Hashable`, which compare the case and then its values.
 
 **match** picks the first arm whose pattern fits and runs it. It works on any value: enums, numbers, `bool`, `string`, records, structs and lists.
 

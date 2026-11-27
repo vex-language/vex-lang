@@ -19,7 +19,7 @@ fn main() {
     let f = fn() {}
     println((1, f) == (1, f))
     let t = (1, println("x"))
-    var m: [(int, int): string] = [:]
+    var m: [(int, float): string] = [:]
 }
 
 // error: 4:26: field 'x' is written twice
@@ -36,4 +36,4 @@ fn main() {
 // error: 18:28: expected (int, string), found (int, int)
 // error: 20:13: values of type (int, fn()) can't be compared with ==
 // error: 21:17: this expression has no value to store in a record
-// error: 22:13: (int, int) can't be a map key
+// error: 22:13: (int, float) can't be a map key

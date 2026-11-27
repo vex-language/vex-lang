@@ -192,8 +192,6 @@ func Generate(info *types.Info, srcName string) string {
 			g.line("static %s;", spawnSig(f))
 		}
 	}
-	// Record equality may run a struct's == operator, declared above.
-	g.recordEquals()
 	g.b.WriteString(g.lamDecls.String())
 	for _, s := range info.Structs {
 		if len(s.Interfaces) > 0 {
@@ -1637,6 +1635,23 @@ func (g *gen) value(e ast.Expr) string {
 			return g.nilTest(e.Op, e.Y)
 		}
 		operand := g.info.Types[e.X]
+		if e.Op == lexer.EqEq || e.Op == lexer.NotEqEq {
+			cmp := "=="
+			if e.Op == lexer.NotEqEq {
+				cmp = "!="
+			}
+			return g.ordered([]ast.Expr{e.X, e.Y}, func(cs []string) string {
+				return fmt.Sprintf("((void *)(%s) %s (void *)(%s))", cs[0], cmp, cs[1])
+			})
+		}
+		if (e.Op == lexer.Eq || e.Op == lexer.NotEq) && g.info.Operators[e] == nil && needsEqFunc(operand) {
+			return g.ordered([]ast.Expr{e.X, e.Y}, func(cs []string) string {
+				if e.Op == lexer.NotEq {
+					return "(!" + g.eq(operand, cs[0], cs[1]) + ")"
+				}
+				return g.eq(operand, cs[0], cs[1])
+			})
+		}
 		if f := g.info.Operators[e]; f != nil {
 			return g.ordered([]ast.Expr{e.X, e.Y}, func(cs []string) string {
 				return g.operator(e.Op, f, operand, cs[0], cs[1])
@@ -1799,12 +1814,6 @@ func binop(k lexer.Kind, t types.Type, a, b string, line int) string {
 	if _, ok := t.(*types.Enum); ok {
 		return fmt.Sprintf("((%s)->tag %s (%s)->tag)", a, op(k), b)
 	}
-	if r, ok := t.(*types.Record); ok {
-		if k == lexer.NotEq {
-			return "(!" + equal(r, a, b) + ")"
-		}
-		return "(" + equal(r, a, b) + ")"
-	}
 	if t == types.Int {
 		switch k {
 		case lexer.Plus:
@@ -1953,6 +1962,12 @@ func (g *gen) builtin(c *types.Call, result types.Type, line int) string {
 			return fmt.Sprintf("vx_assert(%s, %s, %d)", cs[0], arg(1, `VX_LIT("")`), line)
 		case "str":
 			return show(g.info.Types[c.Args[0]], cs[0])
+		case "hash":
+			ts := make([]types.Type, len(c.Args))
+			for i, a := range c.Args {
+				ts[i] = g.info.Types[a]
+			}
+			return g.hashCall(ts, cs)
 		case "str.radix":
 			return fmt.Sprintf("vx_int_str_radix(%s, %s, %d)", cs[0], cs[1], line)
 		case "int.parse", "float.parse":
@@ -2036,7 +2051,7 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 			case "contains":
 				list, v, i, found := g.temp(), g.temp(), g.temp(), g.temp()
 				item := fmt.Sprintf("((%s*)%s->data)[%s]", elem, list, i)
-				eq := equal(l.Elem, item, v)
+				eq := g.eq(l.Elem, item, v)
 				return fmt.Sprintf("({ vx_list *%s = %s; %s = %s; bool %s = false; "+
 					"for (int64_t %s = 0; %s < %s->len; %s++) if (%s) { %s = true; break; } %s; })",
 					list, cs[0], decl(l.Elem, v), cs[1], found, i, i, list, i, eq, found, found)

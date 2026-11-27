@@ -120,6 +120,8 @@ const (
 
 	Eq
 	NotEq
+	EqEq
+	NotEqEq
 	Lt
 	LtEq
 	Gt
@@ -175,6 +177,8 @@ var operators = []struct {
 	kind Kind
 }{
 	{"...", Ellipsis},
+	{"===", EqEq},
+	{"!==", NotEqEq},
 	{"..=", DotDotEq},
 	{"&+=", AmpPlusAssign},
 	{"&-=", AmpMinusAssign},

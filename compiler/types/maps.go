@@ -13,9 +13,18 @@ import (
 func mapKeyType(t Type) bool {
 	switch t := t.(type) {
 	case *Enum:
-		return t.Simple()
+		return t.Simple() || t.Hashable()
+	case *Struct:
+		return t.Hashable()
 	case *TypeParam:
 		return t.Has("Hashable")
+	case *Record:
+		for _, f := range t.FieldTypes() {
+			if !mapKeyType(f) {
+				return false
+			}
+		}
+		return true
 	}
 	return t == Int || t == Bool || t == String
 }
@@ -23,7 +32,7 @@ func mapKeyType(t Type) bool {
 func (c *checker) mapType(te *ast.MapType) Type {
 	key, value := c.resolveType(te.Key), c.resolveType(te.Value)
 	if key != Invalid && !mapKeyType(key) {
-		c.errorAt(te.Key, "use int, string, bool or an enum whose cases carry no values", "%s can't be a map key", key)
+		c.errorAt(te.Key, keyHint(key), "%s can't be a map key", key)
 		key = Invalid
 	}
 	if _, ok := value.(*Optional); ok {
@@ -76,7 +85,7 @@ func (c *checker) mapLit(e *ast.MapLit, want Type) Type {
 		if key == nil || key == Invalid {
 			key = kt
 			if key != Invalid && !mapKeyType(key) {
-				c.errorAt(k, "use int, string, bool or an enum whose cases carry no values", "%s can't be a map key", key)
+				c.errorAt(k, keyHint(key), "%s can't be a map key", key)
 			}
 		} else if !Identical(key, kt) {
 			c.mismatch(k, key, kt, fmt.Sprintf("key %d", i+1))
