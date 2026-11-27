@@ -348,6 +348,73 @@ println(User.guest())         // User(name: "Guest", age: 18)
 
 Fields and methods are reachable inside methods without `self.`; `self` is available when needed.
 
+A struct value is shared, not copied: `let b = a` makes `b` another name for the same struct, so changing `b.age` changes `a.age` too.
+
+**Fields that don't change.** A `let` field is set when the struct is created and never changes afterwards. A field with a default can leave out its type, which comes from the default.
+
+```swift
+struct User {
+    let id: int                  // set at creation, never changed
+    name: string                 // can change
+    age = 18                     // an int, from its default
+    tags = ["new"]               // a [string]
+}
+
+let u = User(id: 1, name: "Ann")
+u.name = "Ann Lee"               // ok
+u.id = 2                         // error: id is a let field
+u.tags.push("admin")             // ok: the list itself can still change
+```
+
+- `let` stops the field from being assigned, not the value inside it from changing: a `let` list can still be pushed to.
+- A default that is `nil` or an empty `[]` or `[:]` needs a type: `parent: Node? = nil`.
+- Fields of generic structs always need a type.
+
+**Fields only the struct changes.** `private(set)` lets a field be read wherever it is visible but only assigned inside the struct's own methods, as in Swift:
+
+```swift
+pub struct Counter {
+    pub private(set) count = 0
+    pub fn tap() { count += 1 }
+}
+
+c.tap()
+println(c.count)                 // ok anywhere
+c.count = 5                      // error: count can only be set inside Counter
+```
+
+Creating the struct or a copy of it can still give the field a value. Extensions of the struct in its own module count as inside it.
+
+**`init`.** An `init` block runs each time the struct is created, after its fields are set, as in Kotlin. It can check them, adjust them, and set `let` fields that have no default.
+
+```swift
+struct Range {
+    let low: int
+    let high: int
+    let size: int
+
+    init {
+        assert(low <= high, "low must not exceed high")
+        size = high - low
+    }
+}
+
+let r = Range(low: 2, high: 9)   // r.size is 7
+```
+
+- A `let` field without a default that `init` sets in one of its own top-level statements isn't a parameter of the constructor. Until `init` has set all of these, it can't read them, use `self` or call methods.
+- `init` takes no parameters, can't be called, and can't throw. For creation that can fail, write a `static fn` that throws.
+
+**Copies.** Every struct has `copy`, which makes a new struct with some fields changed, as in Kotlin. The others are copied as they are, and `init` runs on the copy.
+
+```swift
+let ann = User(id: 1, name: "Ann", age: 30)
+let older = ann.copy(age: 31)    // ann is unchanged
+let next = r.copy(high: 20)      // size is worked out again: 18
+```
+
+The copy is shallow: a list field is shared by both. A struct that declares its own `copy` method uses that instead. From another module, `copy` can only change `pub` fields.
+
 **Getters and setters.** A getter is read like a field and a setter runs when the property is assigned, as in Dart:
 
 ```swift
