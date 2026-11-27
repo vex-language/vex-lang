@@ -152,6 +152,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 	i.Wraps = map[ast.Expr]*Optional{}
 	i.ThrowingRefs = map[ast.Expr]bool{}
 	i.Elements = map[*ast.ExprStmt]ast.Expr{}
+	i.IfValues = map[*ast.ExprStmt]*ast.IfExpr{}
 	i.Chains = map[ast.Expr]bool{}
 	i.TearOffs = map[*ast.MemberExpr]ast.Expr{}
 	i.Operators = map[ast.Node]*Func{}
@@ -171,7 +172,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 	defer func() {
 		i.Types, i.Uses, i.Defs, i.Calls, i.Members = saved.Types, saved.Uses, saved.Defs, saved.Calls, saved.Members
 		i.Selves, i.Captures, i.CaseValues, i.Wraps = saved.Selves, saved.Captures, saved.CaseValues, saved.Wraps
-		i.Elements, i.Spawns, i.ThrowingRefs, i.TearOffs = saved.Elements, saved.Spawns, saved.ThrowingRefs, saved.TearOffs
+		i.Elements, i.IfValues, i.Spawns, i.ThrowingRefs, i.TearOffs = saved.Elements, saved.IfValues, saved.Spawns, saved.ThrowingRefs, saved.TearOffs
 		i.Operators, i.IndexSets = saved.Operators, saved.IndexSets
 		i.Chains, i.Matches, i.Throwing, i.Tries = saved.Chains, saved.Matches, saved.Throwing, saved.Tries
 		i.PatternTypes, i.PatternCases, i.PatternStructs, i.PatternVars = saved.PatternTypes, saved.PatternCases, saved.PatternStructs, saved.PatternVars

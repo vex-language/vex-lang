@@ -1,0 +1,25 @@
+// Mistakes with if used as a value.
+fn main() {
+    let ok = true
+    let a = if ok { 1 }
+    let b = if ok { 1 } else { "one" }
+    let c = if ok { 1 } else { nil }
+    let d = if 5 { 1 } else { 2 }
+    let e = if ok {
+        let x = 2
+        x
+    } else { 3 }
+    let f = if ok { } else { 1 }
+    let g: string = if ok { 1 } else { 2 }
+    let h = if let n = 5 { n } else { 0 }
+}
+
+// error: 4:13: an if used as a value needs an else
+// error: 5:32: the branches of an if must have the same type: the first gives int, this one string
+// error: 6:32: nil can't be used as int, which always has a value
+// error: 7:16: if condition must be bool, found int
+// error: 8:19: each branch of an if used as a value must be a single expression
+// error: 12:19: each branch of an if used as a value must be a single expression
+// error: 13:29: expected string, found int
+// error: 13:40: expected string, found int
+// error: 14:24: if let needs an optional value, but this is int
