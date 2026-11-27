@@ -70,9 +70,18 @@ type Interface struct {
 	Base string
 	Args []Type
 
+	// Methods added by `extension Name { ... }`, which every implementing
+	// type gets and can't replace.
+	Exts []*Func
+
 	generic  *genericIface
 	abstract bool
 	resolved bool
+
+	// The type `Self` names in the requirements, and whether a static,
+	// Self or generic requirement makes the interface constraint-only.
+	selfType   *TypeParam
+	constraint bool
 }
 
 // Returns [i] and every interface it extends, directly or not.
@@ -159,6 +168,9 @@ func (i *Interface) Slot(m *Func) int {
 type TypeParam struct {
 	Name        string
 	Constraints []string
+
+	// For `Self` in the requirements of an interface: that interface.
+	Self *Interface
 
 	// The interfaces the type must implement.
 	Ifaces []*Interface

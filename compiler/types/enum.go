@@ -107,6 +107,9 @@ func (c *checker) enumRef(x ast.Expr) *Enum {
 	if owner := c.ownStruct(); owner != nil && owner.Field(id.Name) != nil {
 		return nil
 	}
+	if e, ok := c.env[id.Name].(*Enum); ok {
+		return e
+	}
 	if e := c.enums[id.Name]; e != nil {
 		return e
 	}

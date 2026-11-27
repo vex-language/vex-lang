@@ -1,0 +1,13 @@
+/// An interface with methods added by an extension, one of them public.
+pub interface Named {
+    fn name() -> string
+}
+
+extension Named {
+    fn quietHello() -> string => "hi " + name()
+    pub fn hello() -> string => "hello " + name()
+}
+
+pub struct Pet: Named {
+    pub fn name() -> string => "rex"
+}

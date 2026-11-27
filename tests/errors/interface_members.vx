@@ -1,0 +1,72 @@
+interface Make {
+    static fn make() -> Self
+    static fn other() -> int => 1
+}
+
+interface Same {
+    fn same(other: Self) -> bool
+    fn differ(other: Self) -> bool => !same(other: other)
+    fn check() -> bool => same(other: self)
+}
+
+interface Each {
+    fn each<U>(f: fn(int) -> U) -> [U]
+}
+
+struct A: Make {
+    fn make() -> A => A()
+}
+
+struct B: Make, Each {
+    static fn make() -> int => 1
+    fn each(f: fn(int) -> int) -> [int] => []
+}
+
+fn useMake<T: Make>() -> T {
+    let x = T.missing()
+    let y = T.make()
+    return y
+}
+
+fn values(m: Make, xs: [Same]) {}
+
+interface Shape {
+    fn area() -> float
+}
+
+extension Shape {
+    fn area() -> float => 1.0
+    fn big() -> bool => area() > 9.0
+    get size -> int => 1
+    static fn unit() -> int => 1
+}
+
+extension Shape {
+    fn big() -> bool => false
+}
+
+struct Sq: Shape {
+    fn area() -> float => 4.0
+    fn big() -> bool => true
+}
+
+fn top() -> Self {}
+
+fn main() {}
+
+// error: 3:15: a static requirement can't have a default
+// error: 8:8: a requirement that uses Self can't have a default
+// error: 9:27: a default method can't call 'same', which only generic code can reach
+// error: 17:8: 'make' must be static, since it implements Make
+// error: 21:15: 'make' doesn't match Make: expected fn() -> B, found fn() -> int
+// error: 22:8: 'each' doesn't match Each: expected <U>fn(fn(int) -> U) -> [U], found fn(fn(int) -> int) -> [int]
+// error: 26:15: T has no static requirement 'missing'
+// error: 31:14: Make can only be a constraint, since it has a static requirement ('make')
+// error: 31:25: Same can only be a constraint, since it has a requirement that uses Self ('same')
+// error: 38:8: 'area' is already required by Shape
+// error: 40:9: an extension of an interface can only add methods
+// error: 41:15: an extension of an interface can't add static methods
+// error: 45:8: 'big' is already added to Shape on line 39
+// error: 50:8: 'big' is already added to every Shape by an extension
+// error: 53:13: Self can only be used in the requirements of an interface and in the methods of a struct or enum
+// error: 53:19: missing return: top must return invalid

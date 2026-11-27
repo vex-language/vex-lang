@@ -779,6 +779,9 @@ func (c *checker) structRef(e ast.Expr) *Struct {
 	if owner := c.ownStruct(); owner != nil && owner.Field(id.Name) != nil {
 		return nil
 	}
+	if s, ok := c.env[id.Name].(*Struct); ok {
+		return s
+	}
 	if s := c.structs[id.Name]; s != nil {
 		return s
 	}
