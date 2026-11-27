@@ -1555,8 +1555,6 @@ func (p *parser) endStmt() {
 			}
 		}
 	case lexer.RBrace:
-	case lexer.DotDot, lexer.DotDotEq:
-		p.fail(t, "for i in 0..10 { ... }", "ranges can only be used in for loops")
 	case lexer.Else:
 		p.fail(t, "", "'else' must follow the closing } of an if block")
 	default:
@@ -1815,11 +1813,6 @@ func (p *parser) forStmt() *ast.ForStmt {
 	saved := p.noTrailing
 	p.noTrailing = true
 	iter := p.expr()
-	if p.at(lexer.DotDot) || p.at(lexer.DotDotEq) {
-		inclusive := p.next().Kind == lexer.DotDotEq
-		hi := p.expr()
-		iter = &ast.RangeExpr{Span: ast.Span{Start: iter.Pos(), End: p.lastEnd}, Lo: iter, Hi: hi, Inclusive: inclusive}
-	}
 	p.noTrailing = saved
 	s.Iter = iter
 	p.bodyStart("for")
@@ -2115,14 +2108,16 @@ func precedence(k lexer.Kind) int {
 		return 4
 	case lexer.QuestionQuestion:
 		return 5
-	case lexer.Is, lexer.As:
+	case lexer.DotDot, lexer.DotDotEq:
 		return 6
-	case lexer.Plus, lexer.Minus, lexer.AmpPlus, lexer.AmpMinus, lexer.Pipe, lexer.Caret:
+	case lexer.Is, lexer.As:
 		return 7
-	case lexer.Star, lexer.Slash, lexer.Percent, lexer.AmpStar, lexer.Amp:
+	case lexer.Plus, lexer.Minus, lexer.AmpPlus, lexer.AmpMinus, lexer.Pipe, lexer.Caret:
 		return 8
-	case lexer.Shl, lexer.Shr:
+	case lexer.Star, lexer.Slash, lexer.Percent, lexer.AmpStar, lexer.Amp:
 		return 9
+	case lexer.Shl, lexer.Shr:
+		return 10
 	}
 	return 0
 }
@@ -2161,6 +2156,10 @@ func (p *parser) binary(min int) ast.Expr {
 			x = p.typeTest(x)
 			continue
 		}
+		if k == lexer.DotDot || k == lexer.DotDotEq {
+			x = p.rangeRest(x, prec)
+			continue
+		}
 		for range n {
 			p.next()
 		}
@@ -2176,6 +2175,32 @@ func (p *parser) binary(min int) ast.Expr {
 		}
 		x = &ast.BinaryExpr{Span: ast.Span{Start: x.Pos(), End: y.EndOffset()}, Op: k, X: x, Y: y}
 	}
+}
+
+// Parses the rest of a range after its start [lo], which is nil for `..b`.
+// The end may be left out only right before `]`, as in `xs[2..]`.
+func (p *parser) rangeRest(lo ast.Expr, prec int) ast.Expr {
+	t := p.next()
+	r := &ast.RangeExpr{Lo: lo, Inclusive: t.Kind == lexer.DotDotEq}
+	start := t.Pos
+	if lo != nil {
+		start = lo.Pos()
+	}
+	switch next := p.tok(); {
+	case next.Kind == lexer.RBracket:
+		if r.Inclusive {
+			p.fail(t, "write xs[a..] to go to the end", "a range with ..= needs an end")
+		}
+	case next.Pos.Line > t.Pos.Line || next.Kind == lexer.RParen || next.Kind == lexer.Comma || next.Kind == lexer.RBrace || next.Kind == lexer.EOF:
+		p.fail(t, "write both ends, e.g. 0..10; only xs[a..] leaves the end out", "a range needs an end")
+	default:
+		r.Hi = p.binary(prec + 1)
+	}
+	if p.at(lexer.DotDot) || p.at(lexer.DotDotEq) {
+		p.fail(p.tok(), "use one range, e.g. a..c", "ranges can't be chained")
+	}
+	r.Span = ast.Span{Start: start, End: p.lastEnd}
+	return r
 }
 
 // Parses `is T` or `as? T` after [x].
@@ -2197,6 +2222,9 @@ func (p *parser) unary() ast.Expr {
 	t := p.tok()
 	if t.Kind == lexer.Try {
 		return p.tryExpr()
+	}
+	if t.Kind == lexer.DotDot || t.Kind == lexer.DotDotEq {
+		p.fail(t, "write both ends, e.g. 0..5; only xs[..b] leaves the start out", "a range needs a start")
 	}
 	if t.Kind == lexer.Await {
 		p.next()
@@ -2242,7 +2270,12 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			saved, savedHead := p.noTrailing, p.elemHead
 			p.noTrailing, p.elemHead = false, false
 			p.skipNewlines()
-			idx := p.expr()
+			var idx ast.Expr
+			if p.at(lexer.DotDot) || p.at(lexer.DotDotEq) {
+				idx = p.rangeRest(nil, precedence(lexer.DotDot))
+			} else {
+				idx = p.expr()
+			}
 			p.skipNewlines()
 			p.noTrailing, p.elemHead = saved, savedHead
 			p.expect(lexer.RBracket)
@@ -2460,15 +2493,7 @@ func (p *parser) element(kind *litKind) ast.Stmt {
 			p.fail(p.tok(), hint, "expected 'in', found %s", describe(p.tok()))
 		}
 		p.next()
-		s.Iter = p.elemHeader(func() ast.Expr {
-			iter := p.expr()
-			if p.at(lexer.DotDot) || p.at(lexer.DotDotEq) {
-				inclusive := p.next().Kind == lexer.DotDotEq
-				hi := p.expr()
-				iter = &ast.RangeExpr{Span: ast.Span{Start: iter.Pos(), End: p.lastEnd}, Lo: iter, Hi: hi, Inclusive: inclusive}
-			}
-			return iter
-		})
+		s.Iter = p.elemHeader(p.expr)
 		s.Body = p.elemBody(kind)
 		s.Span = p.span(start)
 		return s

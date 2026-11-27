@@ -705,7 +705,8 @@ type BinaryExpr struct {
 	X, Y Expr
 }
 
-// A range in a `for` loop: `0..10` or `1..=10`.
+// A range: `0..10` or `1..=10`. Inside `[ ]` either end may be left out,
+// as in `xs[2..]`, and is then nil.
 type RangeExpr struct {
 	Span
 	Lo, Hi    Expr
