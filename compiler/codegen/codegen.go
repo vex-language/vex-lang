@@ -61,8 +61,12 @@ type gen struct {
 	// sort lists.
 	codecs     map[string]bool
 	codecDecls strings.Builder
-	codecDefs  strings.Builder
-	nisos      int
+
+	// The C variable holding the value of each `if` used as a value, while
+	// its branches are written.
+	ifResults map[*ast.IfExpr]string
+	codecDefs strings.Builder
+	nisos     int
 
 	// The C variable each collection being built adds its elements to.
 	builds map[ast.Expr]string
@@ -96,7 +100,8 @@ type gen struct {
 func Generate(info *types.Info, srcName string) string {
 	g := &gen{info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{}, throwingValues: map[*types.Func]bool{},
 		opts: map[string]*types.Optional{}, recs: map[string]*types.Record{}, recvs: map[ast.Expr]string{}, chaining: map[ast.Expr]bool{},
-		builds: map[ast.Expr]string{}, fills: map[ast.Expr]fill{}, litNames: map[*ast.FuncLit]string{}, codecs: map[string]bool{}}
+		builds: map[ast.Expr]string{}, fills: map[ast.Expr]fill{}, litNames: map[*ast.FuncLit]string{}, codecs: map[string]bool{},
+		ifResults: map[*ast.IfExpr]string{}}
 	g.collectOptionals()
 	for _, t := range info.Types {
 		g.needRepr(t)
@@ -940,6 +945,14 @@ func (g *gen) emitStmt(s ast.Stmt) {
 			g.element(s.X, lit)
 			break
 		}
+		if e := g.info.IfValues[s]; e != nil {
+			if r := g.ifResults[e]; r != "" {
+				g.line("%s = %s;", r, g.expr(s.X))
+			} else {
+				g.line("%s;", g.expr(s.X))
+			}
+			break
+		}
 		if m, ok := s.X.(*ast.MatchExpr); ok && g.info.Matches[m].Stmt {
 			g.matchStmt(m)
 			break
@@ -1442,8 +1455,8 @@ func (g *gen) hasCall(e ast.Expr) bool {
 				return true
 			}
 		}
-	case *ast.MatchExpr:
-		// Arms may run calls, so a match is ordered like one.
+	case *ast.MatchExpr, *ast.IfExpr:
+		// Branches may run calls, so these are ordered like one.
 		return true
 	}
 	return false
@@ -1570,6 +1583,8 @@ func (g *gen) value(e ast.Expr) string {
 		return g.recordLit(e, t.(*types.Record))
 	case *ast.MatchExpr:
 		return g.matchExpr(e)
+	case *ast.IfExpr:
+		return g.ifValue(e)
 	case *ast.ListLit:
 		if e.Body != nil {
 			return g.collection(e, e.Body, t)

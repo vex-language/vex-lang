@@ -18,7 +18,7 @@ func (c *checker) expr(e ast.Expr, want Type) Type {
 	hint := want
 	if opt {
 		switch e.(type) {
-		case *ast.NilLit, *ast.MatchExpr, *ast.TryExpr:
+		case *ast.NilLit, *ast.MatchExpr, *ast.IfExpr, *ast.TryExpr:
 		default:
 			// Literals and closures take their type from the value inside.
 			hint = o.Elem
@@ -131,6 +131,8 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 			return c.caseValue(e, en, e.Name, "."+e.Name.Name)
 		}
 		return Invalid
+	case *ast.IfExpr:
+		return c.ifValue(e, want)
 	case *ast.MatchExpr:
 		return c.match(e, want, false)
 	case *ast.TryExpr:

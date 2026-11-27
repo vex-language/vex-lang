@@ -116,6 +116,7 @@ func newChecker() *checker {
 			Wraps:          map[ast.Expr]*Optional{},
 			ThrowingRefs:   map[ast.Expr]bool{},
 			Elements:       map[*ast.ExprStmt]ast.Expr{},
+			IfValues:       map[*ast.ExprStmt]*ast.IfExpr{},
 			Observers:      map[*ast.AssignStmt]*Func{},
 			Chains:         map[ast.Expr]bool{},
 			TearOffs:       map[*ast.MemberExpr]ast.Expr{},

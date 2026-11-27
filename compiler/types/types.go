@@ -754,6 +754,10 @@ type Info struct {
 	// the [ast.ListLit] or [ast.MapLit] it adds to.
 	Elements map[*ast.ExprStmt]ast.Expr
 
+	// The branches of each `if` used as a value: the expression statement
+	// of each branch that gives a value, mapped to its [ast.IfExpr].
+	IfValues map[*ast.ExprStmt]*ast.IfExpr
+
 	// Assignments to a field with a `didSet` block, and the block to run
 	// after each.
 	Observers map[*ast.AssignStmt]*Func
