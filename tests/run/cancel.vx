@@ -1,0 +1,77 @@
+import "vex:time"
+
+var log: [string] = []
+
+async fn fetch(name: string, ms: int) -> string {
+    log.push("start {name}")
+    await time.sleep(ms)
+    log.push("end {name}")
+    return "page {name}"
+}
+
+async fn failing() throws -> int {
+    await time.sleep(20)
+    throw Error("broken")
+}
+
+async fn screen() {
+    let a = fetch("a", 300)
+    let b = fetch("b", 400)
+    log.push("screen got {await a} {await b}")
+}
+
+async fn waiter(f: Future<string>) {
+    log.push("waiting")
+    let v = await f
+    log.push("never {v}")
+}
+
+async fn spin() -> int {
+    var n = 0
+    while true {
+        n += 1
+        await time.sleep(1)
+    }
+    return n
+}
+
+async fn main() throws {
+    // Cancelling a task stops it at its next await.
+    let req = fetch("x", 3000)
+    println(req.isCancelled)
+    req.cancel()
+    println(req.isCancelled)
+    req.cancel()
+
+    // A task awaiting a cancelled future stops too.
+    let slow = fetch("y", 3000)
+    let w = waiter(slow)
+    await time.sleep(5)
+    slow.cancel()
+    await time.sleep(5)
+    println(w.isCancelled)
+
+    // Cancelling a task cancels the tasks it started.
+    let s = screen()
+    await time.sleep(10)
+    s.cancel()
+    await time.sleep(500)
+    println(log)
+
+    // Timeouts.
+    println(await time.timeout(fetch("fast", 1), 2000) ?? "late")
+    println(await time.timeout(fetch("slow", 5000), 10) ?? "late")
+    let forever = spin()
+    println(await time.timeout(forever, 20) ?? -1, forever.isCancelled)
+    println(await time.timeout(time.sleep(1), 2000), await time.timeout(time.sleep(5000), 5))
+    let r = try? await time.timeout(failing(), 2000)
+    println(r == nil)
+    let ok = try await time.timeout(failing(), 0) catch e { -2 }
+    println(ok ?? -1)
+
+    // Cancelling a finished future changes nothing.
+    let done = fetch("done", 1)
+    let v = await done
+    done.cancel()
+    println(v, done.isCancelled)
+}
