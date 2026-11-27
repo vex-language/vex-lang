@@ -69,4 +69,3 @@ fn main() {}
 // error: 45:8: 'big' is already added to Shape on line 39
 // error: 50:8: 'big' is already added to every Shape by an extension
 // error: 53:13: Self can only be used in the requirements of an interface and in the methods of a struct or enum
-// error: 53:19: missing return: top must return invalid

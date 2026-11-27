@@ -1,0 +1,61 @@
+/// Misused iterables and generators.
+import "vex:isolate"
+
+fn maybes() -> Iterable<int?> {
+    yield nil
+}
+
+fn plain() -> int {
+    yield 1
+    return 1
+}
+
+fn valued() -> Iterable<int> {
+    yield 1
+    return 2
+}
+
+fn throwing() throws -> Iterable<int> {
+    yield 1
+}
+
+fn wrongType() -> Iterable<string> {
+    yield 1
+}
+
+fn inClosure() -> Iterable<int> {
+    let f = fn() { yield 1 }
+    yield 2
+}
+
+struct Half: Iterable<int> {
+    fn iterator() -> int => 0
+}
+
+fn local() {
+    fn upTo(n: int) -> Iterable<int> {
+        yield n
+    }
+}
+
+async fn main() {
+    let e = valued()
+    let n = await isolate.run { e.toList() }
+    for i in 5 { }
+    for x in valued() { let s: string = x }
+    println(valued().nope())
+}
+
+// error: 4:16: Iterable<int?> can't hold optionals, since nil from next marks the end
+// error: 5:11: can't tell the type of nil
+// error: 9:5: yield is only allowed in a function that returns Iterable<T>, or an async fn that returns Stream<T>
+// error: 15:12: a generator returns no value
+// error: 18:15: a generator can't throw yet
+// error: 23:11: expected string, found int
+// error: 27:20: yield can't be used inside a closure
+// error: 32:8: 'iterator' doesn't match Iterable<int>: expected fn() -> Iterator<int>, found fn() -> int
+// error: 37:9: a closure or local function can't be a generator yet
+// error: 43:31: the closure uses 'e', an Iterable<int>: it can't be copied to another isolate
+// error: 44:14: can't loop over a value of type int
+// error: 45:41: expected string, found int
+// error: 46:22: Iterable<int> has no method 'nope'

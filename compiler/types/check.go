@@ -171,6 +171,7 @@ func newChecker() *checker {
 			FuncOf:         map[*ast.FuncDecl]*Func{},
 			Throwing:       map[ast.Expr]Type{},
 			Spawns:         map[*ast.CallExpr]bool{},
+			Iterables:      map[*ast.ForStmt]*Interface{},
 			Tries:          map[*ast.TryExpr]*Try{},
 		},
 	}
@@ -713,6 +714,9 @@ func (c *checker) typeOf(te ast.TypeExpr) Type {
 	case *ast.KnownType:
 		return te.Type.(Type)
 	case *ast.NamedType:
+		if te.Module == "" && c.fromCore(te.Name) {
+			te.Module = coreKey
+		}
 		if te.Module != "" {
 			return c.qualifiedType(te)
 		}
@@ -1050,7 +1054,12 @@ func (c *checker) funcBody(f *Func) {
 	for i, p := range f.Decl.Params {
 		c.declare(p.Name, f.Params[i].Type, false, ParamVar)
 	}
-	if f.Streams() {
+	if f.Generates() {
+		if f.Throws != nil {
+			c.errorAt(f.Decl.Throws, "catch errors inside it, or yield a result value", "a generator can't throw yet")
+		}
+		c.stmts(f.Decl.Body.Stmts)
+	} else if f.Streams() {
 		c.checkStreamFunc(f)
 		if f.Decl.ExprBody != nil {
 			c.expr(f.Decl.ExprBody, nil)
@@ -1069,7 +1078,7 @@ func (c *checker) funcBody(f *Func) {
 		}
 	} else {
 		c.stmts(f.Decl.Body.Stmts)
-		if f.Result != Void && !terminates(f.Decl.Body) {
+		if f.Result != Void && f.Result != Invalid && !terminates(f.Decl.Body) {
 			body := f.Decl.Body
 			c.errorAtPos(c.file.PosOf(body.End-1), 1, "add a return statement before the closing }",
 				"missing return: %s must return %s", f.Name, f.Result)
@@ -1475,8 +1484,11 @@ func (c *checker) forLoop(s *ast.ForStmt, body func()) {
 			c.loops--
 			return
 		default:
-			if t != Invalid {
-				c.errorAt(s.Iter, "loop over a list, a map or a range like 0..10", "can't loop over a value of type %s", t)
+			if it := c.iterableOf(t); it != nil {
+				c.info.Iterables[s] = it
+				elem = it.Args[0]
+			} else if t != Invalid {
+				c.errorAt(s.Iter, "loop over a list, a map, a range like 0..10 or an Iterable", "can't loop over a value of type %s", t)
 			}
 		}
 	}
@@ -1509,7 +1521,10 @@ func (c *checker) returnStmt(s *ast.ReturnStmt) {
 	case f.Streams() && s.Value != nil:
 		c.expr(s.Value, nil)
 		c.errorAt(s.Value, "give values with yield, and end the stream with a bare return", "a stream function returns no value")
-	case f.Streams():
+	case f.Generates() && s.Value != nil:
+		c.expr(s.Value, nil)
+		c.errorAt(s.Value, "give values with yield, and end the generator with a bare return", "a generator returns no value")
+	case f.Streams() || f.Generates():
 	case s.Value == nil && f.Result != Void:
 		c.errorAt(s, fmt.Sprintf("return a value, e.g. return %s", zeroExample(f.Result)), "missing return value: %s must return %s", f.Name, f.Result)
 	case s.Value != nil && f.Result == Void:

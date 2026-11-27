@@ -563,7 +563,7 @@ func TestErrors(t *testing.T) {
 		{"index int", "", "let n = 1\nlet y = n[0]", "3:9", "can't index a value of type int", ""},
 
 		// Loops and returns.
-		{"loop over int", "", "for x in 5 { }", "2:10", "can't loop over a value of type int", "loop over a list, a map or a range like 0..10"},
+		{"loop over int", "", "for x in 5 { }", "2:10", "can't loop over a value of type int", "loop over a list, a map, a range like 0..10 or an Iterable"},
 		{"float range", "", "for x in 0..2.5 { }", "2:13", "range bounds must be int, found float", "convert it with int(...), which drops the fraction"},
 		{"break outside loop", "", "break", "2:1", "break can only be used inside a loop", ""},
 		{"return value from void", "fn f() { return 1 }", "", "1:17", "f doesn't return a value", "declare the result type: fn f(...) -> int"},

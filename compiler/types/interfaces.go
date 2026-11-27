@@ -53,6 +53,9 @@ func (c *checker) ifaceTemplate(g *genericIface) *Interface {
 
 // Returns the instance of [g] for [args], creating it on first use.
 func (c *checker) instIface(g *genericIface, args []Type, at ast.Node) *Interface {
+	if !c.coreArgsOK(g, args, at) {
+		return nil
+	}
 	params := c.ifaceParams(g)
 	key := typeKey(args)
 	if i := g.insts[key]; i != nil {
@@ -229,6 +232,9 @@ func (c *checker) ifaceRef(te *ast.NamedType, quiet bool, what string) *Interfac
 		if !quiet {
 			c.errorAt(n, hint, format, args...)
 		}
+	}
+	if te.Module == "" && c.fromCore(te.Name) {
+		te.Module = coreKey
 	}
 	if te.Module != "" {
 		return c.qualifiedIface(te, quiet)

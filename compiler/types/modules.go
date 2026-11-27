@@ -263,6 +263,12 @@ func CheckProgram(prog *modules.Program) (*Info, error) {
 	}
 	root := mods[prog.Root]
 	c.root = root
+	var core *Module
+	for _, pm := range prog.Modules {
+		if pm.Core() {
+			core = mods[pm]
+		}
+	}
 	for _, pm := range prog.Modules {
 		m := mods[pm]
 		c.info.Modules = append(c.info.Modules, m)
@@ -270,6 +276,9 @@ func CheckProgram(prog *modules.Program) (*Info, error) {
 			u := &unit{mod: m, file: f, imports: map[string]*Module{}}
 			for name, imp := range pm.Imports[f] {
 				u.imports[name] = mods[imp.Module]
+			}
+			if core != nil && m != core {
+				u.imports[coreKey] = core
 			}
 			tree := pm.Trees[i]
 			qualify(tree, u.imports)
@@ -300,7 +309,11 @@ func singleFile(f *diag.File, file *ast.File) *modules.Program {
 		Trees:   []*ast.File{file},
 		Imports: map[*diag.File]map[string]*modules.Import{f: {}},
 	}
-	return &modules.Program{Modules: []*modules.Module{m}, Root: m}
+	prog := &modules.Program{Modules: []*modules.Module{m}, Root: m}
+	if core, err := modules.Core(); err == nil {
+		prog.Modules = append(prog.Modules, core)
+	}
+	return prog
 }
 
 // Reports, and returns true, when field [f] is private to another module.

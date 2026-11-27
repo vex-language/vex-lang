@@ -59,6 +59,12 @@ func (c *checker) declareExtension(d *ast.ExtensionDecl) {
 		c.extTargets[d] = target
 		return
 	}
+	if nt, ok := d.Type.(*ast.NamedType); ok && len(d.TypeParams) == 0 && len(nt.Args) == 0 {
+		if g := c.genIfaceNamed(nt); g != nil {
+			c.declareGenericIfaceExt(d, nt, g)
+			return
+		}
+	}
 	if nt, ok := d.Type.(*ast.NamedType); ok && len(d.TypeParams) == 0 {
 		var i *Interface
 		c.scratch(false, func() { i = c.ifaceRef(nt, true, "") })
@@ -158,7 +164,7 @@ func (c *checker) declareRecvFunc(d *ast.ExtensionDecl, md *ast.FuncDecl, params
 		return
 	}
 	for _, r := range c.recvs[name] {
-		if r.decl.Accessor == md.Accessor && r.decl.Recv != nil && ast.TypeString(r.decl.Recv) == ast.TypeString(d.Type) {
+		if r.decl.Accessor == md.Accessor && r.decl.Recv != nil && md.Recv != nil && ast.TypeString(r.decl.Recv) == ast.TypeString(md.Recv) {
 			c.errorAt(md.Name, "", "'%s' is already declared for %s on line %d", name, recv, r.decl.Pos().Line)
 			return
 		}
@@ -228,11 +234,14 @@ func (c *checker) findRecv(recv Type, name string, kind ast.Accessor, at ast.Nod
 		if tmpl.Recv == nil {
 			continue
 		}
-		b := &binding{params: r.gen.params, types: map[*TypeParam]Type{}}
-		b.unify(tmpl.Recv, recv)
-		if Identical(c.substType(tmpl.Recv, b.types), recv) {
-			found = append(found, r)
-			binds = append(binds, b)
+		for _, t := range c.recvForms(recv) {
+			b := &binding{params: r.gen.params, types: map[*TypeParam]Type{}}
+			b.unify(tmpl.Recv, t)
+			if Identical(c.substType(tmpl.Recv, b.types), t) {
+				found = append(found, r)
+				binds = append(binds, b)
+				break
+			}
 		}
 	}
 	switch len(found) {

@@ -167,6 +167,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 	i.PatternVars = map[ast.Pattern][]*Var{}
 	i.Throwing = map[ast.Expr]Type{}
 	i.Spawns = map[*ast.CallExpr]bool{}
+	i.Iterables = map[*ast.ForStmt]*Interface{}
 	i.Tries = map[*ast.TryExpr]*Try{}
 	errs := c.errs
 	if !keepErrors {
@@ -186,6 +187,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 		i.Selves, i.Captures, i.CaseValues, i.Wraps = saved.Selves, saved.Captures, saved.CaseValues, saved.Wraps
 		i.TypeTests, i.PatternTests = saved.TypeTests, saved.PatternTests
 		i.Elements, i.IfValues, i.Spawns, i.ThrowingRefs, i.TearOffs = saved.Elements, saved.IfValues, saved.Spawns, saved.ThrowingRefs, saved.TearOffs
+		i.Iterables = saved.Iterables
 		i.Operators, i.IndexSets = saved.Operators, saved.IndexSets
 		i.Chains, i.Matches, i.Throwing, i.Tries = saved.Chains, saved.Matches, saved.Throwing, saved.Tries
 		i.Known = saved.Known

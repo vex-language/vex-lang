@@ -1,0 +1,125 @@
+/// Gives the values of an [Iterable] one at a time.
+pub interface Iterator<T> {
+    /// Returns the next value, or nil when there are no more.
+    fn next() -> T?
+}
+
+/// A sequence of values that `for in` can loop over.
+pub interface Iterable<T> {
+    /// Returns a new [Iterator] that starts from the first value.
+    fn iterator() -> Iterator<T>
+}
+
+extension Iterable {
+    /// Returns the values that [transform] gives for each value, worked out
+    /// as they are read.
+    pub fn map<U>(transform: fn(T) -> U) -> Iterable<U> => Mapped<T, U>(source: self, transform: transform)
+
+    /// Returns the values for which [keep] is true.
+    pub fn filter(keep: fn(T) -> bool) -> Iterable<T> => Filtered<T>(source: self, keep: keep)
+
+    /// Returns the first [count] values.
+    pub fn take(count: int) -> Iterable<T> => Taken<T>(source: self, count: count)
+
+    /// Returns the values after the first [count].
+    pub fn skip(count: int) -> Iterable<T> => Skipped<T>(source: self, count: count)
+
+    /// Returns each value with its position, counting from 0.
+    pub fn enumerated() -> Iterable<(int, T)> => Enumerated<T>(source: self)
+
+    /// Returns the values in a list.
+    pub fn toList() -> [T] {
+        let it = self.iterator()
+        var out: [T] = []
+        while let x = it.next() {
+            out.push(x)
+        }
+        return out
+    }
+}
+
+struct Mapped<T, U>: Iterable<U> {
+    source: Iterable<T>
+    transform: fn(T) -> U
+
+    fn iterator() -> Iterator<U> => MappedIterator<T, U>(source: source.iterator(), transform: transform)
+}
+
+struct MappedIterator<T, U>: Iterator<U> {
+    source: Iterator<T>
+    transform: fn(T) -> U
+
+    fn next() -> U? {
+        guard let x = source.next() else { return nil }
+        return transform(x)
+    }
+}
+
+struct Filtered<T>: Iterable<T> {
+    source: Iterable<T>
+    keep: fn(T) -> bool
+
+    fn iterator() -> Iterator<T> => FilteredIterator<T>(source: source.iterator(), keep: keep)
+}
+
+struct FilteredIterator<T>: Iterator<T> {
+    source: Iterator<T>
+    keep: fn(T) -> bool
+
+    fn next() -> T? {
+        while let x = source.next() {
+            if keep(x) { return x }
+        }
+        return nil
+    }
+}
+
+struct Taken<T>: Iterable<T> {
+    source: Iterable<T>
+    count: int
+
+    fn iterator() -> Iterator<T> => TakenIterator<T>(source: source.iterator(), left: count)
+}
+
+struct TakenIterator<T>: Iterator<T> {
+    source: Iterator<T>
+    left: int
+
+    fn next() -> T? {
+        if left <= 0 { return nil }
+        left -= 1
+        return source.next()
+    }
+}
+
+struct Skipped<T>: Iterable<T> {
+    source: Iterable<T>
+    count: int
+
+    fn iterator() -> Iterator<T> {
+        let it = source.iterator()
+        var n = 0
+        while n < count {
+            if it.next() == nil { break }
+            n += 1
+        }
+        return it
+    }
+}
+
+struct Enumerated<T>: Iterable<(int, T)> {
+    source: Iterable<T>
+
+    fn iterator() -> Iterator<(int, T)> => EnumeratedIterator<T>(source: source.iterator(), index: 0)
+}
+
+struct EnumeratedIterator<T>: Iterator<(int, T)> {
+    source: Iterator<T>
+    index: int
+
+    fn next() -> (int, T)? {
+        guard let x = source.next() else { return nil }
+        index += 1
+        return (index - 1, x)
+    }
+}
