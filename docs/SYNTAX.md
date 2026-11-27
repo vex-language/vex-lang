@@ -912,6 +912,7 @@ fn helper() { }                         // private to models
   - `vex:strings`: `repeat`, `join`, `padLeft`, `padRight`
   - `vex:time`: `nanos()` for measuring, `unix()` for the date, `sleep(ms)`, a future that completes after `ms` milliseconds, and `timeout(future, ms)` (see [Cancellation](#cancellation-and-timeouts))
   - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, and failures throw an `Error` naming the path and the reason
+  - `vex:json`: `encode`, `decode`, `parse` and `write`, and the `Json` and `JsonError` enums (see [JSON](#json))
   - `vex:isolate`: `run` and `spawn`, which start work on other cores (see Isolates), and `cores()`
   - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status), and `target` and `arch`, the system the program is built for (see [Platform conditionals](#platform-conditionals))
 
@@ -931,6 +932,56 @@ fn main() throws {
 - Modules may import each other. A name that is already an import, such as a variable called `math`, is an error, so `math.max` always means the module.
 - `vex run` with no file runs the project in the current folder, and `vex run store` runs the one in `store/`. A single file can import too: `vex run hello.vx`.
 - `package:` imports come with the package manager (V-121).
+
+## JSON
+
+A struct or enum that lists `Codable` can be written as JSON and read back, as in Swift. The compiler writes the conversion from the fields, with no generated files to keep up to date:
+
+```swift
+import "vex:json"
+
+enum Role: Codable { admin, guest }
+
+struct User: Codable {
+    name: string
+    age: int
+    tags: [string] = []
+    email: string? = nil
+    role = Role.guest
+}
+
+fn main() throws {
+    let ann = User(name: "Ann", age: 30, role: Role.admin)
+    let text = json.encode(ann)                 // {"name":"Ann","age":30,"tags":[],"email":null,"role":"admin"}
+    let pretty = json.encode(ann, indent: 2)    // spread over lines
+    let back: User = try json.decode(text)
+    let team = try json.decode<[User]>(r"""
+        [{"name": "Bo", "age": 4}]
+        """)
+}
+```
+
+- Codable types are `int`, `float`, `bool`, `string`, lists, maps with `string` keys and optionals of those, and structs and enums that list `Codable`. Every field of a Codable type must be Codable; a generic one asks for it with `<T: Codable>`.
+- A struct is an object with a key for each field, in the order they are declared. A missing key takes the field's default, or `nil` for an optional; without either it is an error.
+- An enum case without values is its name as a string, `"admin"`. A case with values is an object with one key, the case's name: `{"circle": {"radius": 2.0}}`.
+- An `int` reads only whole numbers. A `float` reads any number, and writes non-finite values as `null`.
+- `decode` throws a `JsonError`. `syntax(reason, line, column)` means the text isn't JSON; `mismatch(path, reason)` means it doesn't fit the type, and shows as `users[2].age: expected an int, found a string`.
+- A type can write its own conversion, for dates and other values JSON has no form for. It writes both `fn encode() -> json.Json` and `static fn decode(value: json.Json) throws(json.JsonError) -> Self`, naming its own type for `Self`; its fields then don't have to be Codable. An error `decode` throws gets the path to the value in front of its own.
+
+**JSON of any shape.** `json.parse(text)` gives a `Json` value, an enum with the cases `null`, `boolean(value)`, `integer(value)`, `number(value)`, `text(value)`, `list(items)` and `object(fields)`. Objects keep their keys in order. `json.write(value, indent:)` turns one back into text, as does printing it:
+
+```swift
+let doc = try json.parse(r"""
+    {"user": {"name": "Ann", "langs": ["vex", "go"]}}
+    """)
+let name = doc.get("user")?.get("name")?.asString ?? "?"
+let first = doc.get("user")?.get("langs")?.at(0)?.asString
+println(name, first, doc)                   // Ann vex {"user":{"name":"Ann","langs":["vex","go"]}}
+```
+
+- `get(key)` and `at(index)` look inside objects and lists, giving `nil` when the value isn't one or has no such entry. `asBool`, `asInt`, `asFloat`, `asString`, `asList` and `asObject` give the value as that type, or `nil`; `isNull` tells whether it is `null`. `asFloat` reads whole numbers too.
+- `json.toJson(value)` and `try json.fromJson<T>(json)` convert between Codable values and `Json`, for JSON that is partly known.
+- `Json` is Codable and Equatable, so it can be a field of a Codable struct, holding whatever the JSON has there.
 
 ## C functions
 
