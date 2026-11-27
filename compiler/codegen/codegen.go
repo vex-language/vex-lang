@@ -1004,12 +1004,27 @@ func (g *gen) ifStmt(s *ast.IfStmt) {
 		g.ifCase(s)
 		return
 	}
+	if v, ok := g.info.Known[s.Cond]; ok {
+		// Only the branch taken is generated.
+		if v {
+			g.block("", s.Then)
+			return
+		}
+		switch e := s.Else.(type) {
+		case *ast.IfStmt:
+			g.ifStmt(e)
+		case *ast.Block:
+			g.block("", e)
+		}
+		return
+	}
 	g.line("if (%s) {", cond(g.expr(s.Cond)))
 	for {
 		g.body(s.Then)
 		switch e := s.Else.(type) {
 		case *ast.IfStmt:
-			if e.Bind != nil || e.Case != nil {
+			_, known := g.info.Known[e.Cond]
+			if e.Bind != nil || e.Case != nil || known {
 				g.line("} else {")
 				g.ind++
 				g.ifStmt(e)

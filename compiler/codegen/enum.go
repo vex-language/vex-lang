@@ -118,6 +118,14 @@ func (g *gen) armHeader(m *ast.MatchExpr, i int, subject string) string {
 
 // Writes a match used as a statement.
 func (g *gen) matchStmt(m *ast.MatchExpr) {
+	if k := g.info.Matches[m].Known; k >= 0 {
+		if arm := m.Arms[k]; arm.Block != nil {
+			g.block("", arm.Block)
+		} else {
+			g.line("%s;", g.expr(arm.Expr))
+		}
+		return
+	}
 	subject := g.temp()
 	g.line("{")
 	g.ind++
@@ -143,6 +151,18 @@ func (g *gen) matchStmt(m *ast.MatchExpr) {
 // Returns a match used as a value, as a statement expression.
 func (g *gen) matchExpr(m *ast.MatchExpr) string {
 	t := g.info.Types[m]
+	if k := g.info.Matches[m].Known; k >= 0 {
+		x := g.expr(m.Arms[k].Expr)
+		switch {
+		case t == types.Void:
+			return "({ " + x + "; })"
+		case g.info.Matches[m].Arms[k].NoValue:
+			r := g.temp()
+			return fmt.Sprintf("({ %s; %s; %s; })", decl(t, r), x, r)
+		}
+		r := g.temp()
+		return fmt.Sprintf("({ %s = %s; %s; })", decl(t, r), x, r)
+	}
 	subject, result := g.temp(), g.temp()
 	var b strings.Builder
 	fmt.Fprintf(&b, "({ %s = %s; ", decl(g.info.Types[m.Subject], subject), g.expr(m.Subject))
