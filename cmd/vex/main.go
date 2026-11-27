@@ -31,21 +31,41 @@ type command struct {
 	args  string
 	short string
 	run   func(args []string, stdout, stderr io.Writer) int
+
+	// More about the command, for `vex help <command>`.
+	help string
 }
+
+// The flags and variables that choose how a program is compiled.
+const modeHelp = `  --debug           compile without optimizations and with debug information
+                    (-O0 -g) instead of -O3
+  --sanitize=list   build in sanitizers that stop the program at memory and
+                    other errors: address, undefined and thread, e.g.
+                    --sanitize=address,undefined
+
+Environment:
+  CC                the C compiler (default: clang, then cc, then gcc)
+  VEX_CFLAGS        more flags for the C compiler, after the others, so they
+                    can override them, e.g. VEX_CFLAGS="-march=native"
+`
 
 var commands []command
 
 func init() {
 	commands = []command{
-		{"run", "[file or folder] [-- args]", "Compile and run a program", runRun},
-		{"build", "[file or folder] [-o out]", "Build a native executable", runBuild},
-		{"emit-c", "[file or folder]", "Print the generated C code", runEmitC},
-		{"check", "[file or folder]", "Check a program for errors", runCheck},
-		{"test", "[file or folder] [-filter text]", "Run the program's tests", runTest},
-		{"ast", "<file>", "Print the syntax tree of a source file", runAST},
-		{"tokens", "<file>", "Print the tokens of a source file", runTokens},
-		{"version", "", "Print the Vex version", runVersion},
-		{"help", "[command]", "Show help", runHelp},
+		{"run", "[flags] [file or folder] [-- args]", "Compile and run a program", runRun,
+			"Flags, before the program:\n" + modeHelp},
+		{"build", "[file or folder] [-o out] [flags]", "Build a native executable", runBuild,
+			"Flags:\n  -o out            where to write the program (default: its name)\n" + modeHelp +
+				"\nWith --debug, the generated C is kept next to the program as <out>.c, so a\ndebugger can step through it.\n"},
+		{"emit-c", "[file or folder]", "Print the generated C code", runEmitC, ""},
+		{"check", "[file or folder]", "Check a program for errors", runCheck, ""},
+		{"test", "[file or folder] [flags]", "Run the program's tests", runTest,
+			"Flags:\n  -filter text      run only the tests whose names contain text\n" + modeHelp},
+		{"ast", "<file>", "Print the syntax tree of a source file", runAST, ""},
+		{"tokens", "<file>", "Print the tokens of a source file", runTokens, ""},
+		{"version", "", "Print the Vex version", runVersion, ""},
+		{"help", "[command]", "Show help", runHelp, ""},
 	}
 }
 
@@ -88,6 +108,9 @@ func runHelp(args []string, stdout, stderr io.Writer) int {
 	for _, c := range commands {
 		if c.name == args[0] {
 			fmt.Fprintf(stdout, "Usage: vex %s %s\n\n%s.\n", c.name, c.args, c.short)
+			if c.help != "" {
+				fmt.Fprintf(stdout, "\n%s", c.help)
+			}
 			return exitOK
 		}
 	}

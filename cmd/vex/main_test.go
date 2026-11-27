@@ -344,3 +344,37 @@ test "crashes" {
 		t.Errorf("no tests: code %d, stdout %q", code, out)
 	}
 }
+
+func TestBuildModes(t *testing.T) {
+	needCC(t)
+	path := writeFile(t, "import \"vex:os\"\nfn main() {\n    println(\"hi\", os.args())\n}\n")
+	out := filepath.Join(filepath.Dir(path), "app")
+	code, stdout, errOut := runCLI("build", path, "-o", out, "--debug")
+	if code != exitOK || !strings.Contains(stdout, "Kept the C code in "+out+".c") {
+		t.Fatalf("build --debug: code %d, stdout %q, stderr %q", code, stdout, errOut)
+	}
+	if c, err := os.ReadFile(out + ".c"); err != nil || !strings.Contains(string(c), "int main(") {
+		t.Errorf("kept C: %v", err)
+	}
+	if got, err := exec.Command(out).Output(); err != nil || string(got) != "hi []\n" {
+		t.Errorf("debug program: %q, %v", got, err)
+	}
+	code, stdout, errOut = runCLI("run", "--debug", "--sanitize=address,undefined", path, "a")
+	if code != exitOK || stdout != "hi [\"a\"]\n" {
+		t.Errorf("run with flags: code %d, stdout %q, stderr %q", code, stdout, errOut)
+	}
+	for _, tt := range []struct{ arg, want string }{
+		{"--sanitize=memory", `unknown sanitizer "memory"`},
+		{"--sanitize=thread,address", "can't be combined with address"},
+	} {
+		if code, _, errOut := runCLI("build", path, "-o", out, tt.arg); code != exitUsage || !strings.Contains(errOut, tt.want) {
+			t.Errorf("%s: code %d, stderr %q", tt.arg, code, errOut)
+		}
+	}
+	code, stdout, _ = runCLI("help", "build")
+	for _, want := range []string{"--debug", "--sanitize=list", "VEX_CFLAGS", "<out>.c"} {
+		if code != exitOK || !strings.Contains(stdout, want) {
+			t.Errorf("help build lacks %q:\n%s", want, stdout)
+		}
+	}
+}
