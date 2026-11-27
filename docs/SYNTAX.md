@@ -739,7 +739,7 @@ fn helper() { }                         // private to models
   - `vex:time`: `nanos()` for measuring, `unix()` for the date, `sleep(ms)`, a future that completes after `ms` milliseconds, and `timeout(future, ms)` (see [Cancellation](#cancellation-and-timeouts))
   - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, and failures throw an `Error` naming the path and the reason
   - `vex:isolate`: `run` and `spawn`, which start work on other cores (see Isolates), and `cores()`
-  - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status)
+  - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status), and `target` and `arch`, the system the program is built for (see [Platform conditionals](#platform-conditionals))
 
 ```swift
 import "vex:fs"
@@ -842,6 +842,48 @@ flags = ["-DSQLITE_OMIT_LOAD_EXTENSION", "-Inative"]
 `.m` files are Objective-C, compiled with automatic reference counting (`-fobjc-arc`). Together with `frameworks`, this is how Vex code reaches Apple's APIs. Frameworks can only be linked on macOS.
 
 Paths are relative to the project. Flags may start with `-D`, `-U`, `-I`, `-L`, `-O`, `-f`, `-W`, `-m` or `-std=`.
+
+C code for one system goes in `[c.macos]`, `[c.linux]` or `[c.windows]`, with the same keys. Its lists are added to those of `[c]` when building for that system:
+
+```toml
+[c]
+sources = ["native/common.c"]
+
+[c.macos]
+sources = ["native/clipboard_mac.m"]
+frameworks = ["AppKit"]
+
+[c.linux]
+sources = ["native/clipboard_x11.c"]
+libs = ["X11"]
+```
+
+### Platform conditionals
+
+`os.target` and `os.arch` are constants naming the system the program is built for, as the enums `os.Target` (`macos`, `linux`, `windows`) and `os.Arch` (`arm64`, `x64`). An `if` or `match` that tests them compiles only the branch for that system:
+
+```swift
+import "vex:os"
+
+fn open(path: string) throws {
+    if os.target == .macos {
+        try os.run("open {path}")
+    } else if os.target == .windows {
+        try os.run("start {path}")
+    } else {
+        try os.run("xdg-open {path}")
+    }
+}
+
+let separator = match os.target {
+    windows => "\\"
+    _ => "/"
+}
+```
+
+- Every branch is still type-checked, so mistakes in code for other systems show up on yours. Only the C for the branch taken is generated, so a branch may call a C function that exists on one system only.
+- This works for any condition made of constants: `const verbose = false` turns `if verbose { ... }` into nothing.
+- The program is built for the system the compiler runs on.
 
 ## Closures
 
