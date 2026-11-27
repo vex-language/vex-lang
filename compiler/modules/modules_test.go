@@ -209,6 +209,8 @@ flags = ["-DNAME=\"x, y\"", "-Inative", "-O3", "-Wall", "-Wno-unused", "-fvisibi
 		{"[c]\nflags = [\"-L/usr/lib\"]\n", "2:9: flag '-L/usr/lib' isn't allowed"},
 		{"[c]\nflags = [\"-fprofile-generate\"]\n", "2:9: flag '-fprofile-generate' isn't allowed"},
 		{"[c]\ncolour = []\n", "2:1: unknown key 'colour' in [c]"},
+		{"[c.linux]\ncolour = []\n", "2:1: unknown key 'colour' in [c.linux]"},
+		{"[c.bsd]\nlibs = []\n", "1:1: unknown target 'bsd'"},
 		{"[c]\nlibs = [\"z\"]\nlibs = []\n", "3:1: 'libs' is already set on line 4"},
 		{"[c]\nlibs = [\"z\"\n", "2:8: the value of 'libs' must be a list of strings"},
 	}
@@ -233,5 +235,27 @@ func TestLoadCSources(t *testing.T) {
 	_, err := LoadFS(fsys, "app", "app", true)
 	if err == nil || err.Error() != "app/package.toml: C source 'native/missing.c' not found" {
 		t.Errorf("got %v", err)
+	}
+}
+
+func TestProjectCTargets(t *testing.T) {
+	host := Host().OS
+	other := "windows"
+	if host == "windows" {
+		other = "linux"
+	}
+	fsys := fstest.MapFS{
+		"app/package.toml": {Data: []byte("[package]\nname = \"app\"\n\n[c]\nsources = [\"all.c\"]\nlibs = [\"z\"]\n\n[c." + host + "]\nsources = [\"host.c\"]\nlibs = [\"m\"]\n\n[c." + other + "]\nsources = [\"missing.c\"]\n")},
+		"app/main.vx":      {Data: []byte("fn main() {}\n")},
+		"app/all.c":        {Data: []byte("")},
+		"app/host.c":       {Data: []byte("")},
+	}
+	prog, err := LoadFS(fsys, "app", "app", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := fmt.Sprintf("%q %q", prog.CSources, prog.CLibs)
+	if want := `["all.c" "host.c"] ["z" "m"]`; got != want {
+		t.Errorf("\n got %s\nwant %s", got, want)
 	}
 }

@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -153,6 +154,12 @@ func LoadFS(fsys fs.FS, root, shown string, isDir bool) (*Program, error) {
 		}
 		l.prog.Name = proj.Name
 		l.prog.CSources, l.prog.CLibs, l.prog.CFlags, l.prog.CFrameworks = proj.CSources, proj.CLibs, proj.CFlags, proj.CFrameworks
+		if t := proj.CTargets[l.prog.Target.OS]; t != nil {
+			l.prog.CSources = append(slices.Clip(l.prog.CSources), t.CSources...)
+			l.prog.CLibs = append(slices.Clip(l.prog.CLibs), t.CLibs...)
+			l.prog.CFlags = append(slices.Clip(l.prog.CFlags), t.CFlags...)
+			l.prog.CFrameworks = append(slices.Clip(l.prog.CFrameworks), t.CFrameworks...)
+		}
 		for _, src := range l.prog.CSources {
 			if _, err := fs.Stat(l.fsys, path.Join(root, src)); err != nil {
 				return nil, fmt.Errorf("%s: C source '%s' not found", l.display(path.Join(root, ProjectFile)), src)
