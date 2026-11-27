@@ -932,7 +932,7 @@ func (g *gen) stmt(s ast.Stmt) {
 			r.vals[v] = next
 		}
 	case *ast.WhileStmt:
-		if s.Bind != nil {
+		if s.Bind != nil || len(s.More) > 0 {
 			r.forget(s)
 			g.emitStmt(s)
 			r.forget(s)
@@ -975,14 +975,7 @@ func (g *gen) emitStmt(s ast.Stmt) {
 	case *ast.AssignStmt:
 		g.assign(s)
 	case *ast.GuardStmt:
-		tmp := g.temp()
-		g.line("%s = %s;", decl(g.info.Types[s.Value], tmp), g.expr(s.Value))
-		o := g.optOf(s.Value)
-		g.line("if (!%s) {", present(o, tmp))
-		g.body(s.Else)
-		g.line("}")
-		v := g.info.Defs[s.Bind]
-		g.line("%s = %s;", decl(v.Type, g.declare(v)), unwrap(o, tmp))
+		g.guardStmt(s)
 	case *ast.ExprStmt:
 		if lit, ok := g.info.Elements[s]; ok {
 			g.element(s.X, lit)
@@ -1004,11 +997,14 @@ func (g *gen) emitStmt(s ast.Stmt) {
 	case *ast.IfStmt:
 		g.ifStmt(s)
 	case *ast.WhileStmt:
-		if s.Bind != nil {
+		switch {
+		case len(s.More) > 0:
+			g.whileConds(s)
+		case s.Bind != nil:
 			g.whileLet(s)
-			break
+		default:
+			g.block("while ("+cond(g.expr(s.Cond))+")", s.Body)
 		}
-		g.block("while ("+cond(g.expr(s.Cond))+")", s.Body)
 	case *ast.ForStmt:
 		g.forStmt(s)
 	case *ast.ReturnStmt:
@@ -1047,6 +1043,10 @@ func (g *gen) body(b *ast.Block) {
 
 // Writes an if statement, with `else if` chains on the closing brace line.
 func (g *gen) ifStmt(s *ast.IfStmt) {
+	if len(s.More) > 0 {
+		g.ifConds(s)
+		return
+	}
 	if s.Bind != nil {
 		g.ifLet(s)
 		return
@@ -1075,7 +1075,7 @@ func (g *gen) ifStmt(s *ast.IfStmt) {
 		switch e := s.Else.(type) {
 		case *ast.IfStmt:
 			_, known := g.info.Known[e.Cond]
-			if e.Bind != nil || e.Case != nil || known {
+			if e.Bind != nil || e.Case != nil || known || len(e.More) > 0 {
 				g.line("} else {")
 				g.ind++
 				g.ifStmt(e)

@@ -1,0 +1,34 @@
+enum Shape {
+    dot
+    line(len: int)
+}
+
+fn check(x: int?, flag: bool, s: Shape) {
+    if let a = x, a {
+    }
+    if let a = x, a > 1 {
+    } else {
+        println(a)
+    }
+    guard let b = x else {
+        println(b)
+        return
+    }
+    guard flag else {
+        println("no")
+    }
+    let y = return
+    let z = x ?? return 1
+    if let flag {
+    }
+}
+
+fn main() {}
+
+// error: 7:19: if condition must be bool, found int
+// error: 11:17: unknown name 'a'
+// error: 14:17: unknown name 'b'
+// error: 17:21: the else block of guard must leave, so the condition holds after it
+// error: 20:13: return can only be used as a statement or after ??
+// error: 21:25: check doesn't return a value
+// error: 22:12: if let needs an optional value, but this is bool

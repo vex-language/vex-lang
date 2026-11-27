@@ -133,6 +133,9 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		return Invalid
 	case *ast.IfExpr:
 		return c.ifValue(e, want)
+	case *ast.JumpExpr:
+		c.errorAt(e, "write it as a statement, or after ?? as in x ?? return", "%s can only be used as a statement or after ??", jumpName(e.Stmt))
+		return Invalid
 	case *ast.TypeTest:
 		return c.typeTest(e)
 	case *ast.MatchExpr:

@@ -1,0 +1,88 @@
+struct User {
+    name: string
+    email: string?
+}
+
+fn find(id: int) -> User? {
+    if id == 1 {
+        return User(name: "Ann", email: "ann@x.io")
+    }
+    if id == 2 {
+        return User(name: "Bo", email: nil)
+    }
+    return nil
+}
+
+fn mailOf(id: int) -> string {
+    let user = find(id)
+    if let user, let email = user.email, email.contains("@") {
+        return "{user.name} <{email}>"
+    } else if let user {
+        return "{user.name} (no email)"
+    } else {
+        return "nobody"
+    }
+}
+
+fn parseId(text: string) -> int {
+    guard let id = int.parse(text), id > 0 else {
+        return -1
+    }
+    return id * 10
+}
+
+fn ready(on: bool) -> string {
+    guard on else {
+        return "off"
+    }
+    return "on"
+}
+
+fn port(text: string) -> int {
+    let n = int.parse(text) ?? return 80
+    return n + 1
+}
+
+fn strict(text: string) throws -> int {
+    let n = int.parse(text) ?? throw Error("bad number: {text}")
+    return n
+}
+
+fn main() {
+    println(mailOf(1), mailOf(2), mailOf(3))
+    println(parseId("7"), parseId("-3"), parseId("x"))
+    println(ready(true), ready(false))
+    println(port("8080"), port("http"))
+    println(try? strict("5"), try? strict("five"))
+
+    var total = 0
+    for line in ["1", "x", "2", "stop", "9"] {
+        if line == "stop" {
+            break
+        }
+        let n = int.parse(line) ?? continue
+        total += n
+    }
+    println(total)
+
+    var queue = [3, 2, 1, 0, 5]
+    var stopped = false
+    while let next = queue.first, !stopped {
+        queue.remove(at: 0)
+        if next == 0 {
+            stopped = true
+        }
+        println("job {next}")
+    }
+
+    let label = if let u = find(1), u.name.len > 2 { "long {u.name}" } else { "short" }
+    println(label)
+    let name: string? = "Cy"
+    if let name {
+        println("hi {name}")
+    }
+    for x in [1, nil, 3] {
+        let v = x ?? break
+        println(v)
+    }
+}

@@ -75,11 +75,18 @@ func (c *checker) coalesce(e *ast.BinaryExpr) Type {
 	x := c.expr(e.X, nil)
 	o, ok := x.(*Optional)
 	if !ok {
-		c.expr(e.Y, x)
+		if j, isJump := e.Y.(*ast.JumpExpr); isJump {
+			c.jumpExpr(j, x)
+		} else {
+			c.expr(e.Y, x)
+		}
 		if x != Invalid {
 			c.errorAt(e.X, "it always has a value, so ?? isn't needed", "?? needs an optional on the left, but this is %s", x)
 		}
 		return x
+	}
+	if j, ok := e.Y.(*ast.JumpExpr); ok {
+		return c.jumpExpr(j, o.Elem)
 	}
 	y := c.expr(e.Y, o.Elem)
 	switch {

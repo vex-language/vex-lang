@@ -1114,7 +1114,39 @@ if user == nil { ... }
 if id == 3 { ... }                        // true only when id isn't nil and is 3
 ```
 
+**Several conditions.** `if`, `while` and `guard` take conditions and bindings separated by commas, as in Swift. They are checked left to right, each name is visible to the conditions after it, and the block runs only when all hold.
+
+```swift
+if let user, let email = user.email, email.contains("@") {
+    send(email)                           // if let user is short for if let user = user
+}
+
+guard let id = int.parse(text), id > 0 else {
+    return                                // id is an int from here on
+}
+guard ready else { return }               // guard works with a plain condition too
+
+while let job = queue.next(), !stopped {
+    run(job)
+}
+```
+
+**Leaving early.** The right side of `??` can be `return`, `throw`, `break` or `continue`, which runs when the left side is nil, as Kotlin's `?: return`:
+
+```swift
+let text = fs.read(path) ?? throw Error("missing {path}")
+let port = int.parse(text) ?? return 80
+
+for line in lines {
+    let n = int.parse(line) ?? continue
+    total += n
+}
+```
+
 - `x ?? fallback` only runs `fallback` when `x` is nil. Chains like `a ?? b ?? 0` try each in turn.
+- A comma condition can follow a line break: `if let a = x,` with the next condition on the next line.
+- `if value case pattern` can't take more conditions after a comma; add them with `when`.
+- The names a `guard` binds can't be used in its `else` block, which must leave.
 - `user.name` on a `User?` is an error. Use `user?.name`, `if let` or `guard let`.
 - There's no force unwrap: every optional is checked.
 - `?` comes last in a type: `[int?]` is a list of optional ints, and `[int]?` is an optional list. Write `(fn() -> int)?` for an optional function that returns a value; `fn()?` needs no parentheses.
