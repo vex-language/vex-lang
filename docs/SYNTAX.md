@@ -1339,6 +1339,33 @@ screen.cancel()                 // cancels a and b too
 - `time.timeout(f, ms)` is a future of the value as an optional: the value when `f` finishes in time, otherwise `nil`. Errors from `f` still need `try`. For a `Future<void>` it gives whether `f` finished. A future whose value is already optional can't be timed out, since `nil` would be ambiguous.
 - Cancelling a future that is already done does nothing. A future from `isolate.run` can be cancelled, which drops its result, but the other isolate finishes its work.
 
+**Streams.** A `Stream<T>` gives values over time. An `async fn` that returns a stream gives each value with `yield`, and `for await` reads them.
+
+```swift
+async fn ticks(n: int) -> Stream<int> {
+    for i in 0..n {
+        await time.sleep(100)
+        yield i
+    }
+}
+
+for await t in ticks(3) {
+    println(t)                  // 0, 1, 2
+}
+
+let taps = StreamController<Point>()
+button.onTap(fn(p) { taps.add(p) })
+for await p in taps.stream {    // ends after taps.close()
+    draw(p)
+}
+```
+
+- Calling a stream function gives its stream at once, without `await`. Its body starts when the stream is first read, and pauses at each `yield` until the reader takes the value.
+- `for await` works only in async code. Leaving the loop early, with `break`, `return` or an error, stops the stream: a stream function stops at its next `yield` or `await`.
+- A stream function ends its stream by finishing its body or with a bare `return`. It can't `throw` yet; catch errors inside it, or yield a result value.
+- A `StreamController<T>` makes a stream that other code fills: `add(value)` queues a value, `close()` ends the stream once the queued values are read, and `isClosed` tells whether it was closed. Adding to a closed controller is a runtime error.
+- A stream has one reader at a time. Streams belong to the isolate that made them, so channels can't carry them.
+
 ## Isolates
 
 Isolates run code in parallel on other cores. Each has its own memory and its own event loop, so there are no locks and no data races: values pass between isolates as copies.
