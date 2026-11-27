@@ -235,7 +235,7 @@ func matchTerminates(m *ast.MatchExpr) bool {
 // [stmt] is set.
 func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 	subject := c.expr(m.Subject, nil)
-	info := &Match{Stmt: stmt}
+	info := &Match{Stmt: stmt, Known: -1}
 	c.info.Matches[m] = info
 
 	var result Type
@@ -317,6 +317,7 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 
 	if sound {
 		c.checkExhaustive(m, subject, rows)
+		info.Known = c.knownArm(m)
 	}
 	if stmt {
 		return Void
@@ -401,4 +402,47 @@ func (c *checker) checkExhaustive(m *ast.MatchExpr, subject Type, rows []patRow)
 	default:
 		c.errorAtPos(m.Pos(), 5, "add the missing arms, or _ => ...", "match doesn't handle %s", quoteList(missing))
 	}
+}
+
+// Returns the arm of [m] that runs when its subject is an enum case known
+// when compiling, or -1. Only plain case patterns may come before it.
+func (c *checker) knownArm(m *ast.MatchExpr) int {
+	cs, ok := c.fold(m.Subject, nil).(*Case)
+	if !ok {
+		return -1
+	}
+	var matches func(p ast.Pattern) (bool, bool)
+	// Reports whether [p] matches [cs], and whether that is certain.
+	matches = func(p ast.Pattern) (bool, bool) {
+		switch p := p.(type) {
+		case *ast.WildcardPattern:
+			return true, true
+		case *ast.NamePattern:
+			if k := c.info.PatternCases[p]; k != nil {
+				return k == cs, true
+			}
+		case *ast.OrPattern:
+			for _, a := range p.Alts {
+				hit, sure := matches(a)
+				if !sure {
+					return false, false
+				}
+				if hit {
+					return true, true
+				}
+			}
+			return false, true
+		}
+		return false, false
+	}
+	for i, arm := range m.Arms {
+		hit, sure := matches(arm.Pattern)
+		if !sure || hit && arm.Guard != nil {
+			return -1
+		}
+		if hit {
+			return i
+		}
+	}
+	return -1
 }

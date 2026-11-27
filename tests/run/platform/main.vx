@@ -1,0 +1,57 @@
+import "vex:os"
+
+extern fn code() -> int as "platform_code"
+extern fn flag() -> int as "platform_flag"
+
+/// Defined only by the C code for Windows.
+extern fn windowsOnly() -> int as "platform_windows_only"
+
+const verbose = false
+
+fn expected() -> int => match os.target {
+    macos => 1
+    linux => 2
+    windows => 3
+}
+
+fn opener() -> string {
+    if os.target == .windows {
+        return "start {windowsOnly()}"
+    } else if os.target == .macos {
+        return "open"
+    } else {
+        return "xdg-open"
+    }
+}
+
+fn main() {
+    // The C code of the target is built in.
+    println(code() == expected(), flag())
+
+    // Only the branch for the target is compiled, so Windows-only code
+    // links everywhere.
+    println(opener() == "open" || opener() == "xdg-open")
+    if os.target == .windows {
+        println(windowsOnly())
+    }
+    let sep = match os.target {
+        windows => "\\{windowsOnly()}"
+        _ => "/"
+    }
+    println(sep)
+    match os.target {
+        windows => println(windowsOnly())
+        macos || linux => println("unix")
+    }
+    let shell = if os.target != .windows { "sh" } else { "cmd {windowsOnly()}" }
+    println(shell)
+    if verbose {
+        println(windowsOnly())
+    }
+
+    // The target and architecture are ordinary enum values too.
+    let t: os.Target = os.target
+    println(t == .macos || t == .linux, "{os.target}".startsWith("Target."))
+    println(os.arch == .arm64 || os.arch == .x64)
+    println(os.target != .windows && verbose)
+}

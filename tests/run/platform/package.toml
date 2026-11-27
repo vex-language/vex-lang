@@ -1,0 +1,18 @@
+[package]
+name = "platform"
+
+[c]
+sources = ["native/common.c"]
+
+# Each target adds its own C code, merged into [c].
+[c.macos]
+sources = ["native/macos.c"]
+flags = ["-DTARGET_FLAG=7"]
+
+[c.linux]
+sources = ["native/linux.c"]
+flags = ["-DTARGET_FLAG=7"]
+
+[c.windows]
+sources = ["native/windows.c"]
+flags = ["-DTARGET_FLAG=7"]

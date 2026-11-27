@@ -559,6 +559,10 @@ type Match struct {
 	// Set when the match is used as a statement, so its arms may be blocks
 	// and their values are dropped.
 	Stmt bool
+
+	// The arm that runs when the subject is known when compiling, such as
+	// `os.target`, or -1. The other arms generate no code.
+	Known int
 }
 
 // The checked meaning of one match arm.
@@ -798,6 +802,11 @@ type Info struct {
 
 	// Enum cases used as values without a call: `Shape.empty`, `.up`.
 	CaseValues map[ast.Expr]*Case
+
+	// Conditions of `if` known when compiling, such as
+	// `os.target == .macos`, with their value. The branch not taken is
+	// checked but generates no code.
+	Known map[ast.Expr]bool
 
 	// What each match does.
 	Matches map[*ast.MatchExpr]*Match

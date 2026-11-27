@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"path"
 	"regexp"
+	"slices"
 	"strings"
 
 	"github.com/irshadio/vex-lang/compiler/diag"
@@ -26,6 +27,10 @@ type Project struct {
 
 	// Apple frameworks to link, such as Foundation or UIKit.
 	CFrameworks []string
+
+	// The C code for one target only, from sections such as [c.macos],
+	// by the name of the target.
+	CTargets map[string]*Project
 }
 
 var (
@@ -101,8 +106,12 @@ func ParseProject(f *diag.File) (*Project, diag.List) {
 				continue
 			}
 			section = strings.TrimSpace(line[1 : len(line)-1])
-			switch section {
-			case "package", "c", "dependencies", "dev-dependencies":
+			switch {
+			case section == "package", section == "c", section == "dependencies", section == "dev-dependencies":
+			case strings.HasPrefix(section, "c."):
+				if !slices.Contains(Targets, section[2:]) {
+					fail(col, len(line), "use [c."+strings.Join(Targets, "], [c.")+"]", "unknown target '%s'", section[2:])
+				}
 			default:
 				fail(col, len(line), "use [package], [c], [dependencies] or [dev-dependencies]", "unknown section [%s]", section)
 			}
@@ -124,7 +133,8 @@ func ParseProject(f *diag.File) (*Project, diag.List) {
 				val += " " + strings.TrimSpace(stripComment(strings.TrimSuffix(lines[i], "\r")))
 			}
 		}
-		if section != "package" && section != "c" {
+		cSection := section == "c" || strings.HasPrefix(section, "c.")
+		if section != "package" && !cSection {
 			// Dependencies are read by vex get.
 			continue
 		}
@@ -134,7 +144,17 @@ func ParseProject(f *diag.File) (*Project, diag.List) {
 			continue
 		}
 		seen[id] = n
-		if section == "c" {
+		if cSection {
+			dst := proj
+			if section != "c" {
+				if proj.CTargets == nil {
+					proj.CTargets = map[string]*Project{}
+				}
+				if proj.CTargets[section[2:]] == nil {
+					proj.CTargets[section[2:]] = &Project{}
+				}
+				dst = proj.CTargets[section[2:]]
+			}
 			list, ok := parseList(val)
 			if !ok {
 				fail(vcol, len(strings.SplitN(val, " ", 2)[0]), fmt.Sprintf(`%s = ["..."]`, key), "the value of '%s' must be a list of strings", key)
@@ -164,15 +184,15 @@ func ParseProject(f *diag.File) (*Project, diag.List) {
 			}
 			switch key {
 			case "sources":
-				proj.CSources = list
+				dst.CSources = list
 			case "libs":
-				proj.CLibs = list
+				dst.CLibs = list
 			case "flags":
-				proj.CFlags = list
+				dst.CFlags = list
 			case "frameworks":
-				proj.CFrameworks = list
+				dst.CFrameworks = list
 			default:
-				fail(col, len(key), "known keys are sources, libs, frameworks and flags", "unknown key '%s' in [c]", key)
+				fail(col, len(key), "known keys are sources, libs, frameworks and flags", "unknown key '%s' in [%s]", key, section)
 			}
 			continue
 		}

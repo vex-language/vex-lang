@@ -11,6 +11,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -75,6 +76,9 @@ type Program struct {
 
 	// Apple frameworks to link, such as Foundation or UIKit.
 	CFrameworks []string
+
+	// The system the program is built for.
+	Target Target
 }
 
 // Returns the C code of the project file, with paths made absolute, for
@@ -141,7 +145,7 @@ func LoadFS(fsys fs.FS, root, shown string, isDir bool) (*Program, error) {
 		l.base = path.Dir(root)
 		l.shown = filepath.Dir(shown)
 	}
-	l.prog = &Program{}
+	l.prog = &Program{Target: Host()}
 	var m *Module
 	if isDir {
 		proj, err := l.project(root)
@@ -150,7 +154,13 @@ func LoadFS(fsys fs.FS, root, shown string, isDir bool) (*Program, error) {
 		}
 		l.prog.Name = proj.Name
 		l.prog.CSources, l.prog.CLibs, l.prog.CFlags, l.prog.CFrameworks = proj.CSources, proj.CLibs, proj.CFlags, proj.CFrameworks
-		for _, src := range proj.CSources {
+		if t := proj.CTargets[l.prog.Target.OS]; t != nil {
+			l.prog.CSources = append(slices.Clip(l.prog.CSources), t.CSources...)
+			l.prog.CLibs = append(slices.Clip(l.prog.CLibs), t.CLibs...)
+			l.prog.CFlags = append(slices.Clip(l.prog.CFlags), t.CFlags...)
+			l.prog.CFrameworks = append(slices.Clip(l.prog.CFrameworks), t.CFrameworks...)
+		}
+		for _, src := range l.prog.CSources {
 			if _, err := fs.Stat(l.fsys, path.Join(root, src)); err != nil {
 				return nil, fmt.Errorf("%s: C source '%s' not found", l.display(path.Join(root, ProjectFile)), src)
 			}
@@ -277,12 +287,19 @@ func (l *loader) stdModule(name string, imp *Import) *Module {
 	m := &Module{Path: key, Name: name, Imports: map[*diag.File]map[string]*Import{}, std: true}
 	l.modules[key] = m
 	l.prog.Modules = append(l.prog.Modules, m)
+	type source struct{ name, text string }
+	var sources []source
 	for _, e := range entries {
-		if !strings.HasSuffix(e.Name(), ".vx") {
-			continue
+		if strings.HasSuffix(e.Name(), ".vx") {
+			text, _ := fs.ReadFile(stdFS, dir+"/"+e.Name())
+			sources = append(sources, source{e.Name(), string(text)})
 		}
-		src, _ := fs.ReadFile(stdFS, dir+"/"+e.Name())
-		f := diag.NewFile(key+"/"+e.Name(), string(src))
+	}
+	if name == "os" {
+		sources = append(sources, source{"target.vx", l.prog.Target.source()})
+	}
+	for _, s := range sources {
+		f := diag.NewFile(key+"/"+s.name, s.text)
 		tree, err := parser.Parse(f)
 		if err != nil {
 			l.errs = append(l.errs, diag.Diagnostic{File: f, Message: "standard library: " + err.Error()})

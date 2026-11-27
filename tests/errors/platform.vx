@@ -1,0 +1,24 @@
+import "vex:os"
+
+fn main() {
+    if os.target == .windows {
+        let n: int = "not checked away"
+    }
+    if os.target == "macos" {
+        println("x")
+    }
+    let name = match os.target {
+        macos => "mac"
+        linux => "linux"
+    }
+    if os.arch == .x86 {
+        println(name)
+    }
+    os.target = .linux
+}
+
+// error: 5:22: expected int, found string
+// error: 7:8: can't compare os.Target with string
+// error: 10:16: match doesn't handle 'windows'
+// error: 14:20: Arch has no case 'x86'
+// error: 17:5: can't change constant 'target'
