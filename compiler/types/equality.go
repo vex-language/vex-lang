@@ -22,7 +22,7 @@ func declares(list []*ast.NamedType, marker string) bool {
 
 // Reports whether [te] names one of the built-in markers.
 func isMarker(te *ast.NamedType) bool {
-	return te.Module == "" && len(te.Args) == 0 && (te.Name == "Equatable" || te.Name == "Hashable")
+	return te.Module == "" && len(te.Args) == 0 && (te.Name == "Equatable" || te.Name == "Hashable" || te.Name == "Codable")
 }
 
 // Reports whether the struct asked for == by listing `Equatable` or

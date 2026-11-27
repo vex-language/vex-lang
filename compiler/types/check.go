@@ -413,6 +413,7 @@ func (c *checker) collect() {
 	c.checkStructCycles()
 	c.checkDefaults()
 	c.checkEquality()
+	c.checkCodable()
 	c.checkMain()
 }
 

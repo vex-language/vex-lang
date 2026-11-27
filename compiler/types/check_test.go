@@ -479,7 +479,7 @@ func TestErrors(t *testing.T) {
 		{"generic type without arguments", "struct Box<T> {\n    v: T\n}", "let b: Box? = nil", "5:8", "Box is generic, so it needs type arguments", "write its type arguments, e.g. Box<int>"},
 		{"type arguments on plain type", "struct P {\n    v: int\n}", "let p: P<int>? = nil", "5:8", "'P' is not generic, so it takes no type arguments", ""},
 		{"type arguments on plain function", "fn f(x: int) {\n}", "f<int>(1)", "4:3", "'f' is not generic, so it takes no type arguments", "remove the <...>"},
-		{"unknown constraint", "fn f<T: Sortable>(x: T) {\n}", "", "1:9", "unknown constraint 'Sortable'", "use an interface, or Equatable (==), Comparable (< >) or Hashable (map keys)"},
+		{"unknown constraint", "fn f<T: Sortable>(x: T) {\n}", "", "1:9", "unknown constraint 'Sortable'", "use an interface, or Equatable (==), Comparable (< >), Hashable (map keys) or Codable (JSON)"},
 		{"misspelled constraint", "fn f<T: Comparble>(x: T) {\n}", "", "1:9", "unknown constraint 'Comparble'", "did you mean 'Comparable'?"},
 		{"generic function as value", "fn id<T>(x: T) -> T => x", "let g = id", "3:9", "can't tell the type of T for generic function 'id'", "write its types: id<int>, or give the variable a function type"},
 		{"growing instances", "fn f<T>(x: T) {\n    f([x])\n}", "f(1)", "2:5", "generic 'f' is used with types nested too deeply", "make sure generic code doesn't call itself with ever larger types, such as [T], then [[T]]"},

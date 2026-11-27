@@ -217,6 +217,9 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 	if builtinFuncs[name] {
 		return c.callBuiltin(e, name)
 	}
+	if (name == "jsonOf" || name == "jsonAs") && c.mod.Path == jsonModule && c.funcs[name] == nil {
+		return c.jsonBuiltin(e, name, want)
+	}
 	if f := c.funcs[name]; f != nil {
 		c.info.Calls[e] = &Call{Kind: FuncCall, Func: f, Args: c.bind(e, paramSlots(f), f.Name)}
 		return f.Result
