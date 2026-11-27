@@ -639,6 +639,9 @@ type CallExpr struct {
 
 	Args     []*Arg
 	Trailing *Block
+
+	// The parameters a trailing block names: `{ a, b in ... }`.
+	BlockParams []*Ident
 }
 
 // A call argument; Name is nil for a positional argument.
@@ -678,6 +681,11 @@ type FuncLit struct {
 	Throws   *Throws
 	Body     *Block
 	ExprBody Expr
+
+	// Set for a trailing block that takes parameters or gives a value: its
+	// last expression is its value, and a single parameter left unnamed
+	// is `it`.
+	Block bool
 }
 
 // A case of the enum the context expects: `.empty`, or `.rect(...)` when
