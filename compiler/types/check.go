@@ -54,6 +54,9 @@ type checker struct {
 	// Set inside a `defer` block, which can't return or throw.
 	inDefer bool
 
+	// The field whose type is being worked out from its default, or nil.
+	inferring *Field
+
 	// The names of the closures that make local functions.
 	localNames map[*ast.FuncLit]string
 
@@ -393,6 +396,12 @@ func (c *checker) collect() {
 	}
 	c.checkAliases()
 	c.declareStaticConsts()
+	for _, s := range append([]*Struct(nil), c.info.Structs...) {
+		if s.untyped() {
+			c.inferFields(s)
+			c.conformances(s)
+		}
+	}
 	c.checkStructCycles()
 	c.checkDefaults()
 	c.checkEquality()
@@ -457,7 +466,15 @@ func (c *checker) structMembers(s *Struct) {
 			c.errorAt(fd.Name, "", "field '%s' is already declared on line %d", fd.Name.Name, prev.Decl.Pos().Line)
 			continue
 		}
-		s.Fields = append(s.Fields, &Field{Name: fd.Name.Name, Type: c.resolveType(fd.Type), Default: fd.Default, Owner: s, Decl: fd})
+		f := &Field{Name: fd.Name.Name, Default: fd.Default, Owner: s, Decl: fd, Let: fd.Let, PrivateSet: fd.PrivateSet}
+		switch {
+		case fd.Type != nil:
+			f.Type = c.resolveType(fd.Type)
+		case s.generic != nil:
+			c.errorAt(fd.Name, fmt.Sprintf("write its type: %s: T = ...", fd.Name.Name), "fields of a generic struct need a type")
+			f.Type = Invalid
+		}
+		s.Fields = append(s.Fields, f)
 	}
 	for _, md := range s.Decl.Methods {
 		m := &Func{Name: md.Name.Name, Decl: md, Owner: s, Static: md.Static, Ext: c.extModule(md)}
@@ -474,8 +491,13 @@ func (c *checker) structMembers(s *Struct) {
 		if c.reserved(md.Name, "a method") || c.memberTaken(s, md) {
 			continue
 		}
+		if md.Name.Name == "init" && md.Accessor == ast.Method {
+			c.errorAt(md.Name, "write init { ... } for code that runs at creation, or give the method another name", "'init' is reserved for the struct's init block")
+			continue
+		}
 		c.addMethod(s, m)
 	}
+	c.initBlock(s)
 	for _, m := range s.Methods {
 		if m.Decl.Accessor == ast.Operator {
 			c.checkOperator(s, m)
@@ -486,6 +508,10 @@ func (c *checker) structMembers(s *Struct) {
 		if g := s.member(m.Name, ast.Getter); g != nil && len(m.Params) == 1 && !Identical(g.Result, m.Params[0].Type) {
 			c.errorAt(m.Decl.Params[0].Type, fmt.Sprintf("use %s, the type of the getter", g.Result), "setter '%s' takes %s, but its getter returns %s", m.Name, m.Params[0].Type, g.Result)
 		}
+	}
+	if s.untyped() {
+		// Checked once the field types are known.
+		return
 	}
 	c.conformances(s)
 }
@@ -791,7 +817,7 @@ func (c *checker) checkDefaults() {
 		}
 		back := c.enter(s.Decl)
 		for _, f := range s.Fields {
-			if f.Default != nil {
+			if f.Default != nil && !f.Inferred {
 				c.assignable(f.Type, c.expr(f.Default, f.Type), f.Default, "default of '"+f.Name+"'")
 			}
 		}
@@ -1006,6 +1032,9 @@ func (c *checker) funcBody(f *Func) {
 			c.errorAtPos(c.file.PosOf(body.End-1), 1, "add a return statement before the closing }",
 				"missing return: %s must return %s", f.Name, f.Result)
 		}
+	}
+	if f.Owner != nil && f == f.Owner.Init {
+		c.initOrder(f.Owner)
 	}
 	c.pop()
 	c.fn, c.self = nil, nil
@@ -1335,7 +1364,11 @@ func (c *checker) assign(s *ast.AssignStmt) {
 func (c *checker) assignMember(s *ast.AssignStmt, n ast.Node, m any) {
 	switch m := m.(type) {
 	case *Field:
-		if m != nil && m.DidSet != nil && c.fn != m.DidSet {
+		if m == nil {
+			return
+		}
+		c.fieldWrite(n, m)
+		if m.DidSet != nil && c.fn != m.DidSet {
 			c.info.Observers[s] = m.DidSet
 		}
 	case *Property:

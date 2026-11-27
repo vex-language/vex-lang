@@ -355,6 +355,13 @@ func (c *checker) conformMember(t conformer, i *Interface, im *Func, report func
 		if want := memberType(im); !Identical(f.Type, want) {
 			report(f.Decl.Name, "", "field '%s' doesn't match %s: expected %s, found %s", f.Name, i.Name, want, f.Type)
 		}
+		if kind == ast.Setter && (f.Let || f.PrivateSet) {
+			what := "a let field"
+			if f.PrivateSet {
+				what = "private(set)"
+			}
+			report(f.Decl.Name, "", "field '%s' is %s, so it can't provide the setter %s requires", f.Name, what, i.Name)
+		}
 	case m == nil && hasBody(im.Decl):
 		*t.methods = append(*t.methods, im)
 	case m == nil:

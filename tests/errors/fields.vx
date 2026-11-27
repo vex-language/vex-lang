@@ -1,0 +1,94 @@
+interface Named {
+    get name -> string
+    set name(value: string)
+}
+
+struct User: Named {
+    let name: string
+    let id: int
+
+    fn rename() {
+        name = "x"
+    }
+}
+
+struct Counter {
+    private(set) count = 0
+}
+
+struct Early {
+    let size: int
+    let twice: int
+
+    init {
+        println(size)
+        show()
+        size = 1
+        twice = size * 2
+    }
+
+    fn show() {}
+}
+
+struct Loop {
+    other = Loop()
+}
+
+struct Empty {
+    nothing = nil
+}
+
+struct Later {
+    let at: int
+
+    init {
+        let f = fn() {
+            at = 3
+        }
+        f()
+    }
+
+    fn init() {}
+}
+
+fn main() {
+    let u = User(name: "a", id: 1)
+    u.id = 2
+    let c = Counter()
+    c.count = 3
+    c.count += 1
+    let e = Early()
+    let missing = Early(size: 1)
+    println(u, e, missing)
+}
+
+fn risky() throws -> int => 1
+
+struct Strict {
+    xs = []
+    n = 0
+
+    init {
+        if n < 0 {
+            throw Error("negative")
+        }
+        let k = try risky()
+    }
+}
+
+// error: 7:9: field 'name' is a let field, so it can't provide the setter Named requires
+// error: 11:9: can't change 'name': it's a let field of User
+// error: 24:17: 'size' is read before init sets it
+// error: 25:9: init can't call method 'show' before it sets every let field
+// error: 34:5: the type of 'other' can't be worked out, since its value depends on Loop itself
+// error: 34:13: the default of 'other' creates another Loop that uses the same default, so it never ends
+// error: 38:15: can't tell the type of nil
+// error: 46:13: can't change 'at': it's a let field of Later
+// error: 51:8: 'init' is reserved for the struct's init block
+// error: 56:7: can't change 'id': it's a let field of User
+// error: 58:7: can't set 'count' outside Counter: it's private(set)
+// error: 59:7: can't set 'count' outside Counter: it's private(set)
+// error: 61:25: Early has no parameter 'size'
+// error: 68:10: can't tell the type of an empty list
+// error: 73:13: init can't throw
+// error: 75:17: the error can't pass up: init can't throw

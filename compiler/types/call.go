@@ -72,11 +72,8 @@ func (c *checker) callTarget(e *ast.CallExpr, want Type) Type {
 
 // Checks a call creating struct [s].
 func (c *checker) construct(e *ast.CallExpr, s *Struct) Type {
-	var slots []slot
-	for _, f := range s.Fields {
-		slots = append(slots, slot{name: f.Name, typ: f.Type, def: f.Default})
-	}
-	c.info.Calls[e] = &Call{Kind: ConstructorCall, Struct: s, Args: c.bind(e, slots, s.String())}
+	c.inferFields(s)
+	c.info.Calls[e] = &Call{Kind: ConstructorCall, Struct: s, Args: c.bind(e, fieldSlots(s), s.String())}
 	return s
 }
 
@@ -346,6 +343,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 				if _, ok := f.Type.(*FuncType); ok {
 					return c.callValue(e)
 				}
+			}
+			if name == "copy" && s.Field(name) == nil && s.Property(name) == nil {
+				return c.copyCall(e, m, s)
 			}
 			c.checkArgs(e)
 			if s.Field(name) != nil {

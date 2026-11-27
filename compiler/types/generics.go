@@ -477,6 +477,9 @@ func (c *checker) structBodies(s *Struct) {
 		c.paramDefaults(m)
 		c.funcBody(m)
 	}
+	if s.Init != nil {
+		c.funcBody(s.Init)
+	}
 }
 
 // Checks the parameter defaults of [f].
@@ -646,7 +649,9 @@ func (c *checker) genericStructCall(e *ast.CallExpr, g *genericStruct, want Type
 func fieldSlots(s *Struct) []slot {
 	var slots []slot
 	for _, f := range s.Fields {
-		slots = append(slots, slot{name: f.Name, typ: f.Type, def: f.Default})
+		if !f.ByInit {
+			slots = append(slots, slot{name: f.Name, typ: f.Type, def: f.Default})
+		}
 	}
 	return slots
 }

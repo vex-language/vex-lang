@@ -74,7 +74,7 @@ func (c *checker) mapLit(e *ast.MapLit, want Type) Type {
 	}
 	if len(e.Keys) == 0 {
 		if key == nil {
-			c.errorAt(e, "give the type, e.g. let m: [string: int] = [:]", "can't tell the type of an empty map")
+			c.errorAt(e, c.typeHint("m: [string: int] = [:]"), "can't tell the type of an empty map")
 			return Invalid
 		}
 		return &Map{Key: key, Value: value}
