@@ -1845,7 +1845,7 @@ func precedence(k lexer.Kind) int {
 		return 1
 	case lexer.AndAnd:
 		return 2
-	case lexer.Eq, lexer.NotEq:
+	case lexer.Eq, lexer.NotEq, lexer.EqEq, lexer.NotEqEq:
 		return 3
 	case lexer.Lt, lexer.LtEq, lexer.Gt, lexer.GtEq:
 		return 4

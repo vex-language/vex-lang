@@ -38,6 +38,7 @@ func TestExpressions(t *testing.T) {
 		{"f(a == b || c < d)", "(call f (|| (== a b) (< c d)))"},
 		{"f(!done && -x > 0)", "(call f (&& (! done) (> (- x) 0)))"},
 		{"f(a % 2 == 0)", "(call f (== (% a 2) 0))"},
+		{"f(a === b && c !== d)", "(call f (&& (=== a b) (!== c d)))"},
 		{"f(--x)", "(call f (- (- x)))"},
 		{"f(1_000, 2.5e-3, true, false)", "(call f 1000 2.5e-3 true false)"},
 		{`f("hi")`, `(call f "hi")`},

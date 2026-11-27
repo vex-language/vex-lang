@@ -61,6 +61,7 @@ func TestTokens(t *testing.T) {
 		{"operators", "+ - * / % ! && || = += -= *= /= %= == != < <= > >= -> => . .. ..= ? ?. ??",
 			"+ - * / % ! && || = += -= *= /= %= == != < <= > >= -> => . .. ..= ? ?. ?? EOF"},
 		{"wrapping operators", "&+ &- &* &+= &-= &*= a&&-b", "&+ &- &* &+= &-= &*= id:a && - id:b NL EOF"},
+		{"identity", "a === b !== c == !d", "id:a === id:b !== id:c == ! id:d NL EOF"},
 		{"ampersand", "T: A & B", "id:T : id:A & id:B NL EOF"},
 		{"punctuation", "( ) { } [ ] , : ;", "( ) { } [ ] , : ; EOF"},
 		{"integers", "0 42 1_000_000 0xFF 0b1010 0o17", "int:0 int:42 int:1000000 int:0xFF int:0b1010 int:0o17 NL EOF"},
