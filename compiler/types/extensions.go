@@ -77,7 +77,7 @@ func (c *checker) declareExtension(d *ast.ExtensionDecl) {
 		return
 	}
 	if len(d.Consts) > 0 {
-		c.errorAt(d.Consts[0].Name, "move it to the top level", "only extensions of structs and enums can add constants")
+		c.errorAt(d.Consts[0].Name, "move it to the top level", "only extensions of structs and enums can add %s", staticKind(d.Consts[0]))
 	}
 	for _, md := range d.Methods {
 		c.declareRecvFunc(d, md, params, recv)

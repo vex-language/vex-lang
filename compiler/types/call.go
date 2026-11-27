@@ -194,6 +194,16 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		c.errorAt(id, fmt.Sprintf("create a struct that implements it: struct Name: %s<...>", name), "%s is an interface, so it can't be created", name)
 		return Invalid
 	}
+	if k := c.findConst(name); k != nil && k.Lazy {
+		c.checkConst(k)
+		if _, ok := k.Type.(*FuncType); ok || k.Type == Invalid {
+			return c.callValue(e)
+		}
+		c.info.Uses[id] = k
+		c.checkArgs(e)
+		c.errorAt(id, "", "'%s' is %s, not a function", name, article(k.Type))
+		return Invalid
+	}
 	if asyncBuiltins[name] && c.funcs[name] == nil && c.genFuncs[name] == nil {
 		return c.asyncBuiltin(e, name, want)
 	}

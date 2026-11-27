@@ -195,7 +195,9 @@ func (c *checker) namePattern(p *ast.NamePattern, t Type, b *binder, arm, guarde
 			return
 		}
 	}
-	if c.lookupVar(name) == nil {
+	// A pattern names a constant to compare with it; variables declared
+	// outside functions don't count, so their names bind as usual.
+	if k := c.findConst(name); c.lookupVar(name) == nil && k != nil && !k.Lazy {
 		if k := c.constIdent(p.Name); k != nil {
 			switch {
 			case k.Type == Invalid || t == Invalid:
