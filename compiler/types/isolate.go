@@ -162,7 +162,7 @@ func (c *checker) isolateCall(e *ast.CallExpr, name string, want Type) Type {
 				if v.Kind == SelfVar {
 					what = "self"
 				}
-				c.errorAt(arg, "copy the values it needs into plain variables first", "the closure uses %s, a %s: %s", what, v.Type, uncopyable(v.Type, bad))
+				c.errorAt(arg, "copy the values it needs into plain variables first", "the closure uses %s, %s: %s", what, article(v.Type), uncopyable(v.Type, bad))
 				return Invalid
 			}
 		}

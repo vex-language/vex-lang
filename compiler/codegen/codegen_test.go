@@ -1434,3 +1434,11 @@ func TestRangeChecksLeftOut(t *testing.T) {
 		t.Errorf("m += n kept its overflow check")
 	}
 }
+
+func TestGeneratorAsksItself(t *testing.T) {
+	src := "var current: Iterator<int>? = nil\n\nfn selfish() -> Iterable<int> {\n    if let it = current {\n        let _x = it.next()\n    }\n    yield 1\n}\n\nfn main() {\n    let it = selfish().iterator()\n    current = it\n    println(it.next())\n}\n"
+	out, errOut, code := run(t, src, "")
+	if want := "error: a generator can't ask itself for its next value\n --> main.vx:3\n"; code != 1 || errOut != want || out != "" {
+		t.Errorf("exit %d, stdout %q, stderr %q", code, out, errOut)
+	}
+}

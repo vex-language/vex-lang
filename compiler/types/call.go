@@ -363,6 +363,11 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 			if t, ok := c.extCall(e, m.X, m.Name, s, name); ok {
 				return t
 			}
+			if s.Field(name) == nil && s.Property(name) == nil {
+				if t := c.recvCall(e, m, s, want); t != nil {
+					return t
+				}
+			}
 			c.checkArgs(e)
 			if s.Field(name) != nil {
 				c.errorAt(m.Name, "", "'%s' is a field, not a method", name)
@@ -399,6 +404,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 			if t, ok := c.extCall(e, m.X, m.Name, en, name); ok {
 				return t
 			}
+			if t := c.recvCall(e, m, en, want); t != nil {
+				return t
+			}
 			c.checkArgs(e)
 			c.errorAt(m.Name, didYouMean(name, enumNames(en)), "%s has no method '%s'", en.Name, name)
 			return Invalid
@@ -432,6 +440,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 			return c.ifaceCall(e, method, m.X)
 		}
 		if t, ok := c.extCall(e, m.X, m.Name, recv, name); ok {
+			return t
+		}
+		if t := c.recvCall(e, m, recv, want); t != nil {
 			return t
 		}
 		c.checkArgs(e)
@@ -665,7 +676,7 @@ func trailingLit(e *ast.CallExpr, t Type) ast.Expr {
 // Returns [t] with "a" or "an" before it: "an int", "a string".
 func article(t Type) string {
 	name := t.String()
-	if strings.ContainsRune("aeiou", rune(name[0])) {
+	if strings.ContainsRune("aeiouAEIOU", rune(name[0])) {
 		return "an " + name
 	}
 	return "a " + name

@@ -208,6 +208,9 @@ func loadFS(fsys fs.FS, root, shown string, isDir, tests bool) (*Program, error)
 	for i := 0; i < len(l.prog.Modules); i++ {
 		l.resolveImports(l.prog.Modules[i])
 	}
+	if l.modules["vex:"+CoreName] == nil {
+		l.resolveImports(l.stdModule(CoreName, nil))
+	}
 	l.takeTests()
 	if len(l.errs) > 0 {
 		return l.prog, l.errs
@@ -325,7 +328,9 @@ func (l *loader) stdModule(name string, imp *Import) *Module {
 		var names []string
 		all, _ := fs.ReadDir(stdFS, "std")
 		for _, e := range all {
-			names = append(names, "vex:"+e.Name())
+			if e.Name() != CoreName {
+				names = append(names, "vex:"+e.Name())
+			}
 		}
 		l.errorAt(imp, "the standard library has "+strings.Join(names, ", "), "unknown module '%s'", imp.Decl.Path)
 		return nil
@@ -357,6 +362,25 @@ func (l *loader) stdModule(name string, imp *Import) *Module {
 	return m
 }
 
+// The name of the standard module whose public declarations every file
+// can use without importing it, such as `Iterable`.
+const CoreName = "core"
+
+// Returns a fresh copy of the core module, for programs built without a
+// loader.
+func Core() (*Module, error) {
+	l := &loader{modules: map[string]*Module{}, prog: &Program{Target: Host()}}
+	m := l.stdModule(CoreName, nil)
+	if len(l.errs) > 0 {
+		return nil, l.errs
+	}
+	m.Imports[m.Files[0]] = map[string]*Import{}
+	return m, nil
+}
+
+// Reports whether [m] is the core module.
+func (m *Module) Core() bool { return m.std && m.Name == CoreName }
+
 var validName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Finds the modules imported by each file of [m].
@@ -370,6 +394,9 @@ func (l *loader) resolveImports(m *Module) {
 			var target *Module
 			var name string
 			switch {
+			case d.Path == "vex:"+CoreName:
+				l.errorAt(imp, "leave out the import", "%s is always available", d.Path)
+				continue
 			case strings.HasPrefix(d.Path, "vex:"):
 				name = strings.TrimPrefix(d.Path, "vex:")
 				target = l.stdModule(name, imp)

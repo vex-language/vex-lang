@@ -48,10 +48,23 @@ func (c *checker) yieldStmt(s *ast.YieldStmt) {
 	switch {
 	case len(c.lits) > 0:
 		c.expr(s.Value, nil)
+		if i, ok := c.lits[len(c.lits)-1].result.(*Interface); ok && coreIface(i, "Iterable") {
+			c.errorAt(s, "move the generator to the top level", "a closure or local function can't be a generator yet")
+			return
+		}
 		c.errorAt(s, "yield in the stream function itself, or add to a StreamController", "yield can't be used inside a closure")
+	case c.fn != nil && c.fn.Generates():
+		elem := c.fn.Result.(*Interface).Args[0]
+		c.assignable(elem, c.expr(s.Value, elem), s.Value, "")
+	case c.fn != nil && c.fn.Result == Invalid:
+		c.expr(s.Value, nil)
 	case c.fn == nil || !c.fn.Streams():
 		c.expr(s.Value, nil)
-		c.errorAt(s, "declare an async fn that returns a Stream: async fn f() -> Stream<int>", "yield is only allowed in an async fn that returns a Stream")
+		hint := "return Iterable<T> to give values one at a time: fn f() -> Iterable<int>"
+		if c.fn != nil && c.fn.Async {
+			hint = "return a Stream: async fn f() -> Stream<int>"
+		}
+		c.errorAt(s, hint, "yield is only allowed in a function that returns Iterable<T>, or an async fn that returns Stream<T>")
 	default:
 		elem := c.fn.Result.(*Stream).Elem
 		c.assignable(elem, c.expr(s.Value, elem), s.Value, "")

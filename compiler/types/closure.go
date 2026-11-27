@@ -146,7 +146,7 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 		if ctx.result == nil {
 			ctx.result = Void
 		}
-		if ctx.result != Void && !terminates(e.Body) {
+		if ctx.result != Void && !terminates(e.Body) && !hasYield(e.Body) {
 			c.errorAtPos(c.file.PosOf(e.Body.End-1), 1, "add a return statement before the closing }",
 				"missing return: %s must return %s", ctx.name, ctx.result)
 		}

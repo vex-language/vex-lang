@@ -61,8 +61,8 @@ func TestLoad(t *testing.T) {
 		got = append(got, fmt.Sprintf("%s=%s(%d)", m.Path, m.Name, len(m.Files)))
 	}
 	// The root comes first, then modules in the order they are imported;
-	// util and models import each other.
-	if want := "=main(2) models=models(1) vex:math=math(1) ../util=util(1)"; strings.Join(got, " ") != want {
+	// util and models import each other. The core module comes last.
+	if want := "=main(2) models=models(1) vex:math=math(1) ../util=util(1) vex:core=core(1)"; strings.Join(got, " ") != want {
 		t.Errorf("modules\n got %s\nwant %s", strings.Join(got, " "), want)
 	}
 	models := prog.Modules[1]
@@ -126,7 +126,7 @@ func TestLoadFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prog.Name != "" || len(prog.Modules) != 3 || prog.Root.Files[0].Name != "dir/hello.vx" {
+	if prog.Name != "" || len(prog.Modules) != 4 || prog.Root.Files[0].Name != "dir/hello.vx" {
 		t.Fatalf("name %q, %d modules, root file %q", prog.Name, len(prog.Modules), prog.Root.Files[0].Name)
 	}
 	if got := prog.Modules[2].Files[0].Name; got != "dir/lib/lib.vx" {
@@ -270,6 +270,9 @@ func TestLoadTests(t *testing.T) {
 	}
 	count := func(p *Program) (files, decls int) {
 		for _, m := range p.Modules {
+			if m.Core() {
+				continue
+			}
 			for _, tree := range m.Trees {
 				files++
 				decls += len(tree.Decls)

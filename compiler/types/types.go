@@ -3,6 +3,7 @@
 package types
 
 import (
+	"github.com/vex-language/vex-lang/compiler/modules"
 	"strings"
 
 	"github.com/vex-language/vex-lang/compiler/ast"
@@ -123,7 +124,7 @@ func (i *Interface) String() string { return qualified(i.Module, i.Name) }
 
 // Returns [name] prefixed with its module unless that is the root module.
 func qualified(m *Module, name string) string {
-	if m == nil || m.Index == 0 {
+	if m == nil || m.Index == 0 || m.Path == "vex:"+modules.CoreName {
 		return name
 	}
 	return m.Name + "." + name
@@ -475,6 +476,9 @@ func (p *Property) Type() Type {
 
 // A function, method or static method.
 type Func struct {
+	// Whether [Generates] holds: 1, -1, or 0 until it is first asked.
+	yields int8
+
 	Name   string
 	Module *Module
 	Params []*Param
@@ -916,6 +920,10 @@ type Info struct {
 	// as a task and give its future.
 	Spawns map[*ast.CallExpr]bool
 
+	// The `Iterable<T>` each `for in` loop over an iterable value reads
+	// through.
+	Iterables map[*ast.ForStmt]*Interface
+
 	// How each try handles errors.
 	Tries map[*ast.TryExpr]*Try
 
@@ -930,6 +938,18 @@ type Info struct {
 func (f *Func) Streams() bool {
 	s, ok := f.Result.(*Stream)
 	return f.Async && ok && !s.Controller
+}
+
+// Reports whether [f] is a generator: a function that isn't async, whose
+// result is an `Iterable<T>` and whose body gives values with `yield`.
+func (f *Func) Generates() bool {
+	if f.yields == 0 {
+		f.yields = -1
+		if i, ok := f.Result.(*Interface); ok && !f.Async && coreIface(i, "Iterable") && f.Decl != nil && f.Decl.Body != nil && hasYield(f.Decl.Body) {
+			f.yields = 1
+		}
+	}
+	return f.yields == 1
 }
 
 // Reports whether [ft] is the type of a stream function, whose calls give

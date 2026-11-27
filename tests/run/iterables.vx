@@ -1,0 +1,182 @@
+/// Iterables: types that `for in` accepts, generators with yield, and
+/// the lazy helpers every Iterable has.
+import "vex:isolate"
+
+struct Countdown: Iterable<int> {
+    from: int
+
+    fn iterator() -> Iterator<int> => CountdownIterator(n: from)
+}
+
+struct CountdownIterator: Iterator<int> {
+    n: int
+
+    fn next() -> int? {
+        if n == 0 { return nil }
+        n -= 1
+        return n + 1
+    }
+}
+
+fn custom() {
+    let c = Countdown(from: 5)
+    println(c.toList())
+    println(c.map { it * 10 }.toList())
+    println(c.filter { it % 2 == 1 }.map { "<{it}>" }.toList())
+    println(c.skip(1).take(2).toList(), c.enumerated().toList())
+    let s: Iterable<int> = c
+    println(s.take(10).toList())
+    loops()
+}
+
+fn loops() {
+    for x in Countdown(from: 3) { print(x, "") }
+    println()
+    let doubled = Countdown(from: 3).map { it * 2 }
+    for i, x in doubled { print("{i}:{x} ") }
+    println()
+    for (i, x) in Countdown(from: 4).enumerated() {
+        if i == 1 { continue }
+        if x == 1 { break }
+        print("{i}={x} ")
+    }
+    println()
+}
+
+fn evens(limit: int) -> Iterable<int> {
+    var n = 0
+    while n < limit {
+        yield n
+        n += 2
+    }
+}
+
+fn naturals() -> Iterable<int> {
+    var n = 0
+    while true {
+        yield n
+        n += 1
+    }
+}
+
+fn words(text: string) -> Iterable<string> {
+    for w in text.split(" ") {
+        if w == "" { continue }
+        yield w.upper()
+    }
+    yield "END"
+}
+
+struct Tree {
+    value: int
+    kids: [Tree]
+
+    fn walk() -> Iterable<int> {
+        yield value
+        for k in kids {
+            for v in k.walk() {
+                yield v
+            }
+        }
+    }
+}
+
+fn generators() {
+    for x in evens(limit: 10) { print(x, "") }
+    println()
+    let e = evens(limit: 5)
+    println(e.toList(), e.toList(), e)
+    println(naturals().filter { it % 2 == 0 }.map { it * it }.take(3).toList())
+    for (i, w) in words(text: "hi  there you").enumerated() { print("{i}:{w} ") }
+    println()
+    let t = Tree(value: 1, kids: [Tree(value: 2, kids: [Tree(value: 3, kids: [])]), Tree(value: 4, kids: [])])
+    println(t.walk().toList())
+    for n in naturals() {
+        if n > 3 { break }
+        print(n, "")
+    }
+    println()
+    let it = naturals().iterator()
+    println(it.next(), it.next(), it.next())
+}
+
+fn repeated<T>(value: T, times: int) -> Iterable<T> {
+    for _ in 0..times {
+        yield value
+    }
+}
+
+
+struct Box<T> {
+    items: [T]
+
+    fn backwards() -> Iterable<T> {
+        var i = items.len - 1
+        while i >= 0 {
+            yield items[i]
+            i -= 1
+        }
+    }
+}
+
+fn early(n: int) -> Iterable<int> {
+    for i in 0..10 {
+        if i == n { return }
+        yield i
+    }
+}
+
+fn total(xs: Iterable<int>) -> int {
+    var sum = 0
+    for x in xs { sum += x }
+    return sum
+}
+
+async fn edges() {
+    println(repeated("ab", times: 3).toList(), repeated(value: 1.5, times: 2).toList())
+    println(Box(items: [1, 2, 3]).backwards().toList(), early(n: 3).toList())
+    let f = early
+    println(total(f(5)), total(repeated(7, times: 3).map { it + 1 }))
+    let r = await isolate.run { total(early(n: 4)) }
+    println(r)
+}
+
+extension Iterable {
+    fn count() -> int {
+        var n = 0
+        for _ in self { n += 1 }
+        return n
+    }
+
+    fn firstWhere(test: fn(T) -> bool) -> T? {
+        for x in self {
+            if test(x) { return x }
+        }
+        return nil
+    }
+}
+
+fn squares() -> Iterable<int> {
+    var n = 1
+    while true {
+        yield n * n
+        n += 1
+    }
+}
+
+struct Named {
+    map: fn(int) -> int
+}
+
+fn extended() {
+    println(squares().take(5).count(), squares().firstWhere { it > 50 })
+    let n = Named(map: fn(x: int) -> int => x + 1)
+    println(n.map(1))
+}
+
+async fn main() {
+    custom()
+    generators()
+    await edges()
+    extended()
+}

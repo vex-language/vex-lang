@@ -114,6 +114,18 @@ func (g *gen) collectOptionals() {
 	for _, e := range g.info.Enums {
 		visit(e)
 	}
+	// Generators and loops call interface methods that no expression names.
+	for _, i := range g.info.Interfaces {
+		for _, m := range i.Methods {
+			if !m.InTable() {
+				continue
+			}
+			for _, p := range m.Params {
+				visit(p.Type)
+			}
+			visit(m.Result)
+		}
+	}
 }
 
 func sortedKeys[V any](m map[string]V) []string {

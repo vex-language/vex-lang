@@ -105,6 +105,13 @@ type gen struct {
 	// The value type of the stream function being generated.
 	yields types.Type
 
+	// Set while generating a generator's body, whose yields store into
+	// its iterator.
+	generating bool
+
+	// The iterator descriptors written so far, by element type.
+	genDescs map[string]bool
+
 	// The enums of the JSON module, and the functions converting values
 	// to and from them, which come after the constants they may use.
 	json, jsonErr *types.Enum
@@ -666,6 +673,10 @@ func (g *gen) function(f *types.Func) {
 		g.streamFunction(f)
 		return
 	}
+	if f.Generates() {
+		g.generatorFunction(f)
+		return
+	}
 	if f.Decl.ExprBody != nil {
 		g.rng = newRanges(g.info, f.Decl.ExprBody)
 	} else {
@@ -1199,6 +1210,10 @@ func (g *gen) forStmt(s *ast.ForStmt) {
 		g.line("}")
 		g.ind--
 		g.line("}")
+		return
+	}
+	if it := g.info.Iterables[s]; it != nil {
+		g.iterableLoop(s, it)
 		return
 	}
 	// Items added during the loop aren't visited, so pushing inside the

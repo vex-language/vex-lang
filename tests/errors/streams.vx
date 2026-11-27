@@ -40,7 +40,7 @@ async fn main() {
 // error: 3:12: a stream function returns no value
 // error: 6:16: a stream function can't throw yet
 // error: 10:36: a stream function needs a block body
-// error: 13:5: yield is only allowed in an async fn that returns a Stream
+// error: 13:5: yield is only allowed in a function that returns Iterable<T>, or an async fn that returns Stream<T>
 // error: 14:5: for await is only allowed in async functions
 // error: 18:13: Stream needs a type argument
 // error: 18:31: 'void' is not a type

@@ -59,6 +59,10 @@ func (g *gen) streamFunction(f *types.Func) {
 // Generates `yield value`, which waits until the reader takes the value.
 func (g *gen) yieldStmt(s *ast.YieldStmt) {
 	x := g.temp()
+	if g.generating {
+		g.line("{ %s = %s; *(%s *)vx_yg->out = %s; vx_gen_yield(); }", decl(g.yields, x), g.expr(s.Value), ctype(g.yields), x)
+		return
+	}
 	g.line("{ %s = %s; vx_stream_yield(vx_ys, &%s); }", decl(g.yields, x), g.expr(s.Value), x)
 }
 

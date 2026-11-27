@@ -358,6 +358,86 @@ xs[(0..5).step(2)]      // [10, 30, 50]
 - A range that reaches outside the list or string stops the program, as an index does.
 - A string can't be indexed by an `int`. `s[i..=i]` gives the character at `i` as a string.
 
+## Iterables and generators
+
+Any type can be looped over with `for in` by implementing `Iterable<T>`, as in Swift, Kotlin and Dart. Its `iterator()` returns an `Iterator<T>`, whose `next()` gives each value and then `nil`:
+
+```swift
+struct Countdown: Iterable<int> {
+    from: int
+
+    fn iterator() -> Iterator<int> => CountdownIterator(n: from)
+}
+
+struct CountdownIterator: Iterator<int> {
+    n: int
+
+    fn next() -> int? {
+        if n == 0 { return nil }
+        n -= 1
+        return n + 1
+    }
+}
+
+for x in Countdown(from: 3) { }     // 3 2 1
+```
+
+**Generators.** A function that returns `Iterable<T>` and uses `yield` is a generator, as in Python and C#. Its body runs lazily, a step for each value read, and pauses at each `yield`:
+
+```swift
+fn evens(limit: int) -> Iterable<int> {
+    var n = 0
+    while n < limit {
+        yield n
+        n += 2
+    }
+}
+
+for x in evens(limit: 10) { }       // 0 2 4 6 8
+```
+
+- Calling a generator gives its Iterable at once; nothing runs until it is read. Each loop over it, or each `iterator()`, runs the body again from the start, so a generator can be looped many times.
+- A generator ends by finishing its body or with a bare `return`. It can't `throw` yet. Generators can be methods and generic, and can loop forever: the reader decides how many values to take.
+- A generator that is left before its end, by `break` or by keeping only a few values, is freed with its iterator.
+- Closures and local functions can't be generators yet.
+- `Iterable` and `Iterator` can't hold optionals, `Iterable<int?>`, since `nil` from `next()` marks the end.
+
+**Helpers.** Every Iterable has lazy `map`, `filter`, `take`, `skip` and `enumerated`, which give new Iterables and do no work until read, so they work on endless generators. `toList()` collects the values:
+
+```swift
+fn naturals() -> Iterable<int> {
+    var n = 0
+    while true {
+        yield n
+        n += 1
+    }
+}
+
+let firstSquares = naturals()
+    .filter { it % 2 == 0 }
+    .map { it * it }
+    .take(3)
+    .toList()                       // [0, 4, 16]
+
+for (i, x) in evens(limit: 6).enumerated() { }   // (0, 0) (1, 2) (2, 4)
+```
+
+- `for i, x in items` gives the position as well, as for lists.
+- Lists, maps and ranges have their own eager methods and aren't `Iterable` values: a list can't be passed where an `Iterable<int>` is expected yet.
+- An extension of `Iterable` adds methods to every Iterable, user types and generators included; its members use the interface's own `T`:
+
+  ```swift
+  extension Iterable {
+      fn count() -> int {
+          var n = 0
+          for _ in self { n += 1 }
+          return n
+      }
+  }
+
+  println(evens(limit: 10).count())   // 5
+  ```
+
 ## Structs
 
 ```swift
@@ -822,7 +902,8 @@ fn bigOnes<T: Shape>(xs: [T]) -> [T] => xs.filter { it.isBig() }
 ```
 
 - Unlike a default, an added method can't be replaced: a type that implements the interface can't have a method of the same name.
-- An extension can add methods, not getters, setters or static members. Extensions of generic interfaces aren't supported yet.
+- An extension can add methods, not getters, setters or static members.
+- A generic interface is extended without type arguments, `extension Iterable { ... }`, and its methods use the interface's own parameters. They may also have their own, as `map<U>` does. A type's own method of the same name is used before the added one.
 - In other modules, an added method needs `pub` (or `pub extension`), and the file needs to import the extension's module.
 
 **Type tests.** `is` asks whether an interface value holds a given struct, enum or interface, and `as?` gives it as that type, or `nil`:
@@ -886,7 +967,8 @@ Inside an extension, the value is `self`, and its members can be used without `s
 - An extension for one type, such as `[int]`, is chosen before one for all lists.
 - Extensions can't add fields, and can't change what a type already has: a member with the same name as an existing one is an error. A method an extension adds can meet an interface the struct already lists after `:`.
 - An extension works in its own module. In other modules, its `pub` members work in files that import the extension's module; `pub extension` makes every member public.
-- Interfaces, optionals, records and function types can't be extended yet.
+- Interfaces are extended with methods only. A generic interface is named without type arguments, and its members use its own parameters, as for `extension Iterable` in [Iterables](#iterables-and-generators).
+- Optionals, records and function types can't be extended yet.
 
 ## Modules
 
@@ -1667,7 +1749,7 @@ screen.cancel()                 // cancels a and b too
 - `time.timeout(f, ms)` is a future of the value as an optional: the value when `f` finishes in time, otherwise `nil`. Errors from `f` still need `try`. For a `Future<void>` it gives whether `f` finished. A future whose value is already optional can't be timed out, since `nil` would be ambiguous.
 - Cancelling a future that is already done does nothing. A future from `isolate.run` can be cancelled, which drops its result, but the other isolate finishes its work.
 
-**Streams.** A `Stream<T>` gives values over time. An `async fn` that returns a stream gives each value with `yield`, and `for await` reads them.
+**Streams.** A `Stream<T>` gives values over time; it is the async counterpart of a [generator](#iterables-and-generators). An `async fn` that returns a stream gives each value with `yield`, and `for await` reads them.
 
 ```swift
 async fn ticks(n: int) -> Stream<int> {
@@ -1802,7 +1884,7 @@ $ vex test
 
 ## Types
 
-The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, structs, enums, function types `fn(T) -> R` and `async fn(T) -> R`, optionals `T?`, records `(int, string)`, ranges `Range` and futures `Future<T>`.
+The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, structs, enums, function types `fn(T) -> R` and `async fn(T) -> R`, optionals `T?`, records `(int, string)`, ranges `Range`, iterables `Iterable<T>` and futures `Future<T>`.
 
 - `let x = ...` takes its type from the value. An empty list or map needs the type written: `let xs: [int] = []`, `let m: [string: int] = [:]`.
 - Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.
