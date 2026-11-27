@@ -22,7 +22,7 @@ var builtinTypes = map[string]Type{"int": Int, "float": Float, "bool": Bool, "st
 // Names of the built-in functions.
 var builtinFuncs = map[string]bool{
 	"print": true, "println": true, "input": true, "panic": true,
-	"assert": true, "str": true, "int": true, "float": true,
+	"assert": true, "str": true, "int": true, "float": true, "expect": true,
 }
 
 // A block of local variables.
@@ -38,6 +38,9 @@ type scope struct {
 type checker struct {
 	info *Info
 	errs diag.List
+
+	// Set when checking a program built to run its tests.
+	testing bool
 
 	// The declarations of every module, and where each one lives.
 	decls    []ast.Decl
@@ -744,6 +747,10 @@ func (c *checker) checkDefaults() {
 
 func (c *checker) checkMain() {
 	c.setUnit(c.rootUnit)
+	if c.testing {
+		c.checkTests()
+		return
+	}
 	main := c.funcs["main"]
 	if g := c.genFuncs["main"]; g != nil {
 		defer c.enter(g.decl)()
@@ -1395,5 +1402,20 @@ func (c *checker) checkDefaultCycles() {
 				back()
 			}
 		}
+	}
+}
+
+// Checks the tests of a program built to run them: their names must
+// differ. Such a program needs no main.
+func (c *checker) checkTests() {
+	seen := map[string]*ast.FuncDecl{}
+	for _, t := range c.info.Tests {
+		if prev := seen[t.Test]; prev != nil {
+			back := c.enter(t)
+			c.errorAtPos(t.Name.Pos(), len(t.Test)+2, "give each test its own name", "a test named '%s' is already on line %d", t.Test, prev.Pos().Line)
+			back()
+			continue
+		}
+		seen[t.Test] = t
 	}
 }

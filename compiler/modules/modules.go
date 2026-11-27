@@ -79,6 +79,13 @@ type Program struct {
 
 	// The system the program is built for.
 	Target Target
+
+	// Set for a program built to run its tests: the root module's
+	// `_test.vx` files are loaded, and its test blocks become [Tests],
+	// functions named `test#1`, `test#2` and so on. Otherwise test blocks
+	// are left out.
+	Testing bool
+	Tests   []*ast.FuncDecl
 }
 
 // Returns the C code of the project file, with paths made absolute, for
@@ -117,7 +124,12 @@ func (p *Program) Warnings() diag.List {
 // Loads the program at [target]: a project folder with a project file, or
 // a single `.vx` file. On errors the result is a [diag.List] when the
 // problems are in source files.
-func Load(target string) (*Program, error) {
+func Load(target string) (*Program, error) { return load(target, false) }
+
+// Loads the program at [target] like [Load], with its tests.
+func LoadTests(target string) (*Program, error) { return load(target, true) }
+
+func load(target string, tests bool) (*Program, error) {
 	abs, err := filepath.Abs(target)
 	if err != nil {
 		return nil, err
@@ -128,7 +140,7 @@ func Load(target string) (*Program, error) {
 	}
 	fsys := os.DirFS(filepath.VolumeName(abs) + string(filepath.Separator))
 	rel := filepath.ToSlash(strings.TrimPrefix(abs, filepath.VolumeName(abs)+string(filepath.Separator)))
-	prog, err := LoadFS(fsys, rel, target, info.IsDir())
+	prog, err := loadFS(fsys, rel, target, info.IsDir(), tests)
 	if prog != nil && info.IsDir() {
 		prog.Dir = abs
 	}
@@ -138,14 +150,24 @@ func Load(target string) (*Program, error) {
 // Loads a program from [fsys]. [root] is the folder or file within [fsys],
 // and [shown] is how file names start in messages.
 func LoadFS(fsys fs.FS, root, shown string, isDir bool) (*Program, error) {
-	l := &loader{fsys: fsys, shown: shown, modules: map[string]*Module{}}
+	return loadFS(fsys, root, shown, isDir, false)
+}
+
+// Loads a program from [fsys] like [LoadFS], with its tests when [tests]
+// is set.
+func LoadTestsFS(fsys fs.FS, root, shown string, isDir bool) (*Program, error) {
+	return loadFS(fsys, root, shown, isDir, true)
+}
+
+func loadFS(fsys fs.FS, root, shown string, isDir, tests bool) (*Program, error) {
+	l := &loader{fsys: fsys, shown: shown, modules: map[string]*Module{}, tests: tests}
 	if isDir {
 		l.base = root
 	} else {
 		l.base = path.Dir(root)
 		l.shown = filepath.Dir(shown)
 	}
-	l.prog = &Program{Target: Host()}
+	l.prog = &Program{Target: Host(), Testing: tests}
 	var m *Module
 	if isDir {
 		proj, err := l.project(root)
@@ -186,6 +208,7 @@ func LoadFS(fsys fs.FS, root, shown string, isDir bool) (*Program, error) {
 	for i := 0; i < len(l.prog.Modules); i++ {
 		l.resolveImports(l.prog.Modules[i])
 	}
+	l.takeTests()
 	if len(l.errs) > 0 {
 		return l.prog, l.errs
 	}
@@ -199,6 +222,29 @@ type loader struct {
 	modules map[string]*Module
 	prog    *Program
 	errs    diag.List
+	tests   bool
+}
+
+// Replaces the test blocks of the root module with their functions when
+// loading tests, and removes all others.
+func (l *loader) takeTests() {
+	for _, m := range l.prog.Modules {
+		for _, tree := range m.Trees {
+			decls := tree.Decls[:0]
+			for _, d := range tree.Decls {
+				t, ok := d.(*ast.TestDecl)
+				switch {
+				case !ok:
+					decls = append(decls, d)
+				case l.tests && m.Root:
+					t.Fn.Name.Name = fmt.Sprintf("test#%d", len(l.prog.Tests)+1)
+					l.prog.Tests = append(l.prog.Tests, t.Fn)
+					decls = append(decls, t.Fn)
+				}
+			}
+			tree.Decls = decls
+		}
+	}
 }
 
 // Returns the name of a file at [p] in [fsys], as shown in messages.
@@ -247,7 +293,7 @@ func (l *loader) folder(dir string, imp *Import) *Module {
 	m := &Module{Imports: map[*diag.File]map[string]*Import{}, dir: dir}
 	var names []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasSuffix(e.Name(), ".vx") {
+		if !e.IsDir() && strings.HasSuffix(e.Name(), ".vx") && (!strings.HasSuffix(e.Name(), "_test.vx") || l.tests && imp == nil) {
 			names = append(names, e.Name())
 		}
 	}

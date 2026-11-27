@@ -259,3 +259,44 @@ func TestProjectCTargets(t *testing.T) {
 		t.Errorf("\n got %s\nwant %s", got, want)
 	}
 }
+
+func TestLoadTests(t *testing.T) {
+	fsys := fstest.MapFS{
+		"app/package.toml":      {Data: []byte("[package]\nname = \"app\"\n")},
+		"app/main.vx":           {Data: []byte("import \"util\"\n\nfn main() {}\n\ntest \"in main\" {\n}\n")},
+		"app/main_test.vx":      {Data: []byte("test \"in a test file\" throws {\n}\n")},
+		"app/util/util.vx":      {Data: []byte("pub fn one() -> int => 1\n\ntest \"in a dependency\" {\n}\n")},
+		"app/util/util_test.vx": {Data: []byte("test \"in a dependency's test file\" {\n}\n")},
+	}
+	count := func(p *Program) (files, decls int) {
+		for _, m := range p.Modules {
+			for _, tree := range m.Trees {
+				files++
+				decls += len(tree.Decls)
+			}
+		}
+		return
+	}
+	prog, err := LoadFS(fsys, "app", "app", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if files, decls := count(prog); files != 2 || decls != 2 || len(prog.Tests) != 0 || prog.Testing {
+		t.Errorf("build: %d files, %d declarations, %d tests", files, decls, len(prog.Tests))
+	}
+	prog, err = LoadTestsFS(fsys, "app", "app", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, f := range prog.Tests {
+		names = append(names, f.Name.Name+" "+f.Test)
+	}
+	got := strings.Join(names, ", ")
+	if want := "test#1 in main, test#2 in a test file"; got != want || !prog.Testing {
+		t.Errorf("tests: got %q, want %q", got, want)
+	}
+	if files, decls := count(prog); files != 3 || decls != 4 {
+		t.Errorf("test build: %d files, %d declarations", files, decls)
+	}
+}

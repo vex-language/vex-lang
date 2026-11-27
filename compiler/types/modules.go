@@ -285,6 +285,8 @@ func CheckProgram(prog *modules.Program) (*Info, error) {
 	if c.rootUnit == nil {
 		c.rootUnit = &unit{mod: root, imports: map[string]*Module{}}
 	}
+	c.testing = prog.Testing
+	c.info.Testing, c.info.Tests = prog.Testing, prog.Tests
 	c.setUnit(c.rootUnit)
 	return c.run()
 }

@@ -651,6 +651,7 @@ var builtinSlots = map[string]struct {
 	"input":  {[]slot{{name: "prompt", typ: String, optional: true}}, String},
 	"panic":  {[]slot{{name: "message", typ: String}}, Void},
 	"assert": {[]slot{{name: "condition", typ: Bool}, {name: "message", typ: String, optional: true}}, Void},
+	"expect": {[]slot{{name: "condition", typ: Bool}, {name: "message", typ: String, optional: true}}, Void},
 
 	"int.parse":   {[]slot{{name: "text", typ: String}, {name: "radix", typ: Int, optional: true}}, &Optional{Elem: Int}},
 	"float.parse": {[]slot{{name: "text", typ: String}}, &Optional{Elem: Float}},
@@ -687,8 +688,16 @@ func (c *checker) callBuiltin(e *ast.CallExpr, name string) Type {
 	if e.Trailing != nil {
 		c.errorAt(e.Trailing, "", "%s doesn't take a trailing block", name)
 	}
+	if name == "expect" && !c.testing {
+		c.checkArgs(e)
+		c.errorAt(e.Fn, "use it in a test block, run by vex test, or use assert", "expect only works in tests")
+		return Void
+	}
 	if b, ok := builtinSlots[name]; ok {
 		call.Args = c.bind(e, b.params, name)
+		if name == "expect" && len(call.Args) > 0 && call.Args[0] != nil {
+			call.Text = c.source(call.Args[0])
+		}
 		return b.result
 	}
 	if name == "str" && len(e.Args) == 2 && e.Args[1].Name != nil && e.Args[1].Name.Name == "radix" {
