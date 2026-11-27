@@ -355,6 +355,24 @@ counter.count += 1           // runs didSet
 - Assigning the field inside its own `didSet` doesn't run it again.
 - Changing what a field refers to, such as pushing to a list field, isn't an assignment and doesn't run it.
 
+**Printing.** A struct or enum shows as its name and fields, such as `User(name: "Ann", age: 30)`. A `toString()` method replaces that, as in Dart and Kotlin, wherever the value is shown: `println`, `str`, interpolation, and inside lists, maps, optionals and other structs.
+
+```swift
+struct Money {
+    cents: int
+
+    fn toString() -> string => "${cents / 100}.{cents % 100}"
+}
+
+let m = Money(cents: 1250)
+println(m)                   // $12.50
+println("cost: {m}")         // cost: $12.50
+println([m, m])              // [$12.50, $12.50]
+```
+
+- `toString` must be written `fn toString() -> string`: no parameters, not static, async or throwing. An extension can add it too.
+- Showing `self` inside `toString` calls it again without end; show the fields instead.
+
 **Operators.** A struct defines an operator like a method, as in Dart: `self` is the left operand and the parameter the right one.
 
 ```swift
