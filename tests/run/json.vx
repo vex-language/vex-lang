@@ -1,0 +1,106 @@
+/// Encodes and decodes Codable types, and reads JSON of any shape.
+import "vex:json"
+
+enum Role: Codable {
+    admin
+    guest
+}
+
+enum Shape: Codable {
+    circle(radius: float)
+    rect(w: int, h: int)
+    dot
+}
+
+struct User: Codable {
+    name: string
+    age: int
+    tags: [string] = []
+    email: string? = nil
+    role = Role.guest
+    scores: [string: float] = [:]
+    shape = Shape.dot
+}
+
+/// A date written as "2024-05-01" in JSON.
+struct Day: Codable {
+    year: int
+    month: int
+    day: int
+
+    fn encode() -> json.Json => json.Json.text(value: "{year}-{month}-{day}")
+
+    static fn decode(value: json.Json) throws(json.JsonError) -> Day {
+        guard let s = value.asString else {
+            throw json.JsonError.mismatch(path: "", reason: "expected a date")
+        }
+        let parts = s.split("-")
+        if parts.len != 3 {
+            throw json.JsonError.mismatch(path: "", reason: "bad date '{s}'")
+        }
+        return Day(year: int(parts[0]), month: int(parts[1]), day: int(parts[2]))
+    }
+}
+
+struct Trip: Codable {
+    name: string
+    days: [Day]
+}
+
+struct Box<T: Codable>: Codable {
+    item: T
+    count: int = 1
+}
+
+fn typed() throws {
+    let u = User(name: "Ann", age: 30, tags: ["a", "b"], email: "a@x.io", role: Role.admin, scores: ["m": 1.5], shape: Shape.rect(w: 2, h: 3))
+    let text = json.encode(u)
+    println(text)
+    println(json.encode(u, indent: 2))
+    let back: User = try json.decode(text)
+    println(back)
+    let list = try json.decode<[User]>("[\{\"name\": \"Bo\", \"age\": 4, \"shape\": \{\"circle\": \{\"radius\": 2\}\}\}]")
+    println(list)
+    let bad = try? json.decode<[User]>("[\{\"name\": \"Bo\", \"age\": \"x\"\}]")
+    println(bad)
+    let e = try json.decode<[User]>("[\{\"name\": \"Bo\", \"age\": \"x\"\}]") catch err {
+        println(err)
+        []
+    }
+    try json.decode<User>("\{\"age\": 3\}") catch e { println(e) }
+    try json.decode<User>("\{\"name\": 1,") catch e { println(e) }
+    try json.decode<Role>("\"boss\"") catch e { println(e) }
+    let j = try json.parse("\{\"a\": [1, 2.5, true, null, \"s\\n\\u00e9\"], \"b\": \{\}\}")
+    println(j, j.get("a")?.at(4)?.asString, j.get("a")?.at(1)?.asFloat)
+    println(json.write(j, indent: 2))
+    println(e.len)
+}
+
+fn custom() throws {
+    let t = Trip(name: "x", days: [Day(year: 2024, month: 5, day: 1)])
+    let s = json.encode(t)
+    println(s)
+    println(try json.decode<Trip>(s))
+    try json.decode<Trip>("\{\"name\": \"y\", \"days\": [\"2024-5-1\", \"oops\"]\}") catch e { println(e) }
+    let b = Box(item: [1, 2])
+    println(json.encode(b), try json.decode<Box<[int]>>("\{\"item\": [3]\}"))
+    let j = json.toJson(t)
+    println(j.get("days")?.at(0), try json.fromJson<Trip>(j))
+}
+
+fn dynamic() throws {
+    let a = try json.parse("\{\"x\": [1, \{\"y\": null\}]\}")
+    let b = try json.parse(" \{ \"x\" : [ 1 , \{ \"y\" : null \} ] \} ")
+    println(a == b, a == json.Json.null, try json.parse("null") == json.Json.null)
+    println(json.encode(5), json.encode([1.0, 0.1, 1e21, -0.0]), json.encode("a\"b\\\u{1}"))
+    for t in ["", "  ", "[1,]", "\{\"a\" 1\}", "01", "1.", "-", "\"abc", "\"\\x\"", "[1 2]", "tru", "1 2", "\"\\u12\"", "\{,\}"] {
+        try json.parse(t) catch e { println(e) }
+    }
+    println(try json.parse("\"\\ud83d\\ude00 \\u00e9\""), try json.parse("12345678901234567890"), try json.parse("-0"))
+}
+
+fn main() throws {
+    try typed()
+    try custom()
+    try dynamic()
+}

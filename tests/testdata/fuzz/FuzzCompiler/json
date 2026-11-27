@@ -1,0 +1,2 @@
+go test fuzz v1
+string("import \"vex:json\"\nenum Kind: Codable { a, b(n: int) }\nstruct P: Codable {\n    name: string\n    k = Kind.a\n    xs: [float]? = nil\n}\nfn main() throws {\n    let p: P = try json.decode(\"\\{\\\"name\\\": \\\"x\\\", \\\"k\\\": \\{\\\"b\\\": \\{\\\"n\\\": 1\\}\\}\\}\")\n    println(json.encode(p, indent: 1), try json.parse(\"[1, \\\"a\\\", null]\").at(1)?.asString)\n}\n")

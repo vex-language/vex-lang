@@ -1,0 +1,48 @@
+/// Types that can't be Codable, and misused JSON calls.
+import "vex:json"
+
+struct Plain {
+    x: int
+}
+
+struct Bad: Codable {
+    f: fn(int) -> int
+    ids: [int: string]
+    p: Plain
+    r: (int, int)
+}
+
+struct Odd: Codable {
+    n: int
+
+    fn encode() -> string => "x"
+    static fn decode(value: json.Json) -> Odd => Odd(n: 1)
+}
+
+struct HalfOwn: Codable {
+    when: Plain
+
+    fn encode() -> json.Json => json.Json.null
+}
+
+fn generic<T>(x: T) -> string => json.encode(x)
+
+fn main() throws {
+    println(json.encode(Plain(x: 1)))
+    let a = try json.decode("1")
+    let b: int = json.decode("1")
+    println(jsonOf(1))
+}
+
+// error: 9:8: field 'f' is fn(int) -> int, which isn't Codable, so Bad can't be Codable
+// error: 10:10: field 'ids' is [int: string], which isn't Codable, so Bad can't be Codable
+// error: 11:8: field 'p' is Plain, which isn't Codable, so Bad can't be Codable
+// error: 12:8: field 'r' is (int, int), which isn't Codable, so Bad can't be Codable
+// error: 18:8: encode must take no parameters and return json.Json, so JSON can use it
+// error: 19:15: decode must be static, take a json.Json and throw json.JsonError, so JSON can use it
+// error: 23:11: field 'when' is Plain, which isn't Codable, so HalfOwn can't be Codable
+// error: 28:34: encode needs T to be Codable, but T isn't
+// error: 31:13: encode needs T to be Codable, but Plain isn't
+// error: 32:17: can't tell the type of T in this call to decode
+// error: 33:18: decode can throw, so the call needs try
+// error: 34:13: unknown function 'jsonOf'
