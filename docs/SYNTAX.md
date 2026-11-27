@@ -1553,3 +1553,18 @@ error: can't add int and string
  4 |     let x = count + "items"
    |                   ^ did you mean "{count} items"?
 ```
+
+Warnings point out code that is probably a mistake but still builds:
+
+```
+warning: 'total' is never used
+  --> main.vx:3:9
+   |
+ 3 |     let total = sum(xs)
+   |         ^^^^^ use it, remove it, or name it _total
+```
+
+- A local variable that is never used. Starting its name with `_` says it is meant to be unused; a `catch` can leave its name out.
+- Code after a `return`, `throw`, `break`, `continue`, `panic` or endless loop, which can never run.
+
+Features from other languages that Vex lacks get an error that names them and shows what to write instead: `x!` (use `??`, `if let` or `guard let`), `x++` (`x += 1`), `do`/`while`, `switch` (`match`) and `class` (`struct`). `defer` and loop labels are planned (V-163) and are reported as not supported yet.
