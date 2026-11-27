@@ -180,6 +180,10 @@ type StructDecl struct {
 	Fields  []*Field
 	Methods []*FuncDecl
 	Consts  []*ConstDecl
+
+	// The `init { ... }` block, which runs when the struct is created, or
+	// nil.
+	Init *FuncDecl
 }
 
 // A type parameter of a generic function or struct: `T` or
@@ -206,10 +210,20 @@ type Import struct {
 // A struct field: `age: int = 18`.
 type Field struct {
 	Span
-	Pub     bool
-	Name    *Ident
+	Pub  bool
+	Name *Ident
+
+	// The declared type, or nil when it comes from [Default].
 	Type    TypeExpr
 	Default Expr
+
+	// Set for `let name: T`, which is set when the struct is created and
+	// never changes.
+	Let bool
+
+	// Set for `private(set) name: T`, which only the struct's own methods
+	// can change.
+	PrivateSet bool
 }
 
 // An enum: a value that is one of several cases, each of which may carry

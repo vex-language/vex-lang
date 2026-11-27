@@ -965,9 +965,28 @@ func (p *parser) member(s *ast.StructDecl) {
 		p.fail(t, "write static const inside a struct", "a const inside a struct must be static")
 	case lexer.Pub:
 		p.fail(t, "one pub is enough", "unexpected 'pub'")
-	case lexer.Let, lexer.Var:
-		p.fail(t, "write fields as name: type", "fields don't use '%s'", t.Text)
+	case lexer.Var:
+		p.fail(t, "fields change unless declared with let: write name: type", "fields don't use 'var'")
+	case lexer.Let:
+		p.next()
+		p.field(s, pub, false, true, t.Pos)
+		return
 	case lexer.Ident:
+		if t.Text == "init" && p.peek(1).Kind == lexer.LBrace {
+			p.initBlock(s, pub)
+			return
+		}
+		if t.Text == "init" && p.peek(1).Kind == lexer.LParen {
+			p.fail(p.peek(1), "write init { ... }: the fields are its parameters, already set when it runs", "init takes no parameters")
+		}
+		if t.Text == "private" && p.peek(1).Kind == lexer.LParen {
+			p.privateSet()
+			if p.at(lexer.Let) {
+				p.fail(p.tok(), "remove private(set): a let field can't be set at all after creation", "a let field can't be private(set)")
+			}
+			p.field(s, pub, true, false, t.Pos)
+			return
+		}
 		if (t.Text == "get" || t.Text == "set") && p.peek(1).Kind == lexer.Ident {
 			m := p.accessor()
 			m.Pub = pub
@@ -983,12 +1002,21 @@ func (p *parser) member(s *ast.StructDecl) {
 	default:
 		p.fail(t, "", "expected a field or method, found %s", describe(t))
 	}
+	p.field(s, pub, false, false, t.Pos)
+}
+
+// Parses a field: `name: T`, `name: T = value` or `name = value`, after
+// any `let` or `private(set)` that starts at [start].
+func (p *parser) field(s *ast.StructDecl, pub, privateSet, let bool, start diag.Pos) {
 	name := p.ident("a field name")
-	if !p.at(lexer.Colon) {
-		p.fail(p.tok(), fmt.Sprintf("write it as %s: int", name.Name), "field '%s' needs a type", name.Name)
+	f := &ast.Field{Pub: pub, Name: name, Let: let, PrivateSet: privateSet}
+	switch {
+	case p.at(lexer.Colon):
+		p.next()
+		f.Type = p.typeExpr()
+	case !p.at(lexer.Assign):
+		p.fail(p.tok(), fmt.Sprintf("write it as %s: int, or give it a value: %s = 0", name.Name, name.Name), "field '%s' needs a type", name.Name)
 	}
-	p.next()
-	f := &ast.Field{Pub: pub, Name: name, Type: p.typeExpr()}
 	if p.at(lexer.Assign) {
 		p.next()
 		saved := p.inDefault
@@ -996,14 +1024,43 @@ func (p *parser) member(s *ast.StructDecl) {
 		f.Default = p.expr()
 		p.inDefault = saved
 	}
-	f.Span = p.span(name.Start)
+	f.Span = p.span(start)
 	if p.at(lexer.LBrace) {
+		if let {
+			p.fail(p.tok(), "remove let to let it change, or remove the didSet block", "a let field never changes, so it can't have didSet")
+		}
 		s.Methods = append(s.Methods, p.observer(f))
 	}
 	if !p.at(lexer.Semi) && !p.at(lexer.Comma) && !p.at(lexer.RBrace) {
 		p.fail(p.tok(), "put each field on its own line", "expected end of field, found %s", describe(p.tok()))
 	}
 	s.Fields = append(s.Fields, f)
+}
+
+// Parses `private(set)`.
+func (p *parser) privateSet() {
+	p.next()
+	p.next()
+	if t := p.tok(); t.Kind != lexer.Ident || t.Text != "set" {
+		p.fail(t, "write private(set) before a field that only the struct changes", "expected 'set' after 'private(', found %s", describe(t))
+	}
+	p.next()
+	p.expect(lexer.RParen)
+}
+
+// Parses `init { ... }`, which runs when the struct is created.
+func (p *parser) initBlock(s *ast.StructDecl, pub bool) {
+	t := p.next()
+	if pub {
+		p.fail(t, "remove pub: init runs whenever the struct is created", "init can't be marked pub")
+	}
+	if s.Init != nil {
+		p.fail(t, "join them into one init block", "a struct has only one init block; the first is on line %d", s.Init.Pos().Line)
+	}
+	fn := &ast.FuncDecl{Name: &ast.Ident{Span: ast.Span{Start: t.Pos, End: t.End}, Name: "init"}}
+	fn.Body = p.block()
+	fn.Span = p.span(t.Pos)
+	s.Init = fn
 }
 
 // Parses `get name -> T` or `set name(value: T)` with its body.

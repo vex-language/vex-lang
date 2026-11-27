@@ -360,6 +360,26 @@ func TestProperties(t *testing.T) {
 	}
 }
 
+func TestFields(t *testing.T) {
+	src := `pub struct Account {
+    let id: int
+    pub private(set) balance = 0
+    note = "none"
+    init {
+        balance = 1
+    }
+}
+`
+	f, errs := parse(t, src)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	want := `(pub struct Account let field id: int (pub private(set) field balance 0) (field note "none") (init (block (= balance 1))))`
+	if got := ast.Sexpr(f.Decls[0]); got != want {
+		t.Errorf("\n got: %s\nwant: %s", got, want)
+	}
+}
+
 func TestInterfaces(t *testing.T) {
 	src := `interface Shape {
     fn area() -> float
@@ -807,8 +827,14 @@ func TestErrors(t *testing.T) {
 		{"colon return type", "fn f(): int {}", "1:7", "expected '->' before the return type, found ':'", "write the return type as -> int"},
 		{"missing body", "fn f()\n{}", "1:7", "expected '{' or '=>' to start the body of f, found end of line", ""},
 		{"bad type", "fn f(a: 5) {}", "1:9", "expected a type, found number 5", "for example int, string, [int] or fn(int) -> bool"},
-		{"field without type", "struct U {\n name\n}", "2:6", "field 'name' needs a type", "write it as name: int"},
-		{"let field", "struct U {\n let name: string\n}", "2:2", "fields don't use 'let'", "write fields as name: type"},
+		{"field without type", "struct U {\n name\n}", "2:6", "field 'name' needs a type", "write it as name: int, or give it a value: name = 0"},
+		{"var field", "struct U {\n var name: string\n}", "2:2", "fields don't use 'var'", "fields change unless declared with let: write name: type"},
+		{"let private set", "struct U {\n private(set) let n = 0\n}", "2:15", "a let field can't be private(set)", "remove private(set): a let field can't be set at all after creation"},
+		{"let didSet", "struct U {\n let n = 0 {\n  didSet {}\n }\n}", "2:12", "a let field never changes, so it can't have didSet", "remove let to let it change, or remove the didSet block"},
+		{"init params", "struct U {\n init(n: int) {}\n}", "2:6", "init takes no parameters", "write init { ... }: the fields are its parameters, already set when it runs"},
+		{"pub init", "struct U {\n pub init {}\n}", "2:6", "init can't be marked pub", "remove pub: init runs whenever the struct is created"},
+		{"two inits", "struct U {\n init {}\n init {}\n}", "3:2", "a struct has only one init block; the first is on line 2", "join them into one init block"},
+		{"private without set", "struct U {\n private(get) n = 0\n}", "2:10", "expected 'set' after 'private(', found 'get'", "write private(set) before a field that only the struct changes"},
 		{"unclosed struct", "struct U {\n a: int", "1:10", "unclosed struct body", "add a matching }"},
 		{"let without value", "fn main() {\n let x\n}", "2:7", "'let x' needs a value", "write let x = ..."},
 		{"typed var without value", "fn main() {\n var n: int\n}", "2:12", "'var n' needs a value", "give it a starting value, e.g. var n: int = ..."},

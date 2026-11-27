@@ -237,6 +237,12 @@ type Struct struct {
 	// The struct's static constants.
 	Consts []*Const
 
+	// The `init` block, or nil.
+	Init *Func
+
+	// Where working out the types of fields declared without one stands.
+	inference inferState
+
 	generic *genericStruct
 
 	// Set for instances whose arguments are type parameters. They are only
@@ -421,6 +427,20 @@ type Field struct {
 
 	// The field's `didSet` block, or nil.
 	DidSet *Func
+
+	// Set for a `let` field, which only `init` can change.
+	Let bool
+
+	// Set for a `private(set)` field, which only the struct's own methods
+	// can change.
+	PrivateSet bool
+
+	// Set for a `let` field without a default that `init` sets, which
+	// isn't a parameter of the constructor.
+	ByInit bool
+
+	// Set when the type comes from the default value.
+	Inferred bool
 }
 
 // A computed property of a struct: its getter and setter, either of which
@@ -685,6 +705,10 @@ const (
 	// A call of an interface method, through the method table of the
 	// receiver. Recv is nil for a call on `self` in a default method.
 	InterfaceCall
+
+	// A changed copy of a struct: `user.copy(age: 31)`. [Call.Keep] marks
+	// the fields copied as they are.
+	CopyCall
 )
 
 // The checked meaning of a call expression.
@@ -715,6 +739,10 @@ type Call struct {
 
 	// The arguments in parameter (or field) order, with defaults filled in.
 	Args []ast.Expr
+
+	// For CopyCall: set for each field of [Args] that isn't given, which
+	// keeps the receiver's value.
+	Keep []bool
 }
 
 // A name that means a member of `self` inside an extension of a built-in

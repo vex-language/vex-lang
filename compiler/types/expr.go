@@ -350,7 +350,7 @@ func (c *checker) listLit(e *ast.ListLit, want Type) Type {
 	}
 	if len(e.Elems) == 0 {
 		if elem == nil {
-			c.errorAt(e, "give the type, e.g. let xs: [int] = []", "can't tell the type of an empty list")
+			c.errorAt(e, c.typeHint("xs: [int] = []"), "can't tell the type of an empty list")
 			return Invalid
 		}
 		return &List{Elem: elem}
@@ -873,6 +873,7 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		if f := x.Field(name); f != nil {
 			c.fieldPrivate(e.Name, f)
 			c.info.Members[e] = &Member{Field: f}
+			c.inferFields(x)
 			return f.Type
 		}
 		if p := x.Property(name); p != nil {

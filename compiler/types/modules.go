@@ -361,7 +361,7 @@ func (c *checker) constructPrivate(e *ast.CallExpr, s *Struct) bool {
 		return false
 	}
 	for _, f := range s.Fields {
-		if f.Decl == nil || f.Decl.Pub {
+		if f.Decl == nil || f.Decl.Pub || f.ByInit {
 			continue
 		}
 		for _, a := range e.Args {

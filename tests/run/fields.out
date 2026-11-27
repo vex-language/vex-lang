@@ -1,0 +1,14 @@
+User(id: 1, name: "Ann Lee", age: 18, tags: ["new", "admin"], joined: "2026")
+User(id: 1, name: "Ann Lee", age: 31, tags: ["new", "admin"], joined: "2026")
+18
+2 Bo 2026
+2..9 (7)
+2..20 (18)
+4
+0
+init ran for Ada Lovelace
+Ada Lovelace
+init ran for Grace Lovelace
+Grace Lovelace
+5 five
+1 2 2

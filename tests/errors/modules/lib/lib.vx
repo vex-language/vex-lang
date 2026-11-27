@@ -39,4 +39,13 @@ pub struct Cash {
     operator -(other: Cash) -> Cash => other
 }
 
+
+pub struct Account {
+    pub private(set) balance = 0
+    pub let owner: string = "nobody"
+    secret = 1
+
+    pub fn deposit(n: int) { balance += n }
+}
+
 // error: 27:27: result of broken: expected int, found string

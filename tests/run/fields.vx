@@ -1,0 +1,91 @@
+struct User {
+    let id: int
+    name: string
+    age = 18
+    tags = ["new"]
+    let joined = "2026"
+}
+
+struct Range {
+    let low: int
+    let high: int
+    let size: int
+
+    init {
+        assert(low <= high, "low must not exceed high")
+        size = high - low
+    }
+
+    fn describe() -> string => "{low}..{high} ({size})"
+}
+
+struct Counter {
+    private(set) count = 0
+    step = 1
+
+    fn tap() {
+        count += step
+    }
+
+    fn reset() {
+        self.count = 0
+    }
+}
+
+struct Name {
+    first: string
+    last: string
+    let full: string
+
+    init {
+        first = first.trim()
+        last = last.trim()
+        full = "{first} {last}"
+        println("init ran for {full}")
+    }
+}
+
+struct Box<T> {
+    let value: T
+    label: string = "box"
+}
+
+fn main() {
+    let u = User(id: 1, name: "Ann")
+    u.name = "Ann Lee"
+    u.tags.push("admin")
+    println(u)
+    let older = u.copy(age: 31)
+    println(older)
+    println(u.age)
+    let renamed = u.copy(id: 2, name: "Bo")
+    println(renamed.id, renamed.name, renamed.joined)
+
+    let r = Range(low: 2, high: 9)
+    println(r.describe())
+    let wider = r.copy(high: 20)
+    println(wider.describe())
+
+    let c = Counter(step: 2)
+    c.tap()
+    c.tap()
+    println(c.count)
+    c.reset()
+    println(c.count)
+
+    let n = Name(first: "  Ada ", last: " Lovelace ")
+    println(n.full)
+    let m = n.copy(first: "Grace")
+    println(m.full)
+
+    let b = Box(value: 5)
+    let b2 = b.copy(label: "five")
+    println(b2.value, b2.label)
+    let calls = [0]
+    fn next() -> int {
+        calls[0] += 1
+        return calls[0]
+    }
+    let picked = User(id: next(), name: "x").copy(age: next())
+    println(picked.id, picked.age, calls[0])
+}

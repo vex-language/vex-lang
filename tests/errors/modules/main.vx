@@ -44,6 +44,20 @@ fn operators(c: lib.Cash) {
     let d = c - c
 }
 
+fn fields(a: lib.Account) {
+    a.deposit(5)
+    println(a.balance, a.owner)
+    a.balance = 5
+    a.owner = "me"
+    let b = a.copy(secret: 2)
+    let c = a.copy(balance: 9, owner: "me")
+    println(b, c)
+}
+
+extension lib.Account {
+    fn drain() { balance = 0 }
+}
+
 // error: 5:5: function 'hidden' is private to lib
 // error: 7:15: field 'y' of lib.Point is private to lib
 // error: 8:5: lib has no 'nothere'
@@ -69,3 +83,7 @@ fn operators(c: lib.Cash) {
 // error: 39:15: method 'secret' of lib.Point is private to lib
 // error: 40:23: method 'origin' of lib.Point is private to lib
 // error: 44:13: operator '-' of lib.Cash is private to lib
+// error: 50:7: can't set 'balance' outside lib.Account: it's private(set)
+// error: 51:7: can't change 'owner': it's a let field of lib.Account
+// error: 52:20: field 'secret' of lib.Account is private to lib
+// error: 58:18: can't set 'balance' outside lib.Account: it's private(set)

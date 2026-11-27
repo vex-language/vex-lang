@@ -179,6 +179,8 @@ func (c *checker) tryExpr(e *ast.TryExpr, want Type, stmt bool) Type {
 		}
 	case th == nil && where == "the closure":
 		c.errorAt(e, "handle it with catch, use try?, or declare the closure fn(...) throws", "the error can't pass up: the closure doesn't throw")
+	case th == nil && c.inInit():
+		c.errorAt(e, "handle it with catch or try?, or create the struct in a static fn that throws", "the error can't pass up: init can't throw")
 	case th == nil:
 		c.errorAt(e, fmt.Sprintf("handle it with catch, use try?, or declare fn %s(...) throws", where), "the error can't pass up: %s doesn't throw", where)
 	default:
@@ -225,6 +227,9 @@ func (c *checker) throwStmt(s *ast.ThrowStmt) {
 		c.expr(s.Value, nil)
 		hint := "declare the closure fn(...) throws"
 		switch {
+		case c.inInit():
+			c.errorAt(s, "check with assert, or create the struct in a static fn that throws", "init can't throw")
+			return
 		case where != "the closure":
 			hint = fmt.Sprintf("declare fn %s(...) throws", where)
 		}
