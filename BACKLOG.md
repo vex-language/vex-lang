@@ -232,6 +232,45 @@ Goal: the same Vex app running on Android with real Android views.
 
 ---
 
+## Phase 8: Graphics and animation (v0.8)
+
+Goal: what Flutter apps do beyond standard widgets (animation, custom drawing, shaders and 3D) next to the native widgets. Drawing goes to each platform's own graphics APIs (Core Animation, Core Graphics and Metal on iOS; the Android animators, Canvas and Vulkan or OpenGL ES on Android) instead of a bundled engine, so apps stay small.
+
+### Animation
+
+- [ ] **V-700** Design doc: implicit and explicit animations, the frame clock, and how animations drive `State` (M)
+- [ ] **V-701** Frame clock: `CADisplayLink` and `Choreographer` tick a `frames()` stream at the display's rate, 60 to 120 Hz (M)
+- [ ] **V-702** Implicit animations: `.animate(duration:curve:)` on opacity, position, size, scale, rotation and colour, run by the platform's own animators (L)
+- [ ] **V-703** Explicit animations: `AnimationController`, tweens, curves, springs, sequences and repeats, in Vex on the frame clock (L)
+- [ ] **V-704** Transitions: animated insert and removal of views, page transitions for navigation (V-600), shared-element (hero) transitions (L)
+- [ ] **V-705** Gesture-driven animation: drag, swipe, pinch and rotate with velocity, flings and springs (L)
+- [ ] **V-706** Vector animations: play Lottie files natively (L)
+
+### Custom drawing
+
+- [ ] **V-710** `Canvas` widget, like `CustomPaint`: paths, shapes, arcs, text, images, gradients, clipping and transforms, replayed on Core Graphics and Android Canvas (XL)
+- [ ] **V-711** Canvas repaints only when its inputs change; hit testing for taps on drawn shapes (M)
+- [ ] **V-712** Headless canvas backend that renders to PNG, so drawings can be tested on the Mac (M)
+
+### Shaders and effects
+
+- [ ] **V-720** Fragment shaders: one shader language compiled to Metal and to SPIR-V or GLSL, used as canvas paints and view effects (XL)
+- [ ] **V-721** View effects: blur, shadows, colour filters, blend modes and masks (M)
+- [ ] **V-722** GPU canvas on Metal and Vulkan for scenes with many shapes, such as charts and 2D games (XL)
+
+### 3D
+
+- [ ] **V-730** 3D view: scene, camera, lights, meshes and materials on Metal and Vulkan or OpenGL ES (XL)
+- [ ] **V-731** Models: load glTF with textures and skeletal animation (L)
+- [ ] **V-732** 3D interaction: orbit, pan and zoom gestures, and picking objects by tap (M)
+
+### Tools
+
+- [ ] **V-740** Performance overlay: frame times, dropped frames and GPU time, like Flutter's (M)
+- [ ] **V-741** Demo gallery app: animations, canvas, shaders and 3D on both platforms, compared with Flutter for size and frame rate (M)
+
+---
+
 ## Ideas / later
 - Self-hosting: rewrite the Vex compiler in Vex
 - LLVM or custom backend instead of C
@@ -312,6 +351,7 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-27 | Platform conditionals use the enums `os.Target` and `os.Arch` rather than strings, so typos are errors and a `match` must cover every system. Branches for other systems are type-checked but generate no C, unlike Swift's `#if`, so errors show on every machine while target-only C functions still link. Per-target C code lives in `[c.macos]`-style sections that add to `[c]` (V-159) |
 | 2026-11-27 | Tests are `test "name" { ... }` blocks, as in Zig and Swift Testing, in any file or in `_test.vx` files that only `vex test` reads. One `expect(cond)` built-in, like Swift's `#expect`, shows both sides of a failed comparison and lets the test go on. Each test runs in a forked process, so a crash fails only that test (V-176) |
 | 2026-11-27 | Build modes are flags on `build`, `run` and `test`: `--debug` (`-O0 -g`; `build` keeps the C as `<out>.c` for a debugger) and `--sanitize=address,undefined,thread`, as Go and Rust spell them; `thread` can't be combined with `address`. `$VEX_CFLAGS` still comes last, so it overrides them (V-177) |
+| 2026-11-27 | Graphics get their own phase, after the app essentials: animation, a `Canvas` like Flutter's `CustomPaint`, shaders and 3D. They use each platform's graphics APIs rather than a bundled engine like Skia or Impeller, keeping native widgets and small binaries; one shader language compiles to Metal and SPIR-V. |
 | 2026-11-27 | Iteration follows Swift and Kotlin: `Iterable<T>` gives a fresh `Iterator<T>` whose `next()` returns `T?`, so a value can be looped many times. Generators are plain functions returning `Iterable<T>` that use `yield`, as in Python and C#, matching `async fn ... -> Stream<T>` without a `sync*` marker. They run as coroutines on task stacks; a paused generator isn't a root, so the collector frees one that is abandoned. `map`, `filter`, `take`, `skip` and `enumerated` are lazy, Kotlin-sequence style, and are written in Vex as an extension of the generic interface in a core module every file sees. Optionals can't be elements, since Vex flattens `T??`. |
 | 2026-11-27 | Ranges are values of a built-in `Range` type of ints, as in Kotlin; `step(n)` and `reversed()` are methods rather than keywords or a `stride` function. `..` binds as in Swift, looser than arithmetic and tighter than comparisons. Slicing (`xs[1..3]`, `s[1..3]`) copies, with Swift's open ends `xs[2..]` and `xs[..2]` allowed only inside `[ ]`; views that share storage were left out as a source of surprises. A struct called Range hides the built-in one. |
 | 2026-11-27 | JSON follows Swift's `Codable`: listing it makes the compiler write the conversion from the fields, so there is no generated code to keep in step, and only types that opt in can be written out. `vex:json` gives `encode` and `decode<T>`, which throws a `JsonError` naming the path, and `parse` gives a `Json` enum for JSON of unknown shape. Enum cases with values use Swift's one-key object form. A type that writes `encode` and `static fn decode` replaces the generated pair. |
