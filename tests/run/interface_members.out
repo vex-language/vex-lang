@@ -1,0 +1,15 @@
+[(1, 2)]
+[(3, 4)]
+["[red]", "[blue]"]
+true false
+["#1", "#2", "#3"]
+true circle 300.0 big=true
+circle 3.0 big=false
+shape 400.0 big=true
+shape 400.0 big=true
+27.0 false
+8.0 shape 4.0 big=false
+false shape 400.0 big=true
+1
+circle 300.0 big=true / circle 300.0 big=true
+250 true

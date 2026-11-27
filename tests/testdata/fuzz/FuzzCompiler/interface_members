@@ -1,0 +1,2 @@
+go test fuzz v1
+string("interface P {\n    static fn make() -> Self\n    fn same(o: Self) -> bool\n    fn d() -> int => 1\n}\nextension P {\n    fn twice() -> int => d() * 2\n}\nstruct A: P {\n    static fn make() -> A => A()\n    fn same(o: A) -> bool => true\n}\nfn f<T: P>() -> T => T.make()\nfn main() {\n    let a: A = f()\n    println(a.same(o: a), a.twice())\n}\n")

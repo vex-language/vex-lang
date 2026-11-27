@@ -1,0 +1,162 @@
+interface Parse {
+    static fn parse(text: string) -> Self?
+    fn describe() -> string
+    fn label() -> string => "[{describe()}]"
+}
+
+interface Same {
+    fn same(other: Self) -> bool
+}
+
+interface Mapper {
+    fn apply<U>(f: fn(int) -> U) -> [U]
+}
+
+struct Point: Parse, Same {
+    x: int
+    y: int
+
+    static fn parse(text: string) -> Point? {
+        let parts = text.split(",")
+        if parts.len != 2 {
+            return nil
+        }
+        let a = int.parse(parts[0]) ?? return nil
+        let b = int.parse(parts[1]) ?? return nil
+        return Point(x: a, y: b)
+    }
+
+    fn describe() -> string => "({x}, {y})"
+    fn same(other: Point) -> bool => x == other.x && y == other.y
+}
+
+enum Color: Parse {
+    red
+    blue
+
+    static fn parse(text: string) -> Color? {
+        return match text {
+            "red" => Color.red
+            "blue" => Color.blue
+            _ => nil
+        }
+    }
+
+    fn describe() -> string => match self {
+        red => "red"
+        blue => "blue"
+    }
+}
+
+struct Nums: Mapper {
+    xs: [int]
+    fn apply<U>(f: fn(int) -> U) -> [U] => xs.map(f)
+}
+
+fn read<T: Parse>(texts: [string]) -> [T] {
+    var out: [T] = []
+    for t in texts {
+        if let v = T.parse(text: t) {
+            out.push(v)
+        }
+    }
+    return out
+}
+
+fn allSame<T: Same>(xs: [T]) -> bool {
+    for x in xs {
+        if !x.same(other: xs[0]) {
+            return false
+        }
+    }
+    return true
+}
+
+fn strings<M: Mapper>(m: M) -> [string] => m.apply { "#{it}" }
+
+fn requirements() {
+    let ps: [Point] = read(texts: ["1,2", "bad", "3,4"])
+    for p in ps {
+        println(p.label())
+    }
+    let cs: [Color] = read(texts: ["red", "green", "blue"])
+    println(cs.map { it.label() })
+    println(allSame([Point(x: 1, y: 1), Point(x: 1, y: 1)]), allSame([Point(x: 1, y: 1), Point(x: 2, y: 1)]))
+    println(strings(Nums(xs: [1, 2, 3])))
+}
+
+interface Shape {
+    fn area() -> float
+    fn name() -> string => "shape"
+}
+
+interface Solid: Shape {
+    fn depth() -> float
+}
+
+extension Shape {
+    fn isBig() -> bool => area() > 100.0
+    fn report() -> string => "{name()} {area()} big={isBig()}"
+}
+
+extension Solid {
+    fn volume() -> float => area() * depth()
+}
+
+struct Circle: Shape {
+    r: float
+    fn area() -> float => 3.0 * r * r
+    fn name() -> string => "circle"
+    fn twice() -> string => report() + " / " + self.report()
+}
+
+struct Cube: Solid {
+    side: float
+    fn area() -> float => side * side
+    fn depth() -> float => side
+}
+
+enum Tile: Shape {
+    small
+    large
+    fn area() -> float => match self {
+        small => 1.0
+        large => 400.0
+    }
+}
+
+fn bigOnes<T: Shape>(xs: [T]) -> [T] => xs.filter { it.isBig() }
+
+fn extensions() {
+    let c = Circle(r: 10)
+    println(c.isBig(), c.report())
+    let shapes: [Shape] = [Circle(r: 1), Cube(side: 20), Tile.large]
+    for s in shapes {
+        println(s.report())
+    }
+    println(Cube(side: 3).volume(), Cube(side: 3).isBig())
+    let solid: Solid = Cube(side: 2)
+    println(solid.volume(), solid.report())
+    println(Tile.small.isBig(), Tile.large.report())
+    println(bigOnes([Circle(r: 1), Circle(r: 9)]).len)
+    println(c.twice())
+}
+
+struct Money: Same {
+    cents: int
+
+    static fn zero() -> Self => Money(cents: 0)
+    fn plus(other: Self) -> Self => Money(cents: cents + other.cents)
+    fn same(other: Self) -> bool => cents == other.cents
+}
+
+fn selfInStructs() {
+    let m = Money.zero().plus(other: Money(cents: 250))
+    println(m.cents, allSame([m, Money(cents: 250)]))
+}
+
+fn main() {
+    requirements()
+    extensions()
+    selfInStructs()
+}
