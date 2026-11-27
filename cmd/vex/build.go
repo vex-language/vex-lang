@@ -38,6 +38,8 @@ func loadWith(loadFn func(string) (*modules.Program, error), target string, stde
 	if err != nil {
 		return nil, nil, report(nil, err, stderr)
 	}
+	info.Warnings.Sort()
+	warn(info.Warnings, stderr)
 	return prog, info, exitOK
 }
 

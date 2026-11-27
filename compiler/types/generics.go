@@ -172,7 +172,16 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 	if !keepErrors {
 		c.errs = nil
 	}
+	locals := len(c.locals)
 	defer func() {
+		// Locals declared here are used only in the maps put back below.
+		if keepErrors {
+			c.warnUnused(locals)
+		}
+		c.locals = c.locals[:locals]
+		if !keepErrors {
+			i.Warnings = saved.Warnings
+		}
 		i.Types, i.Uses, i.Defs, i.Calls, i.Members = saved.Types, saved.Uses, saved.Defs, saved.Calls, saved.Members
 		i.Selves, i.Captures, i.CaseValues, i.Wraps = saved.Selves, saved.Captures, saved.CaseValues, saved.Wraps
 		i.TypeTests, i.PatternTests = saved.TypeTests, saved.PatternTests
