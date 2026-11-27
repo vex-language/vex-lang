@@ -183,6 +183,9 @@ type FuncType struct {
 	Params []Type
 	Result Type
 
+	// Set for async functions: a call gives a future unless it is awaited.
+	Async bool
+
 	// What the function throws: the built-in Error struct, an enum, or nil
 	// when it doesn't throw.
 	Throws Type
@@ -195,6 +198,9 @@ func (f *FuncType) String() string {
 		params[i] = p.String()
 	}
 	s := "fn(" + strings.Join(params, ", ") + ")" + throwsString(f.Throws)
+	if f.Async {
+		s = "async " + s
+	}
 	if f.Result != Void && f.Result != nil {
 		s += " -> " + f.Result.String()
 	}
@@ -600,7 +606,7 @@ func Identical(a, b Type) bool {
 		return ok && Identical(a.Elem, b.Elem) && (a.Throws == nil) == (b.Throws == nil) && (a.Throws == nil || Identical(a.Throws, b.Throws))
 	case *FuncType:
 		b, ok := b.(*FuncType)
-		if !ok || len(a.Params) != len(b.Params) || !Identical(a.Result, b.Result) {
+		if !ok || a.Async != b.Async || len(a.Params) != len(b.Params) || !Identical(a.Result, b.Result) {
 			return false
 		}
 		if (a.Throws == nil) != (b.Throws == nil) || a.Throws != nil && !Identical(a.Throws, b.Throws) {

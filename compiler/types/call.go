@@ -34,13 +34,13 @@ func (c *checker) call(e *ast.CallExpr, want Type) Type {
 		want = f.Elem
 	}
 	t := c.callTarget(e, want)
-	if call := c.info.Calls[e]; call != nil && call.Func != nil && call.Func.Async && !awaited {
+	if async, throws := c.asyncCall(e); async && !awaited {
 		// Without await, an async call starts a task and gives its future.
 		c.info.Spawns[e] = true
 		if t == Invalid {
 			return Invalid
 		}
-		return &Future{Elem: t, Throws: call.Func.Throws}
+		return &Future{Elem: t, Throws: throws}
 	}
 	c.checkThrows(e)
 	return t

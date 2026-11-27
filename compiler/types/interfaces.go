@@ -369,8 +369,10 @@ func (c *checker) conformMember(t conformer, i *Interface, im *Func, report func
 		report(m.Decl.Name, "remove static", "'%s' can't be static, since it implements %s", m.Name, i.Name)
 	case !Identical(methodType(m), methodType(im)):
 		report(at(m), "", "'%s' doesn't match %s: expected %s, found %s", m.Name, i.Name, memberType(im), memberType(m))
-	case m.Async != im.Async:
+	case m.Async && !im.Async:
 		report(at(m), "remove async", "'%s' can't be async, since it implements %s", m.Name, i.Name)
+	case !m.Async && im.Async:
+		report(at(m), "add async: async fn "+m.Name+"(...)", "'%s' must be async, since it implements %s", m.Name, i.Name)
 	}
 }
 
@@ -453,6 +455,15 @@ func implements(t Type, i *Interface) bool {
 func assignableType(want, got Type) bool {
 	if Identical(want, got) {
 		return true
+	}
+	// A plain function can run where an async one is expected: it is
+	// called the same way and simply never waits.
+	if w, ok := want.(*FuncType); ok && w.Async {
+		if g, ok := got.(*FuncType); ok && !g.Async {
+			sync := *w
+			sync.Async = false
+			return Identical(&sync, g)
+		}
 	}
 	i, ok := want.(*Interface)
 	return ok && implements(got, i)

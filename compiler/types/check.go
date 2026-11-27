@@ -577,7 +577,7 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 	case *ast.OptionalType:
 		return optionalOf(c.resolveType(te.Elem))
 	case *ast.FuncType:
-		ft := &FuncType{Result: Void}
+		ft := &FuncType{Result: Void, Async: te.Async}
 		for _, p := range te.Params {
 			ft.Params = append(ft.Params, c.resolveType(p))
 		}
