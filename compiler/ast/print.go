@@ -480,11 +480,23 @@ func build(n Node) *tree {
 		return branch("yield", buildExpr(n.Value))
 	case *LocalFuncStmt:
 		return build(n.Decl)
+	case *LabeledStmt:
+		return branch(n.Label.Name+":", build(n.Loop))
+	case *DeferStmt:
+		return branch("defer", build(n.Body))
+	case *RepeatStmt:
+		return branch("repeat", build(n.Body), buildExpr(n.Cond))
 	case *ThrowStmt:
 		return branch("throw", buildExpr(n.Value))
 	case *BreakStmt:
+		if n.Label != nil {
+			return leaf("break " + n.Label.Name)
+		}
 		return leaf("break")
 	case *ContinueStmt:
+		if n.Label != nil {
+			return leaf("continue " + n.Label.Name)
+		}
 		return leaf("continue")
 
 	case Expr:
