@@ -355,11 +355,23 @@ func build(n Node) *tree {
 		label += interfacesString(n.Interfaces)
 		t := branch(label)
 		for _, f := range n.Fields {
-			label := "field " + f.Name.Name + ": " + TypeString(f.Type)
+			label := "field " + f.Name.Name
+			if f.Type != nil {
+				label += ": " + TypeString(f.Type)
+			}
+			if f.Let {
+				label = "let " + label
+			}
+			if f.PrivateSet {
+				label = "private(set) " + label
+			}
 			if f.Pub {
 				label = "pub " + label
 			}
 			t.kids = append(t.kids, branch(label, buildExpr(f.Default)))
+		}
+		if n.Init != nil {
+			t.kids = append(t.kids, branch("init", build(n.Init.Body)))
 		}
 		for _, k := range n.Consts {
 			t.kids = append(t.kids, build(k))
