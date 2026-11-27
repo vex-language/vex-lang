@@ -2310,6 +2310,9 @@ void vx_task_boot(void);
 #endif
 #if defined(__SANITIZE_ADDRESS__) || __has_feature(address_sanitizer)
 #define VX_ASAN 1
+// Tasks switch stacks, which fake stacks don't follow, and the collector
+// owns the heap, so leak reports would only list its memory.
+const char *__asan_default_options(void) { return "detect_stack_use_after_return=0:detect_leaks=0"; }
 void __sanitizer_start_switch_fiber(void **fake_stack_save, const void *bottom, size_t size);
 void __sanitizer_finish_switch_fiber(void *fake_stack_save, const void **bottom_old, size_t *size_old);
 void __asan_unpoison_memory_region(const volatile void *addr, size_t size);
