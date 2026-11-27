@@ -126,6 +126,8 @@ func PatternString(p Pattern) string {
 		return "_"
 	case *NamePattern:
 		return p.Name.Name
+	case *TypedPattern:
+		return p.Name.Name + ": " + TypeString(p.Type)
 	case *CasePattern:
 		return p.Name.Name + "(" + fieldsString(p.Args) + ")"
 	case *RecordPattern:
@@ -573,6 +575,12 @@ func buildExpr(e Expr) *tree {
 		return t
 	case *IfExpr:
 		return build(e.If)
+	case *TypeTest:
+		op := "is"
+		if e.Cast {
+			op = "as?"
+		}
+		return branch(op, buildExpr(e.X), leaf(TypeString(e.Type)))
 	case *MatchExpr:
 		t := branch("match", buildExpr(e.Subject))
 		for _, a := range e.Arms {

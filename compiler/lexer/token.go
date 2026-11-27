@@ -47,6 +47,7 @@ const (
 	Extern
 	Pub
 	As
+	Is
 	Match
 	Static
 	Const
@@ -154,6 +155,7 @@ var keywords = map[string]Kind{
 	"extern":    Extern,
 	"pub":       Pub,
 	"as":        As,
+	"is":        Is,
 	"match":     Match,
 	"guard":     Guard,
 	"nil":       Nil,
