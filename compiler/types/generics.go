@@ -217,6 +217,8 @@ func hasTypeParam(t Type) bool {
 		return hasTypeParam(t.Elem) || hasTypeParam(t.Throws)
 	case *Channel:
 		return hasTypeParam(t.Elem)
+	case *Stream:
+		return hasTypeParam(t.Elem)
 	case *Record:
 		for _, f := range t.FieldTypes() {
 			if hasTypeParam(f) {
@@ -263,6 +265,11 @@ func keyOf(t Type) string {
 		return keyOf(t.Elem) + "?"
 	case *Channel:
 		return "Channel<" + keyOf(t.Elem) + ">"
+	case *Stream:
+		if t.Controller {
+			return "StreamController<" + keyOf(t.Elem) + ">"
+		}
+		return "Stream<" + keyOf(t.Elem) + ">"
 	case *Record:
 		var b strings.Builder
 		b.WriteString("(")
@@ -820,6 +827,10 @@ func (b *binding) unify(p, a Type) {
 		if a, ok := a.(*Channel); ok {
 			b.unify(p.Elem, a.Elem)
 		}
+	case *Stream:
+		if a, ok := a.(*Stream); ok && a.Controller == p.Controller {
+			b.unify(p.Elem, a.Elem)
+		}
 	case *Record:
 		if a, ok := a.(*Record); ok && sameShape(p, a) {
 			at := a.FieldTypes()
@@ -929,6 +940,11 @@ func (b *binding) subst(t Type) Type {
 	case *Channel:
 		if e := b.subst(t.Elem); e != nil {
 			return &Channel{Elem: e}
+		}
+		return nil
+	case *Stream:
+		if e := b.subst(t.Elem); e != nil {
+			return &Stream{Elem: e, Controller: t.Controller}
 		}
 		return nil
 	case *Record:
@@ -1112,6 +1128,8 @@ func nesting(t Type) (depth, size int) {
 	case *Future:
 		parts = []Type{t.Elem}
 	case *Channel:
+		parts = []Type{t.Elem}
+	case *Stream:
 		parts = []Type{t.Elem}
 	case *Record:
 		parts = t.FieldTypes()

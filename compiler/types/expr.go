@@ -893,6 +893,15 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 			c.info.Members[e] = &Member{Builtin: name}
 			return Bool
 		}
+	case *Stream:
+		switch {
+		case x.Controller && name == "stream":
+			c.info.Members[e] = &Member{Builtin: "stream"}
+			return &Stream{Elem: x.Elem}
+		case x.Controller && name == "isClosed":
+			c.info.Members[e] = &Member{Builtin: "isClosed"}
+			return Bool
+		}
 	case *List:
 		switch name {
 		case "len":

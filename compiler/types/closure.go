@@ -125,6 +125,10 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 	c.tries = outerTries
 	c.lits = c.lits[:len(c.lits)-1]
 	ft.Result = ctx.result
+	if ft.Streams() {
+		c.errorAt(e, "write a named async fn that yields, or drop async to return an existing stream", "an async closure can't be a stream function")
+		return Invalid
+	}
 	if wrongArity {
 		return Invalid
 	}
