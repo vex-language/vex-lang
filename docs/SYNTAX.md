@@ -925,6 +925,28 @@ apply(fn(x) => x + 1, 5)       // parameter types come from fn(int) -> int
 - Each loop iteration has its own loop variable, so closures made in a loop each keep their own value.
 - Call function values with unnamed arguments: `f(1, 2)`.
 
+**Local functions.** A function can be declared inside another, as in Swift, Kotlin and Dart. It sees the variables around it, like a closure, and can call itself.
+
+```swift
+fn countFiles(root: Dir) -> int {
+    var total = 0
+
+    fn visit(dir: Dir) {
+        total += dir.files.len
+        for sub in dir.subdirs {
+            visit(sub)              // recursive
+        }
+    }
+
+    visit(root)
+    return total
+}
+```
+
+- A local function is declared before it is used, as in Kotlin; one declared further down can't be called yet.
+- It is a value like a closure: pass it as `xs.map(double)`, and call it with unnamed arguments. Its parameters can't have default values, and it can't have type parameters yet.
+- `async`, `throws` and `=>` bodies work as at the top level.
+
 **Tear-offs.** A method named without a call is a function value, as in Dart. It keeps the value it was torn off, even if the variable changes later. Static methods, enum cases that carry values and constructors work the same way; a constructor is written `Type.new`.
 
 ```swift

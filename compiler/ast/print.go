@@ -469,6 +469,8 @@ func build(n Node) *tree {
 		return branch("return", buildExpr(n.Value))
 	case *YieldStmt:
 		return branch("yield", buildExpr(n.Value))
+	case *LocalFuncStmt:
+		return build(n.Decl)
 	case *ThrowStmt:
 		return branch("throw", buildExpr(n.Value))
 	case *BreakStmt:

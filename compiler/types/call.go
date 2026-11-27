@@ -271,6 +271,10 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 			names = append(names, m.Name)
 		}
 	}
+	if c.pending[name] > 0 {
+		c.errorAt(id, "move the declaration of "+name+" above this line", "local function '%s' is used before it is declared", name)
+		return Invalid
+	}
 	c.errorAt(id, didYouMean(name, names), "unknown function '%s'", name)
 	return Invalid
 }

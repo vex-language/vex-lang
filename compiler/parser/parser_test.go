@@ -140,6 +140,8 @@ func TestFor(t *testing.T) {
 		{"yield x + 1", "(yield (+ x 1))"},
 		{"yield = 2", "(= yield 2)"},
 		{"yield(1)", "(yield 1)"},
+		{"fn twice(x: int) -> int => x * 2", "(fn twice param x: int -> int (=> (* x 2)))"},
+		{"async fn load() {}", "(async fn load block)"},
 	}
 	for _, c := range cases {
 		got := body(t, c.src)
@@ -819,7 +821,6 @@ func TestErrors(t *testing.T) {
 		{"unclosed list", "fn main() {\n let xs = [1, 2\n}", "2:11", "unclosed '['", "add a matching ]"},
 		{"missing comma", "fn main() {\n f(1 2)\n}", "2:6", "expected ',' or ')', found number 2", "add a , between items"},
 		{"empty interpolation", "fn main() {\n f(\"a {} b\")\n}", "2:8", "empty {} in string", `put a value inside, or write \{ for a literal brace`},
-		{"nested fn", "fn main() {\n fn inner() {}\n}", "2:2", "functions can't be declared inside other functions", "declare it at the top level, or store a closure: let inner = fn(...) { ... }"},
 		{"named closure", "fn main() {\n let f = fn g() {}\n}", "2:13", "expected '(' after 'fn' in an expression", "closures have no name; store one with let name = fn(...) { ... }"},
 		{"closure default", "fn main() {\n let f = fn(x = 1) {}\n}", "2:15", "closure parameters can't have default values", ""},
 		{"closure without body", "fn main() {\n let f = fn(x)\n}", "2:15", "expected '{' or '=>' to start the closure body, found end of line", ""},
