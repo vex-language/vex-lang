@@ -690,6 +690,14 @@ type Catch struct {
 	Body *Block
 }
 
+// An `if` used as a value: `if ok { a } else { b }`. Each branch of [If]
+// should hold one expression, and each `if` in the chain an `else`; the
+// checker reports those that don't.
+type IfExpr struct {
+	Span
+	If *IfStmt
+}
+
 // A match: `match shape { circle(r) => ..., _ => ... }`. Used as a
 // statement, arm bodies may be blocks.
 type MatchExpr struct {
@@ -800,6 +808,7 @@ func (*LiteralPattern) patternNode()    {}
 
 func (*ImplicitMember) exprNode()     {}
 func (*MatchExpr) exprNode()          {}
+func (*IfExpr) exprNode()             {}
 func (*NilLit) exprNode()             {}
 func (*KnownExpr) exprNode()          {}
 func (*FuncLit) exprNode()            {}

@@ -1550,6 +1550,31 @@ func (p *parser) ifStmt() *ast.IfStmt {
 	return s
 }
 
+// Returns [s] as an `if` used as a value, in which a branch holding only
+// another `if` is a value too.
+func ifValue(s *ast.IfStmt) *ast.IfExpr {
+	nested := func(b *ast.Block) {
+		if len(b.Stmts) == 1 {
+			if in, ok := b.Stmts[0].(*ast.IfStmt); ok {
+				b.Stmts[0] = &ast.ExprStmt{X: ifValue(in)}
+			}
+		}
+	}
+	for link := s; link != nil; {
+		nested(link.Then)
+		switch e := link.Else.(type) {
+		case *ast.Block:
+			nested(e)
+			link = nil
+		case *ast.IfStmt:
+			link = e
+		default:
+			link = nil
+		}
+	}
+	return &ast.IfExpr{Span: s.Span, If: s}
+}
+
 func (p *parser) forStmt() *ast.ForStmt {
 	start := p.expect(lexer.For).Pos
 	s := &ast.ForStmt{}
@@ -1944,7 +1969,7 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			x = &ast.MemberExpr{Span: p.span(x.Pos()), X: x, Name: name, Optional: opt}
 		case lexer.Question:
 			if next := p.peek(1); startsExpr(next.Kind) && !next.IsAutoSemi() {
-				p.fail(p.tok(), "write match cond { true => a, false => b }", "Vex has no ? : operator")
+				p.fail(p.tok(), "write if cond { a } else { b }", "Vex has no ? : operator")
 			}
 			p.fail(p.tok(), "use ?. to read a member, or ?? to give a default", "unexpected '?'")
 		default:
@@ -2012,6 +2037,8 @@ func (p *parser) primary() ast.Expr {
 		return p.funcLit()
 	case lexer.Match:
 		return p.matchExpr()
+	case lexer.If:
+		return ifValue(p.ifStmt())
 	case lexer.Dot:
 		p.next()
 		name := p.ident("a case name after '.'")

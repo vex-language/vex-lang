@@ -571,6 +571,8 @@ func buildExpr(e Expr) *tree {
 			t.kids = append(t.kids, branch(name, build(e.Catch.Body)))
 		}
 		return t
+	case *IfExpr:
+		return build(e.If)
 	case *MatchExpr:
 		t := branch("match", buildExpr(e.Subject))
 		for _, a := range e.Arms {
