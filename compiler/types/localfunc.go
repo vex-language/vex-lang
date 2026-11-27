@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // Checks a function declared inside another. Its name is declared before

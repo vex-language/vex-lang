@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/types"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/types"
 )
 
 func enumName(e *types.Enum) string { return "E_" + enumIdent(e) }

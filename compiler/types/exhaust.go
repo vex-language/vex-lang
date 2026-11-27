@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // A pattern reduced to what matters for coverage.

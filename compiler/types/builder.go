@@ -1,6 +1,6 @@
 package types
 
-import "github.com/irshadio/vex-lang/compiler/ast"
+import "github.com/vex-language/vex-lang/compiler/ast"
 
 // A list or map literal with a body, or a builder block, being checked.
 type build struct {

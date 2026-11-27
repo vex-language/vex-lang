@@ -5,8 +5,8 @@ import (
 	"math"
 	"strconv"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/lexer"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/lexer"
 )
 
 // Reports whether values of [t] can be map keys.

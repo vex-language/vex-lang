@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/types"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/types"
 )
 
 // Returns a C condition testing whether [x] matches [p]. Each name the

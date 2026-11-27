@@ -121,7 +121,7 @@ Memory is managed by a garbage collector built into the runtime, with Go-like sp
 **Build from source**
 
 ```sh
-git clone https://github.com/irshadio/vex-lang.git
+git clone https://github.com/vex-language/vex-lang.git
 cd vex-lang
 ./build.sh
 ```

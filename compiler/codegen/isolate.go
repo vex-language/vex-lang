@@ -4,8 +4,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/types"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/types"
 )
 
 // Values sent between isolates are encoded by a snd_ function for their

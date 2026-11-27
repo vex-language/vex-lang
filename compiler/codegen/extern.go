@@ -5,7 +5,7 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/types"
+	"github.com/vex-language/vex-lang/compiler/types"
 )
 
 // C math functions on doubles that the C compiler knows: calls to them

@@ -3,9 +3,9 @@ package codegen
 import (
 	"fmt"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/lexer"
-	"github.com/irshadio/vex-lang/compiler/types"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/lexer"
+	"github.com/vex-language/vex-lang/compiler/types"
 )
 
 // Returns C code telling whether [a] goes before [b], two values of [t],

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/diag"
 )
 
 func parse(t *testing.T, src string) (*ast.File, diag.List) {

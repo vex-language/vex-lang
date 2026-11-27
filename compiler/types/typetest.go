@@ -3,8 +3,8 @@ package types
 import (
 	"fmt"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/lexer"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/lexer"
 )
 
 // Checks `x is T` or `x as? T`.

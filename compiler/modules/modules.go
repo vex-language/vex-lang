@@ -15,11 +15,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/cc"
-	"github.com/irshadio/vex-lang/compiler/diag"
-	"github.com/irshadio/vex-lang/compiler/lexer"
-	"github.com/irshadio/vex-lang/compiler/parser"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/cc"
+	"github.com/vex-language/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/lexer"
+	"github.com/vex-language/vex-lang/compiler/parser"
 )
 
 //go:embed std

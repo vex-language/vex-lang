@@ -5,8 +5,8 @@ import (
 	"maps"
 	"slices"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/lexer"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/lexer"
 )
 
 // Reports whether [list] names the built-in [marker], `Equatable` or

@@ -3,7 +3,7 @@ package types
 import (
 	"fmt"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // A type alias: another name for the type it is declared with.

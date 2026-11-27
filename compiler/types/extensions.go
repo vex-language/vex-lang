@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"slices"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // A method or getter that an extension adds to a built-in type such as

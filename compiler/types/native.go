@@ -2,7 +2,7 @@ package types
 
 import (
 	"fmt"
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 	"strings"
 )
 

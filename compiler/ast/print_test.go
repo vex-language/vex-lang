@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irshadio/vex-lang/compiler/lexer"
+	"github.com/vex-language/vex-lang/compiler/lexer"
 )
 
 func TestPrinters(t *testing.T) {

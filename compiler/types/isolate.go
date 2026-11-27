@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // Returns the type written as `Channel<T>`, or created by `Channel<T>()`.

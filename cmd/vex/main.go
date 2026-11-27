@@ -8,10 +8,10 @@ import (
 	"os"
 	"strconv"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/diag"
-	"github.com/irshadio/vex-lang/compiler/lexer"
-	"github.com/irshadio/vex-lang/compiler/parser"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/lexer"
+	"github.com/vex-language/vex-lang/compiler/parser"
 )
 
 // The toolchain version, set at build time with

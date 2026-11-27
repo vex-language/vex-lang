@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // How the names a pattern binds are declared. A later alternative of `||`

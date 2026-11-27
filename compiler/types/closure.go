@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // A closure being checked.

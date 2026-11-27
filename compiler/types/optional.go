@@ -3,7 +3,7 @@ package types
 import (
 	"fmt"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // Returns the type inside the optional [t], which [what] unwraps,

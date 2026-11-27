@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/diag"
-	"github.com/irshadio/vex-lang/compiler/modules"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/modules"
 )
 
 // A module as the checker sees it: the top-level names of one folder.

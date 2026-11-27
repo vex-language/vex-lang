@@ -11,10 +11,10 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/irshadio/vex-lang/compiler/cc"
-	"github.com/irshadio/vex-lang/compiler/codegen"
-	"github.com/irshadio/vex-lang/compiler/modules"
-	"github.com/irshadio/vex-lang/compiler/types"
+	"github.com/vex-language/vex-lang/compiler/cc"
+	"github.com/vex-language/vex-lang/compiler/codegen"
+	"github.com/vex-language/vex-lang/compiler/modules"
+	"github.com/vex-language/vex-lang/compiler/types"
 )
 
 // Loads and checks the program at [target], a source file or a project
