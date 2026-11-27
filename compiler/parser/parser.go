@@ -332,7 +332,7 @@ func (p *parser) decl() ast.Decl {
 	case lexer.Static:
 		p.fail(t, "use static fn inside a struct", "'static' is only allowed inside a struct")
 	case lexer.Let, lexer.Var:
-		p.fail(t, "move it into a function such as fn main()", "variables must be declared inside a function")
+		return p.constDecl()
 	}
 	p.fail(t, "code goes inside a function, e.g. fn main() { ... }", "expected 'fn', 'struct', 'enum' or 'interface', found %s", describe(t))
 	return nil
@@ -641,14 +641,14 @@ func (p *parser) enumMember(e *ast.EnumDecl) {
 		return
 	case lexer.Static:
 		p.next()
-		if p.at(lexer.Const) {
+		if p.at(lexer.Const) || p.at(lexer.Let) || p.at(lexer.Var) {
 			k := p.constDecl()
 			k.Pub = pub
 			e.Consts = append(e.Consts, k)
 			return
 		}
 		if !p.at(lexer.Fn) && !p.at(lexer.Async) {
-			p.fail(p.tok(), "", "expected 'fn' or 'const' after 'static', found %s", describe(p.tok()))
+			p.fail(p.tok(), "", "expected 'fn', 'const', 'let' or 'var' after 'static', found %s", describe(p.tok()))
 		}
 		m := p.funcDecl(true)
 		m.Pub = pub
@@ -919,7 +919,7 @@ func (p *parser) member(s *ast.StructDecl) {
 		return
 	case lexer.Static:
 		p.next()
-		if p.at(lexer.Const) {
+		if p.at(lexer.Const) || p.at(lexer.Let) || p.at(lexer.Var) {
 			k := p.constDecl()
 			k.Pub = pub
 			s.Consts = append(s.Consts, k)
@@ -929,7 +929,7 @@ func (p *parser) member(s *ast.StructDecl) {
 			p.fail(p.tok(), "remove static: self is the left operand", "operators can't be static")
 		}
 		if !p.at(lexer.Fn) && !p.at(lexer.Async) {
-			p.fail(p.tok(), "", "expected 'fn' or 'const' after 'static', found %s", describe(p.tok()))
+			p.fail(p.tok(), "", "expected 'fn', 'const', 'let' or 'var' after 'static', found %s", describe(p.tok()))
 		}
 		m := p.funcDecl(true)
 		m.Pub = pub
@@ -2460,14 +2460,29 @@ func (p *parser) typeAlias() *ast.TypeAliasDecl {
 }
 
 // Parses `const name: type = value`.
+// Parses `const`, or `let` and `var` outside functions, which share the
+// form `name: Type = value`.
 func (p *parser) constDecl() *ast.ConstDecl {
-	start := p.next().Pos
-	k := &ast.ConstDecl{Name: p.ident("a name for the constant")}
+	t := p.next()
+	start := t.Pos
+	k := &ast.ConstDecl{Lazy: t.Kind != lexer.Const, Mutable: t.Kind == lexer.Var}
+	if k.Lazy {
+		k.Name = p.ident("a variable name")
+	} else {
+		k.Name = p.ident("a name for the constant")
+	}
 	if p.at(lexer.Colon) {
 		p.next()
 		k.Type = p.typeExpr()
 	}
 	if !p.at(lexer.Assign) {
+		if k.Lazy {
+			hint := fmt.Sprintf("write %s %s = ...", t.Text, k.Name.Name)
+			if k.Type != nil {
+				hint = fmt.Sprintf("give it a starting value, e.g. %s %s: %s = ...", t.Text, k.Name.Name, ast.TypeString(k.Type))
+			}
+			p.fail(p.tok(), hint, "'%s %s' needs a value", t.Text, k.Name.Name)
+		}
 		p.fail(p.tok(), fmt.Sprintf("give it a value: const %s = ...", k.Name.Name), "expected '=' after the constant's name, found %s", describe(p.tok()))
 	}
 	p.next()
