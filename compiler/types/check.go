@@ -1114,7 +1114,7 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		c.assignMember(s, x, c.info.Uses[x])
 		switch u := c.info.Uses[x].(type) {
 		case *Const:
-			c.errorAt(x, "", "can't change constant '%s'", u)
+			c.constAssign(x, u)
 		case *Func:
 			c.errorAt(x, "declare a variable holding a function instead: var f = "+u.Name, "can't assign to function '%s'", u.Name)
 		}
@@ -1144,7 +1144,7 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		} else if m := c.info.Members[x]; m != nil && m.Builtin != "" {
 			c.errorAt(x.Name, "", "%s can't be changed", m.Builtin)
 		} else if m != nil && m.Const != nil {
-			c.errorAt(x, "", "can't change constant '%s'", m.Const)
+			c.constAssign(x, m.Const)
 		} else if m != nil && m.Property != nil {
 			c.assignMember(s, x.Name, m.Property)
 		} else if m != nil {

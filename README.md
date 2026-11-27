@@ -179,7 +179,7 @@ vex run examples/primes.vx
 
 ## Language tour
 
-**Variables.** `let` values can't be reassigned, `var` values can. Types are inferred, or written after a colon.
+**Variables.** `let` values can't be reassigned, `var` values can. Types are inferred, or written after a colon. Outside functions, and as `static var` in a type, they hold shared state, set up on first use with one copy per isolate.
 
 ```swift
 let name = "Vex"            // string
@@ -187,6 +187,9 @@ var count = 0               // int
 let price: float = 9.99
 let tags: [string] = []     // an empty list needs its type
 count += 1
+
+var visits = 0              // at the top level: shared by the whole program
+struct Router { static var stack: [string] = [] }
 ```
 
 **Types.** `int` and `float` are 64-bit; `bool`, `string`, lists `[T]`, structs and function types `fn(T) -> R` complete the set. Numbers never convert silently: write `float(count)` or `int(price)`. Text joins with interpolation: `"{count} items"`.
@@ -558,7 +561,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 42 of 80 tasks; next are shared state and async closures |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 43 of 80 tasks; next are async closures and cancellation |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |

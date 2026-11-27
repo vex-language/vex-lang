@@ -179,6 +179,8 @@ static VX_TLS void **vx_kept;
 // The globals holding the program's constants, built by the main thread
 // before anything else runs and kept alive from then on.
 static const char *vx_roots_lo, *vx_roots_hi;
+// This isolate's copy of the variables declared outside functions.
+static VX_TLS const char *vx_vars_lo, *vx_vars_hi;
 static VX_TLS size_t vx_kept_len, vx_kept_cap;
 
 // A task: async work running on its own stack. The program's own stack
@@ -487,6 +489,7 @@ static void vx_mark_roots(void) {
     vx_mark_range((const char *)&vx_fs_entries, (const char *)(&vx_fs_entries + 1));
     if (vx_kept) vx_mark_range((const char *)vx_kept, (const char *)(vx_kept + vx_kept_len));
     if (vx_roots_lo) vx_mark_range(vx_roots_lo, vx_roots_hi);
+    if (vx_vars_lo) vx_mark_range(vx_vars_lo, vx_vars_hi);
     // The stacks of the tasks that aren't running, the program's own
     // included, from their saved registers up.
     if (vx_cur != &vx_main_task) vx_mark_range(vx_main_task.sp, vx_main_task.top);

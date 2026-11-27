@@ -464,6 +464,8 @@ func (c *checker) moduleCall(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		c.errorAt(e.TypeArgs[0], "remove the <...>", "'%s.%s' is not generic, so it takes no type arguments", id.Module, name)
 	}
 	switch {
+	case m.consts[name] != nil && m.consts[name].Lazy:
+		return c.callValue(e)
 	case m.funcs[name] != nil:
 		f := m.funcs[name]
 		if c.private(id, m, f.Decl.Pub, "function '"+name+"'") {

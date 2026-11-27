@@ -111,6 +111,33 @@ mine.push(11)
 - In a pattern, a name that refers to a constant matches values equal to it, unless a local variable has the same name.
 - Generic structs and enums can't have constants.
 
+## Top-level and static variables
+
+`let` and `var` outside functions declare variables the whole program shares, and `static let` and `static var` declare them on a struct or enum. Unlike constants, their starting value can be anything, function calls included.
+
+```swift
+var visits = 0
+let config = loadConfig()                  // runs the first time config is used
+pub var theme = Theme(name: "light")       // other modules can read and change it
+
+struct Router {
+    static var stack: [Page] = []
+    static fn push(p: Page) { stack.push(p) }   // Router.stack outside the struct
+}
+
+fn visit() -> int {
+    visits += 1
+    return visits
+}
+```
+
+- Each variable is set up the first time it is used, not before `main`, so unused ones cost nothing and the order of declarations doesn't matter. A starting value that ends up using its own variable stops the program with an error.
+- Each isolate has its own copy, set up on its first use there. Changes in one isolate are never seen by another, so no locks are needed.
+- `let` variables can't be assigned again, but a list or map they hold can still change, as with a local `let`.
+- A starting value can't use `await` or pass errors up with `try`; use `try?` or `try ... catch`.
+- Names in patterns bind new variables even when a top-level variable has the same name; only constants are compared.
+- Generic structs and enums can't have static variables, and neither can extensions of built-in types.
+
 ## Functions
 
 ```swift

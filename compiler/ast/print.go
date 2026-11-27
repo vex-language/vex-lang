@@ -329,7 +329,14 @@ func build(n Node) *tree {
 		}
 		return leaf(label)
 	case *ConstDecl:
-		label := "const " + n.Name.Name
+		keyword := "const "
+		switch {
+		case n.Mutable:
+			keyword = "var "
+		case n.Lazy:
+			keyword = "let "
+		}
+		label := keyword + n.Name.Name
 		if n.Type != nil {
 			label += ": " + TypeString(n.Type)
 		}

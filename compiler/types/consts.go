@@ -11,12 +11,18 @@ import (
 )
 
 // A constant: `const name = value`, or a `static const` of a struct or
-// enum.
+// enum. A variable declared outside functions with `let` or `var` is one
+// too, with [Lazy] set: it is built on first use, separately in each
+// isolate.
 type Const struct {
 	Name   string
 	Module *Module
 	Decl   *ast.ConstDecl
 	Type   Type
+
+	// Set for `let` and `var`, and [Mutable] for `var`.
+	Lazy    bool
+	Mutable bool
 
 	// The struct or enum a static constant belongs to, or nil.
 	Owner *Struct
@@ -69,7 +75,7 @@ func (c *checker) declareConst(d *ast.ConstDecl) {
 		c.errorAt(d.Name, "", "'%s' is already declared on line %d", name, line)
 		return
 	}
-	c.consts[name] = &Const{Name: name, Module: c.mod, Decl: d, unit: c.unit}
+	c.consts[name] = &Const{Name: name, Module: c.mod, Decl: d, Lazy: d.Lazy, Mutable: d.Mutable, unit: c.unit}
 }
 
 // Declares the static constants of a struct or enum, whose other member
@@ -91,7 +97,7 @@ func (c *checker) staticConsts(decls []*ast.ConstDecl, owner *Struct, en *Enum, 
 			continue
 		}
 		seen[name] = d.Pos().Line
-		out = append(out, &Const{Name: name, Module: c.mod, Decl: d, Owner: owner, Enum: en, unit: c.unit})
+		out = append(out, &Const{Name: name, Module: c.mod, Decl: d, Lazy: d.Lazy, Mutable: d.Mutable, Owner: owner, Enum: en, unit: c.unit})
 	}
 	return out
 }
@@ -103,7 +109,11 @@ func (c *checker) checkConst(k *Const) {
 	case 2:
 		return
 	case 1:
-		c.errorAt(k.Decl.Name, "a constant can't be worked out from itself", "constant '%s' depends on itself", k.Name)
+		if k.Lazy {
+			c.errorAt(k.Decl.Name, "give it a value that doesn't use it", "'%s' is used in its own starting value", k.Name)
+		} else {
+			c.errorAt(k.Decl.Name, "a constant can't be worked out from itself", "constant '%s' depends on itself", k.Name)
+		}
 		k.Type = Invalid
 		return
 	}
@@ -125,7 +135,11 @@ func (c *checker) checkConst(k *Const) {
 	}
 	t := c.expr(k.Decl.Value, want)
 	if want != nil {
-		c.assignable(want, t, k.Decl.Value, "constant '"+k.Name+"'")
+		what := "constant '" + k.Name + "'"
+		if k.Lazy {
+			what = "'" + k.Name + "'"
+		}
+		c.assignable(want, t, k.Decl.Value, what)
 		t = want
 	}
 	if k.Type == Invalid {
@@ -136,8 +150,12 @@ func (c *checker) checkConst(k *Const) {
 		return
 	}
 	if t == Void {
-		c.errorAt(k.Decl.Value, "", "this expression has no value to store in a constant")
+		c.errorAt(k.Decl.Value, "", "this expression has no value to store in a %s", map[bool]string{true: "variable", false: "constant"}[k.Lazy])
 		k.Type = Invalid
+		return
+	}
+	if k.Lazy {
+		c.info.Consts = append(c.info.Consts, k)
 		return
 	}
 	if !c.constExpr(k.Decl.Value) {
@@ -180,14 +198,14 @@ func (c *checker) constExpr(e ast.Expr) bool {
 	case *ast.InterpolatedString:
 		return all(e.Exprs)
 	case *ast.Ident:
-		if _, ok := c.info.Uses[e].(*Const); ok {
+		if k, ok := c.info.Uses[e].(*Const); ok && !k.Lazy {
 			return true
 		}
 		return bad(e, "use a literal or another constant", "'"+e.Name+"'")
 	case *ast.MemberExpr:
 		m := c.info.Members[e]
 		switch {
-		case m != nil && m.Const != nil:
+		case m != nil && m.Const != nil && !m.Const.Lazy:
 			return true
 		case m != nil && (m.RecordField != "" || m.Builtin == "len"):
 			return c.constExpr(e.X)
@@ -449,11 +467,15 @@ func (c *checker) foldInt(e *ast.BinaryExpr, a, b int64) any {
 func (c *checker) constRoot(e ast.Expr) *Const {
 	switch e := e.(type) {
 	case *ast.Ident:
-		k, _ := c.info.Uses[e].(*Const)
-		return k
+		if k, _ := c.info.Uses[e].(*Const); k != nil && !k.Lazy {
+			return k
+		}
 	case *ast.MemberExpr:
 		if m := c.info.Members[e]; m != nil {
 			if m.Const != nil {
+				if m.Const.Lazy {
+					return nil
+				}
 				return m.Const
 			}
 			if m.RecordField != "" {
@@ -486,7 +508,7 @@ func (c *checker) declareStaticConsts() {
 			switch {
 			case len(d.Consts) == 0:
 			case len(d.TypeParams) > 0:
-				c.errorAt(d.Consts[0].Name, "move it to the top level", "a generic struct can't have constants")
+				c.errorAt(d.Consts[0].Name, "move it to the top level", "a generic struct can't have %s", staticKind(d.Consts[0]))
 			case s != nil && s.Decl == d:
 				s.Consts = c.staticConsts(d.Consts, s, nil, func(name string) bool {
 					return s.Field(name) != nil || s.Method(name) != nil || s.Property(name) != nil
@@ -497,7 +519,7 @@ func (c *checker) declareStaticConsts() {
 			switch {
 			case len(d.Consts) == 0:
 			case len(d.TypeParams) > 0:
-				c.errorAt(d.Consts[0].Name, "move it to the top level", "a generic enum can't have constants")
+				c.errorAt(d.Consts[0].Name, "move it to the top level", "a generic enum can't have %s", staticKind(d.Consts[0]))
 			case e != nil && e.Decl == d:
 				e.Consts = c.staticConsts(d.Consts, nil, e, func(name string) bool {
 					return e.Case(name) != nil || e.Method(name) != nil || e.Property(name) != nil
@@ -539,6 +561,25 @@ func (c *checker) extensionConsts(d *ast.ExtensionDecl) {
 	}
 }
 
+// Reports assigning to [k] at [at], unless it is a `var`.
+func (c *checker) constAssign(at ast.Node, k *Const) {
+	switch {
+	case k.Mutable:
+	case k.Lazy:
+		c.errorAt(at, fmt.Sprintf("declare it with var %s = ... to make it changeable", k.Name), "can't change '%s': it's declared with let", k)
+	default:
+		c.errorAt(at, "", "can't change constant '%s'", k)
+	}
+}
+
+// Returns what [d] declares, in the plural, for errors.
+func staticKind(d *ast.ConstDecl) string {
+	if d.Lazy {
+		return "static variables"
+	}
+	return "constants"
+}
+
 // Returns the constant called [name] in [ks], or nil.
 func constNamed(ks []*Const, name string) *Const {
 	for _, k := range ks {
@@ -569,12 +610,17 @@ func (c *checker) ownConst(name string) *Const {
 	return nil
 }
 
+// Returns the constant or variable a bare [name] reaches here, or nil.
+func (c *checker) findConst(name string) *Const {
+	if k := c.ownConst(name); k != nil {
+		return k
+	}
+	return c.consts[name]
+}
+
 // Resolves [id] to a constant, or returns nil.
 func (c *checker) constIdent(id *ast.Ident) *Const {
-	k := c.ownConst(id.Name)
-	if k == nil {
-		k = c.consts[id.Name]
-	}
+	k := c.findConst(id.Name)
 	if k == nil {
 		return nil
 	}

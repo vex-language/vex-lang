@@ -143,6 +143,7 @@ func Generate(info *types.Info, srcName string) string {
 		}
 	}
 	consts := g.constsInit(info)
+	vars := g.varsInit(info)
 
 	var out strings.Builder
 	g.b, g.ind = &out, 0
@@ -206,9 +207,11 @@ func Generate(info *types.Info, srcName string) string {
 	g.b.WriteString(g.codecDecls.String())
 	g.b.WriteString(g.codecDefs.String())
 	g.constsStruct(info)
+	g.varsStruct(info)
 	g.b.WriteString(defs.String())
 	g.b.WriteString(g.lams.String())
 	g.b.WriteString(consts)
+	g.b.WriteString(vars)
 	g.line("")
 	names := []string{cQuote(srcName)}
 	if len(info.Files) > 1 {
@@ -1152,6 +1155,10 @@ func (g *gen) assign(s *ast.AssignStmt) {
 		}
 		target = fmt.Sprintf("(*VX_AT(%s, vx_list_mut(%s, %d), %s, %d))", ctype(t), list, g.lineOf(x), idx, g.lineOf(x))
 	case *ast.MemberExpr:
+		if k := g.info.Members[x].Const; k != nil {
+			target, inHeap = g.constRef(k), false
+			break
+		}
 		obj := g.temp()
 		setup = append(setup, fmt.Sprintf("%s = %s;", decl(g.info.Types[x.X], obj), g.expr(x.X)))
 		if p := g.info.Members[x].Property; p != nil {
@@ -1171,6 +1178,8 @@ func (g *gen) assign(s *ast.AssignStmt) {
 				barrier = recv
 			case *types.Var:
 				inHeap = g.info.Uses[id].(*types.Var).Boxed()
+			case *types.Const:
+				inHeap = false
 			}
 		}
 		target = g.expr(s.Target)

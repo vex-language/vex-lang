@@ -1,0 +1,17 @@
+start
+loading
+2 ["a", "b"] 2
+["a", "b", "c"]
+["x": 42]
+["/", "/a"] /a
+["reset"] 2
+20
+bound 5 6
+140 [120, 220, 220]
+LOUD
+quiet!
+1 2 2
+making greeting
+11 hello hello
+light
+dark

@@ -515,6 +515,33 @@ extension shapes.Point {
 	}
 }
 
+func TestGlobals(t *testing.T) {
+	src := `var count = 0
+pub let names: [string] = load()
+struct Router {
+    static var stack: [string] = []
+    pub static let home = "/"
+}
+`
+	f, errs := parse(t, src)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	want := []string{
+		"(var count 0)",
+		"(pub let names: [string] (call load))",
+		"(struct Router (var stack: [string] list) (pub let home \"/\"))",
+	}
+	if len(f.Decls) != len(want) {
+		t.Fatalf("got %d declarations, want %d", len(f.Decls), len(want))
+	}
+	for i, d := range f.Decls {
+		if got := ast.Sexpr(d); got != want[i] {
+			t.Errorf("decl %d\n got: %s\nwant: %s", i, got, want[i])
+		}
+	}
+}
+
 func TestOperators(t *testing.T) {
 	src := `struct Vec {
     operator: int
@@ -745,7 +772,8 @@ func TestErrors(t *testing.T) {
 		hint      string
 	}{
 		{"code at top level", "println(1)", "1:1", "expected 'fn', 'struct', 'enum' or 'interface', found 'println'", "code goes inside a function, e.g. fn main() { ... }"},
-		{"variable at top level", "let x = 1", "1:1", "variables must be declared inside a function", "move it into a function such as fn main()"},
+		{"top-level variable without value", "var x: int", "1:11", "'var x' needs a value", "give it a starting value, e.g. var x: int = ..."},
+		{"static without member", "struct S {\n    static x = 1\n}", "2:12", "expected 'fn', 'const', 'let' or 'var' after 'static', found 'x'", ""},
 		{"static at top level", "static fn f() {}", "1:1", "'static' is only allowed inside a struct", "use static fn inside a struct"},
 		{"keyword as name", "fn for() {}", "1:4", "expected a function name, found 'for'", "for is a keyword; choose another name"},
 		{"parameter without type", "fn f(a) {}", "1:7", "parameter 'a' needs a type", "write it as a: int"},

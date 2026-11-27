@@ -1,0 +1,41 @@
+let fixed = 1
+var self_ref: int = self_ref + 1
+var nothing = nil
+var empty = print("x")
+const derived = fixed + 1
+var later: string = 5
+
+struct Box<T> {
+    item: T
+    static var count = 0
+}
+
+struct Counter {
+    static let start = 10
+}
+
+var trying = try load()
+var number = 4
+
+fn main() {
+    number()
+    fixed = 2
+    Counter.start = 3
+    var fixed = "shadow"
+    fixed = "ok"
+    let s = try load()
+}
+
+fn load() throws -> int => 1
+
+// error: 2:5: 'self_ref' is used in its own starting value
+// error: 3:15: can't tell the type of nil
+// error: 4:13: this expression has no value to store in a variable
+// error: 5:17: a constant must be known when compiling, but 'fixed' isn't
+// error: 6:21: 'later': expected string, found int
+// error: 10:16: a generic struct can't have static variables
+// error: 17:14: a starting value can't pass errors up
+// error: 21:5: 'number' is an int, not a function
+// error: 22:5: can't change 'fixed': it's declared with let
+// error: 23:5: can't change 'Counter.start': it's declared with let
+// error: 26:13: the error can't pass up: main doesn't throw

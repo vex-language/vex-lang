@@ -236,12 +236,18 @@ type TypeAliasDecl struct {
 
 // A constant: `const name: type = value` at the top level, or `static
 // const` inside a struct or enum. [Type] is nil when it is inferred.
+//
+// The same node holds a variable declared outside functions with `let` or
+// `var`, or `static let` and `static var` inside a type: [Lazy] is then
+// set, and [Mutable] for `var`.
 type ConstDecl struct {
 	Span
-	Pub   bool
-	Name  *Ident
-	Type  TypeExpr
-	Value Expr
+	Pub     bool
+	Lazy    bool
+	Mutable bool
+	Name    *Ident
+	Type    TypeExpr
+	Value   Expr
 }
 
 // An interface: methods and properties that implementing structs and

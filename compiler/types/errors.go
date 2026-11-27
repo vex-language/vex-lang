@@ -169,7 +169,11 @@ func (c *checker) tryExpr(e *ast.TryExpr, want Type, stmt bool) Type {
 	info.Target = th
 	switch {
 	case th == nil && where == "":
-		c.errorAt(e, "use try? or try ... catch", "default values can't pass errors up")
+		if c.constOwner != nil && c.constOwner.Lazy {
+			c.errorAt(e, "use try? or try ... catch", "a starting value can't pass errors up")
+		} else {
+			c.errorAt(e, "use try? or try ... catch", "default values can't pass errors up")
+		}
 	case th == nil && where == "the closure":
 		c.errorAt(e, "handle it with catch, use try?, or declare the closure fn(...) throws", "the error can't pass up: the closure doesn't throw")
 	case th == nil:
