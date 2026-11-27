@@ -112,6 +112,9 @@ func Generate(info *types.Info, srcName string) string {
 	for _, e := range info.Enums {
 		g.needRepr(e)
 	}
+	for _, o := range info.Wraps {
+		g.needRepr(o)
+	}
 
 	// Function bodies come first, since they discover the closures and
 	// function values whose declarations must precede them.
@@ -222,6 +225,9 @@ func Generate(info *types.Info, srcName string) string {
 	}
 	g.line("static const char *const vx_srcs[] = {%s};", strings.Join(names, ", "))
 	g.line("")
+	if info.Testing {
+		g.testWrappers()
+	}
 	g.line("int main(int argc, char **argv) {")
 	g.line("    vx_argc = argc;")
 	g.line("    vx_argv = argv;")
@@ -231,6 +237,8 @@ func Generate(info *types.Info, srcName string) string {
 		g.line("    vx_consts_init();")
 	}
 	switch main := mainFunc(info); {
+	case info.Testing:
+		g.testMain()
 	case main != nil && main.Async:
 		g.line("    vx_future *f = sp_fn_main();")
 		g.line("    vx_loop();")
@@ -362,7 +370,11 @@ var operatorNames = map[string]string{
 // Returns [name], a name from the program, for use inside a C name. Each
 // `_` becomes `_u`, so the result never holds `__`, which separates the
 // type arguments of generic instances: `id__int` stays apart from `id<int>`.
-func cid(name string) string { return strings.ReplaceAll(name, "_", "_u") }
+// Returns [name] as part of a C identifier. The `#` of the functions of
+// test blocks, such as `test#1`, becomes `_h`.
+func cid(name string) string {
+	return strings.ReplaceAll(strings.ReplaceAll(name, "_", "_u"), "#", "_h")
+}
 
 func ctype(t types.Type) string {
 	switch t := t.(type) {
@@ -1907,6 +1919,9 @@ func (g *gen) call(e *ast.CallExpr) string {
 
 func (g *gen) callCode(e *ast.CallExpr) string {
 	c := g.info.Calls[e]
+	if c.Kind == types.BuiltinCall && c.Builtin == "expect" {
+		return g.expect(e, c)
+	}
 	line := g.lineOf(e)
 	rank := sourceRank(e, c.Args)
 	switch c.Kind {

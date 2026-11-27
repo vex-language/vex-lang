@@ -248,3 +248,99 @@ func TestBuildOutputPath(t *testing.T) {
 		t.Errorf("running the binary: %q, %v", got, err)
 	}
 }
+
+func TestTest(t *testing.T) {
+	needCC(t)
+	dir := t.TempDir()
+	files := map[string]string{
+		"package.toml": "[package]\nname = \"calc\"\n",
+		"main.vx": `fn add(a: int, b: int) -> int => a + b
+
+fn parse(s: string) throws -> int {
+    if s == "" {
+        throw Error("empty input")
+    }
+    return 1
+}
+
+fn main() {
+    println(add(1, 2))
+}
+
+test "adds in the same file" {
+    expect(add(2, 2) == 4)
+}
+`,
+		"main_test.vx": `test "adds two numbers" {
+    expect(add(2, 3) == 5)
+}
+
+test "shows both sides" {
+    expect(add(2, 3) == 6)
+    let name: string? = "vex"
+    expect(name == "vax", "names differ")
+    expect(add(1, 1) > 2 && true)
+}
+
+test "passes an error up" throws {
+    let n = try parse("")
+    expect(n == 1)
+}
+
+test "crashes" {
+    let xs: [int] = []
+    println(xs[3])
+}
+`,
+	}
+	for name, src := range files {
+		if err := os.WriteFile(filepath.Join(dir, name), []byte(src), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	code, out, errOut := runCLI("test", dir)
+	want := `✓ adds in the same file
+✓ adds two numbers
+✗ shows both sides
+  ` + filepath.Join(dir, "main_test.vx") + `:6: expect(add(2, 3) == 6)
+    left:  5
+    right: 6
+  ` + filepath.Join(dir, "main_test.vx") + `:8: expect(name == "vax")
+    names differ
+    left:  "vex"
+    right: "vax"
+  ` + filepath.Join(dir, "main_test.vx") + `:9: expect(add(1, 1) > 2 && true)
+✗ passes an error up
+  error: empty input
+✗ crashes
+
+5 tests: 2 passed, 3 failed
+`
+	if code != exitError || out != want || !strings.Contains(errOut, "index 3 is out of range") {
+		t.Errorf("code %d\nstdout:\n%s\nwant:\n%s\nstderr %q", code, out, want, errOut)
+	}
+	code, out, _ = runCLI("test", dir, "-filter", "adds")
+	if code != exitOK || out != "✓ adds in the same file\n✓ adds two numbers\n\n2 tests: 2 passed, 0 failed\n" {
+		t.Errorf("filter: code %d, stdout %q", code, out)
+	}
+	if code, out, _ := runCLI("test", dir, "-filter", "nothing"); code != exitError || out != "no tests match 'nothing'\n" {
+		t.Errorf("no match: code %d, stdout %q", code, out)
+	}
+	// Other builds leave the tests out.
+	if code, out, errOut := runCLI("run", dir); code != exitOK || out != "3\n" {
+		t.Errorf("run: code %d, stdout %q, stderr %q", code, out, errOut)
+	}
+
+	path := writeFile(t, "test \"same\" {\n}\n\ntest \"same\" {\n}\n")
+	if code, _, errOut := runCLI("test", path); code != exitError || !strings.Contains(errOut, "a test named 'same' is already on line 1") {
+		t.Errorf("duplicate: code %d, stderr %q", code, errOut)
+	}
+	path = writeFile(t, "fn main() {\n    expect(1 == 1)\n}\n")
+	if code, _, errOut := runCLI("run", path); code != exitError || !strings.Contains(errOut, "expect only works in tests") {
+		t.Errorf("expect outside tests: code %d, stderr %q", code, errOut)
+	}
+	path = writeFile(t, "fn main() {}\n")
+	if code, out, _ := runCLI("test", path); code != exitOK || out != "no tests\n" {
+		t.Errorf("no tests: code %d, stdout %q", code, out)
+	}
+}

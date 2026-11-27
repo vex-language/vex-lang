@@ -41,6 +41,7 @@ func init() {
 		{"build", "[file or folder] [-o out]", "Build a native executable", runBuild},
 		{"emit-c", "[file or folder]", "Print the generated C code", runEmitC},
 		{"check", "[file or folder]", "Check a program for errors", runCheck},
+		{"test", "[file or folder] [-filter text]", "Run the program's tests", runTest},
 		{"ast", "<file>", "Print the syntax tree of a source file", runAST},
 		{"tokens", "<file>", "Print the tokens of a source file", runTokens},
 		{"version", "", "Print the Vex version", runVersion},

@@ -669,6 +669,9 @@ const (
 type Call struct {
 	Kind CallKind
 
+	// The source of the condition of `expect`, shown when it fails.
+	Text string
+
 	// The function or method called, for FuncCall, MethodCall and StaticCall.
 	Func *Func
 
@@ -802,6 +805,11 @@ type Info struct {
 
 	// Enum cases used as values without a call: `Shape.empty`, `.up`.
 	CaseValues map[ast.Expr]*Case
+
+	// Set for a program built to run its tests, with the functions of its
+	// test blocks in order.
+	Testing bool
+	Tests   []*ast.FuncDecl
 
 	// Conditions of `if` known when compiling, such as
 	// `os.target == .macos`, with their value. The branch not taken is
