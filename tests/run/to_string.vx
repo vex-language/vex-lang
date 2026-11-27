@@ -1,0 +1,62 @@
+struct Money {
+    cents: int
+
+    fn toString() -> string => "${cents / 100}.{cents % 100}"
+}
+
+enum Suit {
+    hearts, spades
+
+    fn toString() -> string => match self {
+        hearts => "♥"
+        spades => "♠"
+    }
+}
+
+struct Box<T> {
+    item: T
+
+    fn toString() -> string => "Box of {item}"
+}
+
+interface Shape {
+    fn area() -> float
+}
+
+struct Square: Shape {
+    side: float
+
+    fn area() -> float => side * side
+    fn toString() -> string => "Square {side}"
+}
+
+struct Point {
+    x: int
+    y: int
+}
+
+extension Point {
+    fn toString() -> string => "({x}, {y})"
+}
+
+struct Plain {
+    m: Money
+}
+
+fn main() {
+    let m = Money(cents: 1250)
+    println(m)
+    println("cost: {m}")
+    println([m, m])
+    println(str(m))
+    println(Suit.hearts, [Suit.spades])
+    println(Box(item: 3), Box(item: "x"))
+    let s: Shape = Square(side: 2.0)
+    println(s)
+    println(Plain(m: m))
+    let o: Money? = m
+    println(o)
+    println(["a": m])
+    println(m.toString())
+    println(Point(x: 1, y: 2), [Point(x: 3, y: 4)])
+}
