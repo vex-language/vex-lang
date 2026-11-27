@@ -630,7 +630,15 @@ func buildExpr(e Expr) *tree {
 			}
 		}
 		if e.Trailing != nil {
-			t.kids = append(t.kids, build(e.Trailing))
+			b := build(e.Trailing)
+			if len(e.BlockParams) > 0 {
+				var names []string
+				for _, p := range e.BlockParams {
+					names = append(names, p.Name)
+				}
+				b = branch(strings.Join(names, ", ")+" in", b)
+			}
+			t.kids = append(t.kids, b)
 		}
 		return t
 	case *IndexExpr:

@@ -544,7 +544,7 @@ func (c *checker) bind(e *ast.CallExpr, slots []slot, callee string) []ast.Expr 
 	}
 	if call := c.info.Calls[e]; e.Trailing != nil && (call == nil || call.Kind != BuiltinCall) {
 		if i := c.trailing(e, slots, set, callee); i >= 0 {
-			lit := trailingLit(e.Trailing, slots[i].typ)
+			lit := trailingLit(e, slots[i].typ)
 			t := c.expr(lit, slots[i].typ)
 			c.assignable(slots[i].typ, t, lit, slots[i].describe())
 			out[i], set[i] = lit, true
@@ -594,22 +594,41 @@ func (c *checker) trailing(e *ast.CallExpr, slots []slot, set []bool, callee str
 		return -1
 	}
 	if _, ok := slots[i].typ.(*List); ok {
+		if len(e.BlockParams) > 0 {
+			c.errorAt(e.BlockParams[0], "remove the parameters and write one element per line", "a builder block for '%s' takes no parameters", slots[i].name)
+			return -1
+		}
 		return i
 	}
-	if ft, ok := slots[i].typ.(*FuncType); !ok || len(ft.Params) > 0 {
-		c.errorAt(e.Trailing, "", "a trailing block needs the last parameter of %s to be fn() or a list, but '%s' is %s", callee, slots[i].name, slots[i].typ)
+	if _, ok := slots[i].typ.(*FuncType); !ok {
+		c.errorAt(e.Trailing, "", "a trailing block needs the last parameter of %s to be a function or a list, but '%s' is %s", callee, slots[i].name, slots[i].typ)
 		return -1
 	}
 	return i
 }
 
-// Returns the argument a trailing block [b] gives for a parameter of type
-// [t]: a builder block for a list, otherwise a closure.
-func trailingLit(b *ast.Block, t Type) ast.Expr {
-	if _, ok := t.(*List); ok {
+// Returns the arguments of [e], with its trailing block, if any, as a
+// closure after them.
+func withBlock(e *ast.CallExpr) []*ast.Arg {
+	if e.Trailing == nil {
+		return e.Args
+	}
+	args := append([]*ast.Arg{}, e.Args...)
+	return append(args, &ast.Arg{Span: e.Trailing.Span, Value: trailingLit(e, &FuncType{})})
+}
+
+// Returns the argument the trailing block of [e] gives for a parameter of
+// type [t]: a builder block for a list, otherwise a closure.
+func trailingLit(e *ast.CallExpr, t Type) ast.Expr {
+	b := e.Trailing
+	if _, ok := t.(*List); ok && len(e.BlockParams) == 0 {
 		return &ast.ListLit{Span: b.Span, Body: b}
 	}
-	return &ast.FuncLit{Span: b.Span, Body: b}
+	lit := &ast.FuncLit{Span: b.Span, Body: b, Block: true}
+	for _, id := range e.BlockParams {
+		lit.Params = append(lit.Params, &ast.Param{Span: id.Span, Name: id})
+	}
+	return lit
 }
 
 // Returns [t] with "a" or "an" before it: "an int", "a string".
@@ -749,10 +768,11 @@ func (c *checker) callBuiltin(e *ast.CallExpr, name string) Type {
 // function returns.
 func (c *checker) mapCall(e *ast.CallExpr, m *ast.MemberExpr, l *List) Type {
 	fnType := &FuncType{Params: []Type{l.Elem}}
+	args := withBlock(e)
 	var arg ast.Expr
 	switch {
-	case len(e.Args) == 1 && e.Args[0].Name == nil && e.Trailing == nil:
-		arg = e.Args[0].Value
+	case len(args) == 1 && args[0].Name == nil:
+		arg = args[0].Value
 	default:
 		c.checkArgs(e)
 		c.errorAt(m.Name, "e.g. xs.map(fn(x) => x * 2)", "map takes 1 function")
@@ -790,12 +810,13 @@ func lessFunc(t Type) *FuncType { return &FuncType{Params: []Type{t, t}, Result:
 // Checks `list.flatMap(fn(x) => [...])`, whose result joins the lists the
 // function returns.
 func (c *checker) flatMapCall(e *ast.CallExpr, m *ast.MemberExpr, l *List) Type {
-	if len(e.Args) != 1 || e.Args[0].Name != nil || e.Trailing != nil {
+	args := withBlock(e)
+	if len(args) != 1 || args[0].Name != nil {
 		c.checkArgs(e)
 		c.errorAt(m.Name, "e.g. xs.flatMap(fn(x) => [x, x])", "flatMap takes 1 function")
 		return Invalid
 	}
-	arg := e.Args[0].Value
+	arg := args[0].Value
 	t := c.expr(arg, &FuncType{Params: []Type{l.Elem}})
 	ft, ok := t.(*FuncType)
 	if t == Invalid {
@@ -816,12 +837,13 @@ func (c *checker) flatMapCall(e *ast.CallExpr, m *ast.MemberExpr, l *List) Type 
 // Checks `list.reduce(initial, fn(acc, x) => ...)`, whose result has the
 // type of [initial].
 func (c *checker) reduceCall(e *ast.CallExpr, m *ast.MemberExpr, l *List) Type {
-	if e.Trailing != nil || len(e.Args) != 2 || e.Args[0].Name != nil || e.Args[1].Name != nil {
+	args := withBlock(e)
+	if len(args) != 2 || args[0].Name != nil || args[1].Name != nil {
 		c.checkArgs(e)
 		c.errorAt(m.Name, "e.g. xs.reduce(0, fn(sum, x) => sum + x)", "reduce takes a starting value and a function")
 		return Invalid
 	}
-	init, arg := e.Args[0].Value, e.Args[1].Value
+	init, arg := args[0].Value, args[1].Value
 	r := c.expr(init, nil)
 	if r == Invalid {
 		c.expr(arg, nil)

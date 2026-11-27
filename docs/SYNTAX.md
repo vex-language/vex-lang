@@ -925,7 +925,7 @@ let make: fn(int) -> Box<int> = Box.new  // generic types take their type argume
 - A tear-off has the method's parameters and result, and throws what the method throws. Default arguments don't carry over: the function takes every parameter.
 - A method must be torn off a value: `User.greet` is an error. Async and generic methods, and `map`, can't be torn off yet; call them in a closure.
 
-**Trailing blocks.** A `{ ... }` block after a call is passed as its last argument, which must have type `fn()` or be a list (see builder blocks below). A call with only a trailing block can leave out the `()`: `Column { ... }`.
+**Trailing blocks.** A `{ ... }` block after a call is passed as its last argument, which must be a function or a list (see builder blocks below). A call with only a trailing block can leave out the `()`: `Column { ... }`, `xs.map { ... }`.
 
 ```swift
 fn repeat(times: int, action: fn()) {
@@ -941,7 +941,20 @@ struct Button {
 }
 let add = Button(title: "Add") { count += 1 }
 add.onTap()
+
+let doubled = xs.map { x in x * 2 }         // parameters before in
+scores.sort { a, b in a > b }
+let adults = people.filter { it.age >= 18 } // one parameter can stay unnamed: it
+let names = people.map { p in
+    let first = p.name.split(" ")[0]
+    first.upper()                            // the last expression is the value
+}
 ```
+
+- A block names its parameters before `in`, on the line of the `{`: `{ a, b in ... }`. Their types come from the function the call expects.
+- A block for a function of one parameter can leave it unnamed and call it `it`, as in Kotlin. A variable named `it` that is already in scope wins; name the parameter then.
+- When the function returns a value, the block's last expression is that value. `return` works too.
+- In the head of `if`, `while`, `for` and `match`, a `{` starts the body, so a call there needs parentheses: `if xs.any(fn(x) => x > 1) { ... }`.
 
 **Builder blocks.** When the last parameter is a list, a trailing block builds that list: each line is one element. `let`, `var`, `if`, `for` and `...` work inside, with braces as in ordinary code:
 
@@ -972,8 +985,8 @@ Column(spacing: 12) {
 **Lists.** `filter` keeps the items a function accepts; `map` turns each item into a new value.
 
 ```swift
-let evens = nums.filter(fn(x) => x % 2 == 0)
-let labels = nums.map(fn(x) => "#{x}")      // [string]
+let evens = nums.filter { it % 2 == 0 }
+let labels = nums.map { "#{it}" }      // [string]
 ```
 
 ## Records
@@ -1354,7 +1367,7 @@ for await t in ticks(3) {
 }
 
 let taps = StreamController<Point>()
-button.onTap(fn(p) { taps.add(p) })
+button.onTap { p in taps.add(p) }
 for await p in taps.stream {    // ends after taps.close()
     draw(p)
 }

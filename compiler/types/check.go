@@ -43,6 +43,9 @@ type checker struct {
 	// about the ones never used.
 	locals []local
 
+	// The `it` parameters given to blocks that name none.
+	implicitIts map[ast.Node]bool
+
 	// Set when checking a program built to run its tests.
 	testing bool
 

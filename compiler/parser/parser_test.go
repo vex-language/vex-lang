@@ -156,6 +156,11 @@ func TestTrailingBlocks(t *testing.T) {
 		{"while more(it) { step() }", "(while (call more it) (block (call step)))"},
 		{"if check(f(x) { y() }) { z() }", "(if (call check (call f x (block (call y)))) (block (call z)))"},
 		{"Column(spacing: 12) {\n    Text(\"a\")\n    Text(\"b\")\n}", `(call Column (spacing: 12) (block (call Text "a") (call Text "b")))`},
+		{"xs.map { x in x * 2 }", "(call (. xs map) (x in (block (* x 2))))"},
+		{"sort(xs) { a, b in\n    a > b\n}", "(call sort xs (a, b in (block (> a b))))"},
+		{"xs.filter { it > 1 }.map { it }", "(call (. (call (. xs filter) (block (> it 1))) map) (block it))"},
+		{"f { x }", "(call f (block x))"},
+		{"for x in xs.map { f(x) }", "(for x (. xs map) (block (call f x)))"},
 	}
 	for _, c := range cases {
 		got := body(t, c.src)

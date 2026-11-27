@@ -2,6 +2,7 @@ package types
 
 import (
 	"fmt"
+	"strings"
 
 	"github.com/irshadio/vex-lang/compiler/ast"
 )
@@ -53,6 +54,24 @@ func (c *checker) use(v *Var) {
 // out.
 func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 	wantFn, _ := want.(*FuncType)
+	if e.Block && len(e.Params) == 0 && wantFn != nil && len(wantFn.Params) == 1 {
+		// A variable named it wins over the implicit one, whose value the
+		// block then can't name.
+		name := "it"
+		if v := c.lookupVar("it"); v != nil && !c.implicitIts[v.Decl] {
+			name = "_"
+		}
+		id := &ast.Ident{Span: ast.Span{Start: e.Start, End: e.Start.Offset}, Name: name}
+		if c.implicitIts == nil {
+			c.implicitIts = map[ast.Node]bool{}
+		}
+		c.implicitIts[id] = true
+		e.Params = []*ast.Param{{Span: e.Span, Name: id}}
+	}
+	if e.Block && len(e.Params) == 0 && wantFn != nil && len(wantFn.Params) > 1 {
+		c.errorAt(e, "name them: { "+blockNames(len(wantFn.Params))+" in ... }", "this block takes %d parameters, so it must name them", len(wantFn.Params))
+		return Invalid
+	}
 	// After a wrong parameter count, missing types aren't reported again
 	// and the closure's type is left invalid, so the mistake gives one error.
 	wrongArity := wantFn != nil && len(wantFn.Params) != len(e.Params)
@@ -111,7 +130,11 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 			c.assignable(ctx.result, t, e.ExprBody, "closure result")
 		}
 	} else {
-		c.stmts(e.Body.Stmts)
+		if e.Block {
+			c.blockBody(e.Body, ctx)
+		} else {
+			c.stmts(e.Body.Stmts)
+		}
 		if ctx.result == nil {
 			ctx.result = Void
 		}
@@ -199,4 +222,46 @@ func (c *checker) callValue(e *ast.CallExpr) Type {
 	}
 	c.info.Calls[e] = &Call{Kind: ValueCall, Callee: e.Fn, Args: c.bind(e, slots, ft.String())}
 	return ft.Result
+}
+
+// Returns sample parameter names for a block taking [n] of them.
+func blockNames(n int) string {
+	names := []string{"a", "b", "c", "d"}
+	if n > len(names) {
+		return "a, b, ..."
+	}
+	return strings.Join(names[:n], ", ")
+}
+
+// Checks the body of a trailing block. Its last statement, when it is an
+// expression with a value and the block may give one, becomes its value,
+// as if written with `return`.
+func (c *checker) blockBody(b *ast.Block, ctx *litCtx) {
+	n := len(b.Stmts)
+	last, ok := ast.Stmt(nil), false
+	if n > 0 {
+		_, ok = b.Stmts[n-1].(*ast.ExprStmt)
+		last = b.Stmts[n-1]
+	}
+	switch {
+	case !ok || ctx.result == Void:
+		c.stmts(b.Stmts)
+	case ctx.result != nil:
+		x := last.(*ast.ExprStmt)
+		b.Stmts[n-1] = &ast.ReturnStmt{Span: x.Span, Value: x.X}
+		c.stmts(b.Stmts)
+	default:
+		c.stmts(b.Stmts[:n-1])
+		x := last.(*ast.ExprStmt)
+		t := c.expr(x.X, nil)
+		switch {
+		case t == Void || t == Invalid && ctx.result == nil:
+		case ctx.result == nil:
+			ctx.result = t
+			b.Stmts[n-1] = &ast.ReturnStmt{Span: x.Span, Value: x.X}
+		default:
+			c.assignable(ctx.result, t, x.X, "block result")
+			b.Stmts[n-1] = &ast.ReturnStmt{Span: x.Span, Value: x.X}
+		}
+	}
 }

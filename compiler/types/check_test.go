@@ -609,7 +609,7 @@ func TestErrors(t *testing.T) {
 		{"value call arity", "", "let f = fn(x: int) => x\nf()", "3:1", "expected 1 argument for fn(int) -> int, found 0", ""},
 		{"value call named", "", "let f = fn(x: int) => x\nf(x: 1)", "3:3", "function values don't have parameter names", "pass the arguments in order"},
 		{"value call type", "", "let f = fn(x: int) => x\nf(\"a\")", "3:3", "argument 1: expected int, found string", "parse it with int(...)"},
-		{"trailing needs fn", "fn f(n: int) {}", "f() { }", "3:5", "a trailing block needs the last parameter of f to be fn() or a list, but 'n' is int", ""},
+		{"trailing needs fn", "fn f(n: int) {}", "f() { }", "3:5", "a trailing block needs the last parameter of f to be a function or a list, but 'n' is int", ""},
 		{"element type", "", `let a = [for x in [1] x, "s"]`, "2:26", "list element: expected int, found string", "parse it with int(...)"},
 		{"element cond", "", "let a = [if 1 2]", "2:13", "if condition must be bool, found int", "compare it, e.g. x != 0"},
 		{"spread int", "", "let a = [...5]", "2:13", "'...' needs a list or a map, found int", ""},

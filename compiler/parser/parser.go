@@ -1338,6 +1338,16 @@ func qualifiable(x ast.Expr) bool {
 	return false
 }
 
+// Reports whether [x] can take a trailing block without parentheses: a
+// name, as in `Column { ... }`, or a member, as in `xs.map { ... }`.
+func blockTaker(x ast.Expr) bool {
+	switch x.(type) {
+	case *ast.Ident, *ast.MemberExpr:
+		return true
+	}
+	return false
+}
+
 // Splits a `>=` that closes type arguments, as in `let b: Box<int>= x`,
 // into `>` and `=`.
 func (p *parser) splitGtEq() {
@@ -1398,11 +1408,51 @@ func (p *parser) typeArgsAhead() bool {
 // --- Statements ---
 
 func (p *parser) block() *ast.Block {
+	return p.blockWith(nil)
+}
+
+// Parses the trailing block of [call], with the parameters it names.
+func (p *parser) trailingBlock(call *ast.CallExpr) {
+	call.Trailing = p.blockWith(&call.BlockParams)
+}
+
+// Reports whether the `{` at the current token starts a block that names
+// parameters: `{ a, b in`.
+func (p *parser) blockParamsAhead() bool {
+	i := 1
+	for {
+		if p.peek(i).Kind != lexer.Ident {
+			return false
+		}
+		switch p.peek(i + 1).Kind {
+		case lexer.In:
+			return true
+		case lexer.Comma:
+			i += 2
+		default:
+			return false
+		}
+	}
+}
+
+// Parses a block. When [params] is set, the block may start by naming
+// parameters, which are stored there.
+func (p *parser) blockWith(params *[]*ast.Ident) *ast.Block {
 	saved, savedHead := p.noTrailing, p.elemHead
 	p.noTrailing, p.elemHead = false, false
 	defer func() { p.noTrailing, p.elemHead = saved, savedHead }()
 
+	named := params != nil && p.at(lexer.LBrace) && p.blockParamsAhead()
 	open := p.expect(lexer.LBrace)
+	if named {
+		for !p.at(lexer.In) {
+			*params = append(*params, p.ident("a parameter name"))
+			if p.at(lexer.Comma) {
+				p.next()
+			}
+		}
+		p.next()
+	}
 	b := &ast.Block{}
 	for {
 		for p.at(lexer.Semi) {
@@ -2029,7 +2079,7 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			call := &ast.CallExpr{Fn: x, TypeArgs: typeArgs}
 			p.list(open, lexer.RParen, func() { call.Args = append(call.Args, p.arg()) })
 			if p.at(lexer.LBrace) && p.trailingAllowed() {
-				call.Trailing = p.block()
+				p.trailingBlock(call)
 			}
 			call.Span = p.span(x.Pos())
 			x = call
@@ -2048,10 +2098,13 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			x = &ast.IndexExpr{Span: p.span(x.Pos()), X: x, Index: idx}
 		case lexer.LBrace:
 			// `Column { ... }` is a call with only a trailing block.
-			if !p.trailingAllowed() || !qualifiable(x) {
+			if !p.trailingAllowed() || !blockTaker(x) {
 				return x
 			}
-			x = &ast.CallExpr{Fn: x, TypeArgs: typeArgs, Trailing: p.block(), Span: p.span(x.Pos())}
+			call := &ast.CallExpr{Fn: x, TypeArgs: typeArgs}
+			p.trailingBlock(call)
+			call.Span = p.span(x.Pos())
+			x = call
 		case lexer.Dot, lexer.QuestionDot:
 			opt := p.next().Kind == lexer.QuestionDot
 			name := p.ident("a member name")
