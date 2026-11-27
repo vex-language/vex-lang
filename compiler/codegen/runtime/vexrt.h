@@ -1418,14 +1418,17 @@ static int64_t vx_range_count(vx_range r, int line) {
     return (int64_t)r.n;
 }
 
-// Returns [r] with values [by] apart, starting from the same first value.
+// Returns every [by]th value of [r], starting from its first.
 static vx_range vx_range_step(vx_range r, int64_t by, int line) {
     if (by <= 0) vx_fail(line, "a range's step must be more than 0, found %" PRId64, by);
-    if (r.n > 0) {
-        uint64_t span = (r.n - 1) * (uint64_t)(r.step < 0 ? -r.step : r.step);
-        r.n = span / (uint64_t)by + 1;
+    if (r.n > 0) r.n = (r.n - 1) / (uint64_t)by + 1;
+    uint64_t mag = r.step < 0 ? -(uint64_t)r.step : (uint64_t)r.step, step;
+    if (__builtin_mul_overflow(mag, (uint64_t)by, &step) || step > (uint64_t)INT64_MAX) {
+        // With one value left the step no longer matters.
+        if (r.n > 1) vx_fail(line, "a range's step can't be more than int.max");
+        step = mag;
     }
-    r.step = r.step < 0 ? -by : by;
+    r.step = r.step < 0 ? -(int64_t)step : (int64_t)step;
     return r;
 }
 
@@ -1449,18 +1452,48 @@ static bool vx_range_eq(vx_range a, vx_range b) {
     return a.n == b.n && (a.n == 0 || (a.first == b.first && (a.n == 1 || a.step == b.step)));
 }
 
+// Writes into [buf] the range [start]..[end], or ..= when [incl], with
+// `.step(step)` where step isn't 1 and `.reversed()` before or after it.
+static int vx_range_form(char *buf, size_t size, int64_t start, int64_t end, bool incl, int64_t step, int reversed) {
+    int n = snprintf(buf, size, incl ? "%" PRId64 "..=%" PRId64 : "%" PRId64 "..%" PRId64, start, end);
+    if (step == 1 && !reversed) return n;
+    char inner[64];
+    memcpy(inner, buf, (size_t)n + 1);
+    n = snprintf(buf, size, "(%s)", inner);
+    if (reversed == 1) n += snprintf(buf + n, size - (size_t)n, ".reversed()");
+    if (step != 1) n += snprintf(buf + n, size - (size_t)n, ".step(%" PRId64 ")", step);
+    if (reversed == 2) n += snprintf(buf + n, size - (size_t)n, ".reversed()");
+    return n;
+}
+
+// Returns code that gives the values of [r]: from the bounds as written
+// when one of the forms using them does, otherwise from its first and
+// last values.
 static vx_str vx_range_str(vx_range r) {
-    char buf[128];
-    int n = snprintf(buf, sizeof buf, r.incl ? "%" PRId64 "..=%" PRId64 : "%" PRId64 "..%" PRId64, r.start, r.end);
+    char buf[160];
     int64_t step = r.step < 0 ? -r.step : r.step;
-    if (step != 1 || r.step < 0) {
-        char inner[128];
-        memcpy(inner, buf, (size_t)n + 1);
-        n = snprintf(buf, sizeof buf, "(%s)", inner);
-        if (step != 1) n += snprintf(buf + n, sizeof buf - (size_t)n, ".step(%" PRId64 ")", step);
-        if (r.step < 0) n += snprintf(buf + n, sizeof buf - (size_t)n, ".reversed()");
+    vx_range base = vx_range_new(r.start, r.end, r.incl);
+    vx_range forms[2];
+    int kinds[2], count = 0;
+    if (r.step > 0) {
+        forms[count] = vx_range_step(base, step, 0);
+        kinds[count++] = 0;
+    } else {
+        forms[count] = vx_range_reversed(vx_range_step(base, step, 0));
+        kinds[count++] = 2;
+        forms[count] = vx_range_step(vx_range_reversed(base), step, 0);
+        kinds[count++] = 1;
     }
-    return vx_str_new(buf, n);
+    for (int i = 0; i < count; i++) {
+        vx_range f = forms[i];
+        if (f.n == r.n && f.first == r.first && f.step == r.step) {
+            return vx_str_new(buf, vx_range_form(buf, sizeof buf, r.start, r.end, r.incl, step, kinds[i]));
+        }
+    }
+    if (r.n == 0) return vx_str_new(buf, vx_range_form(buf, sizeof buf, r.start, r.start, false, 1, 0));
+    int64_t last = vx_range_at(r, r.n - 1);
+    if (r.step > 0) return vx_str_new(buf, vx_range_form(buf, sizeof buf, r.first, last, true, step, 0));
+    return vx_str_new(buf, vx_range_form(buf, sizeof buf, last, r.first, true, step, 2));
 }
 
 static vx_list *vx_range_list(vx_range r, int line) {
