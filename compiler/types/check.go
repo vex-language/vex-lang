@@ -43,6 +43,13 @@ type checker struct {
 	// about the ones never used.
 	locals []local
 
+	// The local functions of the blocks being checked that are declared
+	// further down, by name.
+	pending map[string]int
+
+	// The names of the closures that make local functions.
+	localNames map[*ast.FuncLit]string
+
 	// The `it` parameters given to blocks that name none.
 	implicitIts map[ast.Node]bool
 
@@ -250,7 +257,7 @@ func (c *checker) pop() { c.scope = c.scope.parent }
 func (c *checker) declare(id *ast.Ident, t Type, mutable bool, kind VarKind) *Var {
 	v := &Var{Name: id.Name, Type: t, Mutable: mutable, Kind: kind, Decl: id, lit: c.curLit()}
 	c.info.Defs[id] = v
-	if kind == LocalVar {
+	if kind == LocalVar || kind == FuncVar {
 		c.locals = append(c.locals, local{v: v, file: c.file})
 	}
 	if c.reserved(id, "a variable") {
@@ -1141,6 +1148,8 @@ func (c *checker) stmt(s ast.Stmt) {
 		c.returnStmt(s)
 	case *ast.YieldStmt:
 		c.yieldStmt(s)
+	case *ast.LocalFuncStmt:
+		c.localFunc(s)
 	case *ast.ThrowStmt:
 		c.throwStmt(s)
 	case *ast.BreakStmt:
@@ -1200,6 +1209,8 @@ func (c *checker) assign(s *ast.AssignStmt) {
 				c.errorAt(x, fmt.Sprintf("copy it first: var my%s = %s", capitalize(v.Name), v.Name), "can't change parameter '%s'", v.Name)
 			case LoopVar:
 				c.errorAt(x, "", "can't change loop variable '%s'", v.Name)
+			case FuncVar:
+				c.errorAt(x, "declare a variable holding a function instead: var f = "+v.Name, "can't assign to local function '%s'", v.Name)
 			case SelfVar:
 				c.errorAt(x, "change its fields instead, e.g. self.name = ...", "can't assign to self")
 			case PatternVar:
@@ -1517,6 +1528,25 @@ func (c *checker) warnAt(n ast.Node, hint, format string, args ...any) {
 // Checks the statements of a block, warning at the first one that can't
 // run because the one before it always leaves.
 func (c *checker) stmts(list []ast.Stmt) {
+	var locals []string
+	for _, s := range list {
+		if l, ok := s.(*ast.LocalFuncStmt); ok {
+			locals = append(locals, l.Decl.Name.Name)
+		}
+	}
+	if len(locals) > 0 {
+		if c.pending == nil {
+			c.pending = map[string]int{}
+		}
+		for _, n := range locals {
+			c.pending[n]++
+		}
+		defer func() {
+			for _, n := range locals {
+				c.pending[n]--
+			}
+		}()
+	}
 	warned := false
 	for i, s := range list {
 		if i > 0 && !warned && jumps(list[i-1]) {

@@ -23,6 +23,9 @@ type litCtx struct {
 
 	// Set for an async closure, which may await.
 	async bool
+
+	// How errors name it: "the closure", or a local function's name.
+	name string
 }
 
 // Returns the closure being checked, or nil inside a plain function body.
@@ -108,7 +111,10 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 	case wantFn != nil:
 		ft.Throws = wantFn.Throws
 	}
-	ctx := &litCtx{lit: e, result: ft.Result, throws: ft.Throws, outerLoops: c.loops, async: ft.Async}
+	ctx := &litCtx{lit: e, result: ft.Result, throws: ft.Throws, outerLoops: c.loops, async: ft.Async, name: "the closure"}
+	if n, ok := c.localNames[e]; ok {
+		ctx.name = n
+	}
 	c.lits = append(c.lits, ctx)
 	outerTries := c.tries
 	c.tries = nil
@@ -140,7 +146,7 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 		}
 		if ctx.result != Void && !terminates(e.Body) {
 			c.errorAtPos(c.file.PosOf(e.Body.End-1), 1, "add a return statement before the closing }",
-				"missing return: the closure must return %s", ctx.result)
+				"missing return: %s must return %s", ctx.name, ctx.result)
 		}
 	}
 	c.pop()
@@ -172,7 +178,7 @@ func (c *checker) closureReturn(s *ast.ReturnStmt, ctx *litCtx) {
 		}
 		ctx.result = t
 	case s.Value == nil && ctx.result != Void:
-		c.errorAt(s, fmt.Sprintf("return a value, e.g. return %s", zeroExample(ctx.result)), "missing return value: the closure must return %s", ctx.result)
+		c.errorAt(s, fmt.Sprintf("return a value, e.g. return %s", zeroExample(ctx.result)), "missing return value: %s must return %s", ctx.name, ctx.result)
 	case s.Value != nil && ctx.result == Void:
 		t := c.expr(s.Value, nil)
 		c.errorAt(s.Value, fmt.Sprintf("declare the result type: fn(...) -> %s { ... }", t), "this closure doesn't return a value")

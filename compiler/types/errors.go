@@ -43,7 +43,8 @@ func (c *checker) throwsType(th *ast.Throws) Type {
 // name it.
 func (c *checker) curThrows() (Type, string) {
 	if len(c.lits) > 0 {
-		return c.lits[len(c.lits)-1].throws, "the closure"
+		ctx := c.lits[len(c.lits)-1]
+		return ctx.throws, ctx.name
 	}
 	if c.fn != nil {
 		return c.fn.Throws, c.fn.Name

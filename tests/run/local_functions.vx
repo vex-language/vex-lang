@@ -1,0 +1,66 @@
+import "vex:time"
+
+fn solve(n: int) -> int {
+    var seen = 0
+
+    fn visit(k: int) {
+        if k <= 0 {
+            return
+        }
+        seen += 1
+        visit(k - 1)
+    }
+
+    visit(n)
+    return seen
+}
+
+fn fib(n: int) -> int {
+    fn go(k: int) -> int => if k < 2 { k } else { go(k - 1) + go(k - 2) }
+    return go(n)
+}
+
+fn parse(s: string) throws -> int {
+    fn digit(c: string) throws -> int {
+        let d = int.parse(c) ?? -1
+        if d < 0 {
+            throw Error("not a digit: {c}")
+        }
+        return d
+    }
+    var total = 0
+    for c in s.chars() {
+        total = total * 10 + try digit(c)
+    }
+    return total
+}
+
+async fn main() {
+    println(solve(5))
+    println(fib(15))
+    println(try? parse("123"), try? parse("1x"))
+
+    fn double(x: int) -> int => x * 2
+    fn quad(x: int) -> int => double(double(x))
+    println(quad(3), [1, 2].map(double))
+
+    async fn later(x: int) -> int {
+        await time.sleep(1)
+        return x + 1
+    }
+    println(await later(4))
+
+    var log: [string] = []
+    fn note(s: string) {
+        log.push(s)
+    }
+    note("a")
+    note("b")
+    println(log)
+
+    let handlers = [1, 2, 3].map { n in
+        fn show() -> string => "#{n}"
+        show
+    }
+    println(handlers.map { it() })
+}

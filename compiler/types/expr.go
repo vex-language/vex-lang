@@ -276,6 +276,10 @@ func (c *checker) ident(id *ast.Ident) Type {
 	if modules.IsStd(id.Name) {
 		hint = fmt.Sprintf("import it at the top of the file: import \"vex:%s\"", id.Name)
 	}
+	if c.pending[id.Name] > 0 {
+		c.errorAt(id, "move the declaration of "+id.Name+" above this line", "local function '%s' is used before it is declared", id.Name)
+		return Invalid
+	}
 	c.errorAt(id, hint, "unknown name '%s'", id.Name)
 	return Invalid
 }

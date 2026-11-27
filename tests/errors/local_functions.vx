@@ -1,0 +1,19 @@
+fn main() {
+    fn first<T>(xs: [T]) -> T => xs[0]
+    fn greet(name: string = "you") {}
+    println(later())
+    fn later() -> int => 1
+    later = fn() => 2
+    fn later() -> int => 3
+    fn noisy() {}
+    fn bad() -> int {
+        println("x")
+    }
+}
+
+// error: 2:14: local functions can't have type parameters yet
+// error: 3:29: parameters of local functions can't have default values
+// error: 4:13: local function 'later' is used before it is declared
+// error: 6:5: can't assign to local function 'later'
+// error: 7:8: 'later' is already declared on line 5
+// error: 11:5: missing return: bad must return int

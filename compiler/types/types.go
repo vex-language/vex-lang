@@ -536,7 +536,7 @@ type Var struct {
 
 // Reports whether the variable must live on the heap, so that closures
 // and the enclosing function share changes to it.
-func (v *Var) Boxed() bool { return v.Captured && v.Mutable }
+func (v *Var) Boxed() bool { return v.Captured && (v.Mutable || v.Kind == FuncVar) }
 
 // What declared a [Var].
 type VarKind uint8
@@ -546,6 +546,10 @@ const (
 	ParamVar
 	LoopVar
 	SelfVar
+
+	// A local function, which its own body may capture before its value
+	// is made.
+	FuncVar
 
 	// A name bound by a match pattern.
 	PatternVar

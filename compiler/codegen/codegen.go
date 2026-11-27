@@ -1024,6 +1024,8 @@ func (g *gen) emitStmt(s ast.Stmt) {
 		}
 	case *ast.YieldStmt:
 		g.yieldStmt(s)
+	case *ast.LocalFuncStmt:
+		g.localFunc(s)
 	case *ast.ThrowStmt:
 		g.line("*vx_err = %s;", g.expr(s.Value))
 		g.line("%s%s", g.leaving(), zeroReturn(g.result))
@@ -2210,6 +2212,21 @@ func cQuote(s string) string {
 	}
 	b.WriteByte('"')
 	return b.String()
+}
+
+// Generates a local function. When its body, or a closure, uses it, its
+// box exists before the closure is made, so the body can call it.
+func (g *gen) localFunc(s *ast.LocalFuncStmt) {
+	v := g.info.Defs[s.Decl.Name]
+	if !v.Boxed() {
+		g.bindVar(v, g.expr(s.Lit))
+		return
+	}
+	name := g.declare(v)
+	g.line("%s = vx_alloc(sizeof(%s));", declPtr(v.Type, name), ctype(v.Type))
+	g.vals[v], g.boxes[v] = "(*"+name+")", name
+	g.line("*%s = %s;", name, g.expr(s.Lit))
+	g.line("vx_remember(%s);", name)
 }
 
 // Declares the local variable [v] with the C value [value], on the heap
