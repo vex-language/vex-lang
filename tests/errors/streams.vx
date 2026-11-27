@@ -1,0 +1,57 @@
+async fn nums() -> Stream<int> {
+    yield "one"
+    return 3
+}
+
+async fn bad() throws -> Stream<int> {
+    yield 1
+}
+
+async fn short() -> Stream<int> => 1
+
+fn plain() {
+    yield 1
+    for await x in nums() {
+    }
+}
+
+fn kinds(a: Stream, b: Stream<void>, c: Stream<int, int>) {}
+
+async fn main() {
+    let n = await nums()
+    for await x in [1, 2] {
+    }
+    let c = StreamController()
+    let d = StreamController<int>()
+    for await y in d {
+    }
+    for await i, z in nums() {
+    }
+    let f = async fn() {
+        yield 2
+    }
+    let ch = Channel<Stream<int>>()
+    d.add("x")
+    d.stream.add(1)
+    let h = async fn() -> Stream<int> { return d.stream }
+}
+
+// error: 2:11: expected int, found string
+// error: 3:12: a stream function returns no value
+// error: 6:16: a stream function can't throw yet
+// error: 10:36: a stream function needs a block body
+// error: 13:5: yield is only allowed in an async fn that returns a Stream
+// error: 14:5: for await is only allowed in async functions
+// error: 18:13: Stream needs a type argument
+// error: 18:31: 'void' is not a type
+// error: 18:41: Stream takes 1 type argument, found 2
+// error: 21:13: await waits for one value, but a stream gives many
+// error: 22:20: for await needs a stream, found [int]
+// error: 24:13: can't tell what the stream carries
+// error: 26:20: for await needs a stream, found StreamController<int>
+// error: 28:15: a stream has no index
+// error: 31:9: yield can't be used inside a closure
+// error: 33:22: a channel can't carry Stream<int>: it can't be copied to another isolate
+// error: 34:11: argument 'value': expected int, found string
+// error: 35:14: Stream<int> has no method 'add'
+// error: 36:13: an async closure can't be a stream function

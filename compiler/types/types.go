@@ -306,6 +306,21 @@ type Channel struct {
 
 func (c *Channel) String() string { return "Channel<" + c.Elem.String() + ">" }
 
+// Values that arrive over time, `Stream<T>`, or the controller that adds
+// them, `StreamController<T>`, when [Controller] is set. Both are the same
+// object at run time.
+type Stream struct {
+	Elem       Type
+	Controller bool
+}
+
+func (s *Stream) String() string {
+	if s.Controller {
+		return "StreamController<" + s.Elem.String() + ">"
+	}
+	return "Stream<" + s.Elem.String() + ">"
+}
+
 // An optional type: a value of [Elem], or nil.
 type Optional struct {
 	Elem Type
@@ -593,6 +608,9 @@ func Identical(a, b Type) bool {
 	case *Channel:
 		b, ok := b.(*Channel)
 		return ok && Identical(a.Elem, b.Elem)
+	case *Stream:
+		b, ok := b.(*Stream)
+		return ok && a.Controller == b.Controller && Identical(a.Elem, b.Elem)
 	case *Record:
 		b, ok := b.(*Record)
 		if !ok || !sameShape(a, b) {
@@ -857,4 +875,18 @@ type Info struct {
 	// order. A closure nested in another also lists what its inner
 	// closures need, so it can pass them on.
 	Captures map[*ast.FuncLit][]*Var
+}
+
+// Reports whether [f] is a stream function: an async function whose
+// result is a `Stream<T>`, whose body gives values with `yield`.
+func (f *Func) Streams() bool {
+	s, ok := f.Result.(*Stream)
+	return f.Async && ok && !s.Controller
+}
+
+// Reports whether [ft] is the type of a stream function, whose calls give
+// their stream at once.
+func (ft *FuncType) Streams() bool {
+	s, ok := ft.Result.(*Stream)
+	return ft.Async && ok && !s.Controller
 }

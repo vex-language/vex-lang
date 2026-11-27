@@ -104,7 +104,7 @@ func (g *gen) tryExpr(e *ast.TryExpr) string {
 		}
 		b.WriteString(g.catchBody(e.Catch.Body, info, r))
 	default:
-		fmt.Fprintf(&b, "*vx_err = %s; %s ", tr.err, zeroReturn(g.result))
+		fmt.Fprintf(&b, "*vx_err = %s; %s%s ", tr.err, g.leaving(), zeroReturn(g.result))
 	}
 	b.WriteString("} ")
 	if r != "" {

@@ -626,6 +626,10 @@ func (c *checker) resolveType(te ast.TypeExpr) Type {
 			c.errorAt(te, "write its value type, e.g. Channel<int>", "Channel needs a type argument")
 			return Invalid
 		}
+		if streamName(te.Name) && c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && c.handles[te.Name] == nil {
+			c.errorAt(te, "write its value type, e.g. "+te.Name+"<int>", "%s needs a type argument", te.Name)
+			return Invalid
+		}
 		if te.Name == "Future" && c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && c.handles[te.Name] == nil {
 			c.errorAt(te, "write its value type, e.g. Future<int>, or Future<int, Error> when it can fail", "Future needs a type argument")
 			return Invalid
@@ -827,6 +831,9 @@ func (c *checker) genericType(te *ast.NamedType) Type {
 	if te.Name == "Channel" && c.genStructs[te.Name] == nil && c.genEnums[te.Name] == nil && c.genIfaces[te.Name] == nil {
 		return c.channelType(te, te.Args)
 	}
+	if streamName(te.Name) && c.genStructs[te.Name] == nil && c.genEnums[te.Name] == nil && c.genIfaces[te.Name] == nil {
+		return c.streamType(te, te.Name, te.Args)
+	}
 	args := c.typeArgs(te)
 	if g := c.genEnums[te.Name]; g != nil {
 		return c.genericEnumInst(te, g, args)
@@ -919,7 +926,15 @@ func (c *checker) funcBody(f *Func) {
 	for i, p := range f.Decl.Params {
 		c.declare(p.Name, f.Params[i].Type, false, ParamVar)
 	}
-	if f.Decl.ExprBody != nil {
+	if f.Streams() {
+		c.checkStreamFunc(f)
+		if f.Decl.ExprBody != nil {
+			c.expr(f.Decl.ExprBody, nil)
+			c.errorAt(f.Decl.ExprBody, "write a body that gives values with yield", "a stream function needs a block body")
+		} else {
+			c.stmts(f.Decl.Body.Stmts)
+		}
+	} else if f.Decl.ExprBody != nil {
 		var want Type
 		if f.Result != Void {
 			want = f.Result
@@ -1082,6 +1097,8 @@ func (c *checker) stmt(s ast.Stmt) {
 		c.forStmt(s)
 	case *ast.ReturnStmt:
 		c.returnStmt(s)
+	case *ast.YieldStmt:
+		c.yieldStmt(s)
 	case *ast.ThrowStmt:
 		c.throwStmt(s)
 	case *ast.BreakStmt:
@@ -1253,7 +1270,9 @@ func (c *checker) forLoop(s *ast.ForStmt, body func()) {
 	c.push()
 	defer c.pop()
 	var elem Type = Invalid
-	if r, ok := s.Iter.(*ast.RangeExpr); ok {
+	if s.Await {
+		elem = c.forAwait(s)
+	} else if r, ok := s.Iter.(*ast.RangeExpr); ok {
 		for _, bound := range []ast.Expr{r.Lo, r.Hi} {
 			if t := c.expr(bound, Int); !Identical(t, Int) {
 				c.errorAt(bound, conversionHint(Int, t), "range bounds must be int, found %s", t)
@@ -1308,6 +1327,10 @@ func (c *checker) returnStmt(s *ast.ReturnStmt) {
 	}
 	f := c.fn
 	switch {
+	case f.Streams() && s.Value != nil:
+		c.expr(s.Value, nil)
+		c.errorAt(s.Value, "give values with yield, and end the stream with a bare return", "a stream function returns no value")
+	case f.Streams():
 	case s.Value == nil && f.Result != Void:
 		c.errorAt(s, fmt.Sprintf("return a value, e.g. return %s", zeroExample(f.Result)), "missing return value: %s must return %s", f.Name, f.Result)
 	case s.Value != nil && f.Result == Void:

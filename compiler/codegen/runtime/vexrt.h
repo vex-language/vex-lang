@@ -220,6 +220,7 @@ struct vx_task {
     bool cancelled;           // stops at its next await
     struct vx_future *future; // the future it settles, or NULL
     struct vx_future *waiting;// the future it waits for, while it waits
+    vx_task **parked;         // where it is kept while it waits on a stream
     vx_task *parent;          // the task that started it; cancelling one cancels the other
     void *asan_fake;
     const void *asan_bottom;
@@ -2520,6 +2521,10 @@ static void vx_task_cancel(vx_task *t) {
         if (*p) *p = t->next;
         t->waiting = NULL;
         vx_ready(t);
+    } else if (t->parked) {
+        *t->parked = NULL;
+        t->parked = NULL;
+        vx_ready(t);
     }
     for (size_t i = 0; i < vx_tasks_len; i++) {
         if (vx_tasks[i]->parent == t) vx_task_cancel(vx_tasks[i]);
@@ -2730,6 +2735,118 @@ static void *vx_run(vx_future *f, int line) {
     }
     if (f->state == 3) vx_fail(line, "run: the future was cancelled");
     return f->state == 2 ? f->err : NULL;
+}
+
+// --- Streams ---
+//
+// A stream hands values to one reader in the same isolate. A controller
+// adds them whenever it likes. A stream function runs as a task, started
+// by the first read, that pauses at each yield until its value is taken.
+
+typedef struct {
+    vx_list *queue;          // values not read yet
+    bool closed;             // set once no more values will come
+    void (*entry)(void *);   // the body of a stream function, or NULL
+    void *arg;
+    bool started;            // set once the body's task was started
+    struct vx_future *done;  // settled when the body's task ends
+    vx_task *reader;         // the task waiting for a value
+    vx_task *producer;       // the body's task, while it waits at a yield
+} vx_stream;
+
+static vx_stream *vx_stream_new(int64_t esz) {
+    vx_stream *s = vx_alloc(sizeof(vx_stream));
+    s->queue = vx_list_new(esz, 0, NULL);
+    vx_remember(s);
+    return s;
+}
+
+// Makes [s] the stream of a stream function, whose body [entry] runs with
+// [arg] once the stream is first read.
+static void vx_stream_start(vx_stream *s, void (*entry)(void *), void *arg) {
+    s->entry = entry;
+    s->arg = arg;
+    s->done = vx_future_new(0);
+    vx_remember(s);
+}
+
+// Keeps the running task in [slot] until another wakes it.
+static void vx_stream_park(vx_task **slot) {
+    *slot = vx_cur;
+    vx_cur->parked = slot;
+    vx_suspend();
+}
+
+// Wakes the task kept in [slot], if any.
+static void vx_stream_wake(vx_task **slot) {
+    vx_task *t = *slot;
+    if (!t) return;
+    *slot = NULL;
+    t->parked = NULL;
+    vx_ready(t);
+}
+
+// Adds [value] for the reader of [s], the stream of a controller.
+static void vx_stream_add(vx_stream *s, const void *value, int line) {
+    if (s->closed) vx_fail(line, "add() on a closed StreamController");
+    vx_list_push(s->queue, value);
+    vx_stream_wake(&s->reader);
+}
+
+// Ends [s] once the values already added are read.
+static void vx_stream_close(vx_stream *s) {
+    s->closed = true;
+    vx_stream_wake(&s->reader);
+}
+
+// Gives [value] from the body of a stream function, and waits until the
+// reader has taken it.
+static void vx_stream_yield(vx_stream *s, const void *value) {
+    vx_list_push(s->queue, value);
+    vx_stream_wake(&s->reader);
+    while (s->queue->len > 0) {
+        if (vx_cur->cancelled) vx_stop();
+        vx_stream_park(&s->producer);
+    }
+    if (vx_cur->cancelled) vx_stop();
+}
+
+// Takes the next value of [s] into [out], waiting for it. Returns false
+// once the stream has ended.
+static bool vx_stream_next(vx_stream *s, void *out, int line) {
+    for (;;) {
+        if (vx_cur->cancelled) vx_stop();
+        if (s->queue->len > 0) {
+            int64_t esz = s->queue->esz;
+            memcpy(out, s->queue->data, (size_t)esz);
+            memmove(s->queue->data, s->queue->data + esz, (size_t)((s->queue->len - 1) * esz));
+            s->queue->len--;
+            vx_stream_wake(&s->producer);
+            return true;
+        }
+        if (s->closed) return false;
+        if (s->entry && !s->started) {
+            s->started = true;
+            vx_go_f(s->entry, s->arg, s->done);
+            continue;
+        }
+        if (vx_cur == &vx_main_task) {
+            fflush(stdout);
+            fputs("error: for await outside a task\n", stderr);
+            exit(1);
+        }
+        if (s->reader) vx_fail(line, "two loops are reading the same stream; a stream has one reader");
+        vx_stream_park(&s->reader);
+    }
+}
+
+// Stops reading [s] when a for await loop ends: a stream function that
+// is still running is cancelled.
+static void vx_stream_stop(vx_stream *s) {
+    if (!s->entry || s->closed) return;
+    s->closed = true;
+    s->started = true;
+    vx_cancel(s->done);
 }
 
 // The work of [vx_first] for one of its futures.

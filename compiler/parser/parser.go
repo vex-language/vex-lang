@@ -1522,6 +1522,10 @@ func (p *parser) stmt() ast.Stmt {
 		}
 		onLine := !next.IsAutoSemi() && next.Kind != lexer.Semi && next.Kind != lexer.Assign && next.Kind != lexer.Dot
 		switch {
+		case t.Text == "yield" && onLine && startsExpr(next.Kind):
+			p.next()
+			value := p.expr()
+			return &ast.YieldStmt{Value: value, Span: p.span(t.Pos)}
 		case t.Text == "defer" && onLine:
 			p.fail(t, "run the cleanup before each return, or pass a closure to a helper that runs it last", "defer isn't supported yet")
 		case t.Text == "do" && next.Kind == lexer.LBrace:
@@ -1638,6 +1642,10 @@ func ifValue(s *ast.IfStmt) *ast.IfExpr {
 func (p *parser) forStmt() *ast.ForStmt {
 	start := p.expect(lexer.For).Pos
 	s := &ast.ForStmt{}
+	if p.at(lexer.Await) {
+		p.next()
+		s.Await = true
+	}
 	p.loopVars(s)
 	if !p.at(lexer.In) {
 		p.fail(p.tok(), "write for x in items { ... }", "expected 'in', found %s", describe(p.tok()))

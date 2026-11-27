@@ -74,6 +74,8 @@ func unsendable(t Type, seen map[Type]bool) string {
 		return unsendable(t.Elem, seen)
 	case *Channel:
 		return ""
+	case *Stream:
+		return t.String()
 	case *Record:
 		for _, f := range t.FieldTypes() {
 			if bad := unsendable(f, seen); bad != "" {

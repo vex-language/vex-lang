@@ -1,0 +1,144 @@
+import "vex:time"
+
+/// Gives the numbers below [n], one every 10 ms.
+async fn ticks(n: int) -> Stream<int> {
+    for i in 0..n {
+        await time.sleep(10)
+        yield i
+    }
+}
+
+/// Gives the squares of the values of [source].
+async fn squares(source: Stream<int>) -> Stream<int> {
+    for await x in source {
+        yield x * x
+    }
+}
+
+/// Gives numbers until it is stopped.
+async fn forever() -> Stream<int> {
+    var i = 0
+    while true {
+        println("make {i}")
+        yield i
+        i += 1
+    }
+}
+
+async fn firstOver(limit: int) -> int {
+    for await x in squares(ticks(100)) {
+        if x > limit {
+            return x
+        }
+    }
+    return -1
+}
+
+struct Bag {
+    items: [string]
+
+    async fn each() -> Stream<string> {
+        for s in items {
+            yield s
+        }
+    }
+}
+
+async fn repeat<T>(x: T, n: int) -> Stream<T> {
+    for _ in 0..n {
+        yield x
+    }
+}
+
+async fn collect<T>(s: Stream<T>) -> [T] {
+    var out: [T] = []
+    for await x in s {
+        out.push(x)
+    }
+    return out
+}
+
+async fn count(n: int) -> Stream<int> {
+    for i in 0..n {
+        yield i
+    }
+}
+
+async fn safe(n: int) throws -> int {
+    for await x in count(10) {
+        if x == n {
+            throw Error("hit {x}")
+        }
+    }
+    return 0
+}
+
+struct Point {
+    x: int
+    y: int
+}
+
+async fn main() {
+    for await t in ticks(3) {
+        println("tick {t}")
+    }
+
+    var sum = 0
+    for await s in squares(ticks(4)) {
+        sum += s
+    }
+    println("sum {sum}")
+
+    for await i in forever() {
+        if i == 2 {
+            break
+        }
+        println("got {i}")
+    }
+
+    println("first over 20: {await firstOver(20)}")
+
+    let points = StreamController<Point>()
+    let reader = async fn() {
+        for await p in points.stream {
+            println("point {p.x},{p.y}")
+        }
+        println("points done")
+    }
+    let done = reader()
+    points.add(Point(x: 1, y: 2))
+    points.add(Point(x: 3, y: 4))
+    await time.sleep(5)
+    points.add(Point(x: 5, y: 6))
+    points.close()
+    println("closed: {points.isClosed}")
+    await done
+
+    let words: StreamController<string> = StreamController()
+    words.add("a")
+    words.add("b")
+    words.close()
+    var all = ""
+    for await w in words.stream {
+        all += w
+    }
+    println(all)
+
+    let pairs = StreamController<(int, string)>()
+    pairs.add((1, "one"))
+    pairs.add((2, "two"))
+    pairs.close()
+    for await (n, name) in pairs.stream {
+        println("{n} {name}")
+    }
+    println(ticks(1))
+
+    let b = Bag(items: ["x", "y"])
+    println(await collect(b.each()))
+    println(await collect(repeat(1.5, 3)))
+    let f = count
+    println(await collect(f(3)))
+    let g: async fn(int) -> Stream<int> = count
+    println(await collect(g(2)))
+    try await safe(4) catch e { println(e.message) }
+}

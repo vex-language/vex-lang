@@ -67,6 +67,10 @@ func (c *checker) awaitExpr(e *ast.AwaitExpr, want Type) Type {
 		}
 	}
 	f, ok := t.(*Future)
+	if s, isStream := t.(*Stream); isStream && !s.Controller {
+		c.errorAt(e, "read it with for await x in stream { ... }", "await waits for one value, but a stream gives many")
+		return Invalid
+	}
 	if !ok {
 		if t != Invalid {
 			c.errorAt(e.X, "remove await", "await needs a future or a call of an async function, found %s", t)
@@ -147,10 +151,13 @@ func (c *checker) asyncCall(e *ast.CallExpr) (bool, Type) {
 	switch {
 	case call == nil:
 		return false, nil
+	case call.Func != nil && call.Func.Streams():
+		// A stream function gives its stream at once.
+		return false, nil
 	case call.Func != nil:
 		return call.Func.Async, call.Func.Throws
 	case call.Kind == ValueCall:
-		if ft, ok := c.info.Types[call.Callee].(*FuncType); ok {
+		if ft, ok := c.info.Types[call.Callee].(*FuncType); ok && !ft.Streams() {
 			return ft.Async, ft.Throws
 		}
 	}

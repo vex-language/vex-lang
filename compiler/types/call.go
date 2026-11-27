@@ -101,6 +101,9 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 	if name == "Channel" && c.lookupVar(name) == nil && c.structs[name] == nil && c.genStructs[name] == nil && c.funcs[name] == nil && c.enums[name] == nil {
 		return c.newChannel(e, want)
 	}
+	if name == "StreamController" && c.lookupVar(name) == nil && c.structs[name] == nil && c.genStructs[name] == nil && c.funcs[name] == nil && c.enums[name] == nil {
+		return c.newController(e, want)
+	}
 	if len(e.TypeArgs) > 0 && c.genFuncs[name] == nil && c.genStructs[name] == nil && c.genIfaces[name] == nil {
 		c.errorAt(e.TypeArgs[0], "remove the <...>", "'%s' is not generic, so it takes no type arguments", name)
 	}
@@ -435,7 +438,7 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 		}
 		if hint := mapMethodHint(recv, name); hint != "" {
 			c.errorAt(m.Name, hint, "%s has no method '%s'", recv, name)
-		} else if name == "len" || name == "keys" || name == "values" || name == "first" || name == "last" || name == "isEmpty" || name == "isCancelled" {
+		} else if name == "len" || name == "keys" || name == "values" || name == "first" || name == "last" || name == "isEmpty" || name == "isCancelled" || name == "stream" || name == "isClosed" {
 			c.errorAt(m.Name, "write it without (): ."+name, "%s is a property, not a method", name)
 		} else {
 			c.errorAt(m.Name, didYouMean(name, builtinMemberNames(recv)), "%s has no method '%s'", recv, name)
@@ -884,6 +887,14 @@ func builtinMember(recv Type, name string) *memberSig {
 	if _, ok := recv.(*Future); ok && name == "cancel" {
 		return &memberSig{nil, Void}
 	}
+	if s, ok := recv.(*Stream); ok && s.Controller {
+		switch name {
+		case "add":
+			return &memberSig{[]slot{{name: "value", typ: s.Elem}}, Void}
+		case "close":
+			return &memberSig{nil, Void}
+		}
+	}
 	if ch, ok := recv.(*Channel); ok {
 		switch name {
 		case "send":
@@ -950,6 +961,9 @@ func builtinMemberNames(recv Type) []string {
 	}
 	if _, ok := recv.(*Future); ok {
 		return []string{"cancel", "isCancelled"}
+	}
+	if s, ok := recv.(*Stream); ok && s.Controller {
+		return []string{"add", "close", "stream", "isClosed"}
 	}
 	if recv == Float {
 		return []string{"isNaN", "isFinite", "toFixed"}

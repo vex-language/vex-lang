@@ -598,6 +598,8 @@ func (c *checker) substType(t Type, bound map[*TypeParam]Type) Type {
 		return &Future{Elem: c.substType(t.Elem, bound), Throws: t.Throws}
 	case *Channel:
 		return &Channel{Elem: c.substType(t.Elem, bound)}
+	case *Stream:
+		return &Stream{Elem: c.substType(t.Elem, bound), Controller: t.Controller}
 	case *Record:
 		var ts []Type
 		for _, f := range t.FieldTypes() {

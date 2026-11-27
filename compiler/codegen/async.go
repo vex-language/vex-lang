@@ -113,10 +113,10 @@ func (g *gen) asyncCallee(c *types.Call) bool {
 	case c == nil:
 		return false
 	case c.Func != nil:
-		return c.Func.Async
+		return c.Func.Async && !c.Func.Streams()
 	case c.Kind == types.ValueCall:
 		ft, _ := g.info.Types[c.Callee].(*types.FuncType)
-		return ft != nil && ft.Async
+		return ft != nil && ft.Async && !ft.Streams()
 	}
 	return false
 }

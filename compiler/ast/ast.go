@@ -478,6 +478,15 @@ type ForStmt struct {
 	// The list or [*RangeExpr] being iterated.
 	Iter Expr
 	Body *Block
+
+	// Set for `for await x in stream`, which waits for each value.
+	Await bool
+}
+
+// A `yield` statement, which gives the next value of a stream function.
+type YieldStmt struct {
+	Span
+	Value Expr
 }
 
 // A `return` statement; Value is nil for a bare `return`.
@@ -506,6 +515,7 @@ func (*IfStmt) stmtNode()       {}
 func (*GuardStmt) stmtNode()    {}
 func (*WhileStmt) stmtNode()    {}
 func (*ForStmt) stmtNode()      {}
+func (*YieldStmt) stmtNode()    {}
 func (*ReturnStmt) stmtNode()   {}
 func (*ThrowStmt) stmtNode()    {}
 func (*BreakStmt) stmtNode()    {}

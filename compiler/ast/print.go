@@ -457,13 +457,18 @@ func build(n Node) *tree {
 		if n.Pattern != nil {
 			elem = PatternString(n.Pattern)
 		}
-		label := "for " + elem
 		if n.Index != nil {
-			label = "for " + n.Index.Name + ", " + elem
+			elem = n.Index.Name + ", " + elem
+		}
+		label := "for " + elem
+		if n.Await {
+			label = "for await " + elem
 		}
 		return branch(label, buildExpr(n.Iter), build(n.Body))
 	case *ReturnStmt:
 		return branch("return", buildExpr(n.Value))
+	case *YieldStmt:
+		return branch("yield", buildExpr(n.Value))
 	case *ThrowStmt:
 		return branch("throw", buildExpr(n.Value))
 	case *BreakStmt:
