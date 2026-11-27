@@ -1,0 +1,79 @@
+import "vex:time"
+
+async fn fetch(url: string) -> string {
+    await time.sleep(5)
+    return "page of {url}"
+}
+
+async fn risky(n: int) throws -> int {
+    await time.sleep(1)
+    if n < 0 { throw Error("negative") }
+    return n * 2
+}
+
+interface Repo {
+    async fn find(id: int) -> string
+    fn name() -> string
+}
+
+struct MemRepo: Repo {
+    prefix: string
+    async fn find(id: int) -> string {
+        await time.sleep(2)
+        return "{prefix}{id}"
+    }
+    fn name() -> string => "mem"
+    async fn load(n: int) -> int => n + 1
+}
+
+fn button(label: string, action: async fn()) -> Future<void> {
+    println("tap {label}")
+    return action()
+}
+
+async fn twice(f: async fn(int) -> int, x: int) -> int {
+    return await f(await f(x))
+}
+
+async fn main() throws {
+    let load: async fn(string) -> string = fetch
+    println(await load("a.com"))
+    let later = load("b.com")
+    println(await later)
+
+    let double = async fn(x: int) -> int {
+        await time.sleep(1)
+        return x * 2
+    }
+    println(await double(4), await twice(double, 3))
+
+    let plain: async fn(int) -> int = fn(x: int) -> int { return x + 100 }
+    println(await plain(1), await twice(plain, 1))
+
+    var log: [string] = []
+    await button("Save") {
+        await time.sleep(1)
+        log.push("saved")
+    }
+    println(log)
+
+    let repo: Repo = MemRepo(prefix: "u")
+    println(await repo.find(7), repo.name())
+    let pending = [repo.find(1), repo.find(2)]
+    println(await all(pending))
+
+    let m = MemRepo(prefix: "x")
+    let tear = m.load
+    println(await tear(41), await twice(m.load, 1))
+
+    let r: async fn(int) throws -> int = risky
+    println(try await r(5))
+    let failing = r(-1)
+    let v = try? await failing
+    println(v ?? -1)
+    let caught = try await r(-2) catch e {
+        println("caught {e.message}")
+        0
+    }
+    println(caught)
+}

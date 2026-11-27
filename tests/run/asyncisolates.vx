@@ -1,0 +1,26 @@
+import "vex:isolate"
+import "vex:time"
+async fn slow() -> int {
+    await time.sleep(1)
+    return 5
+}
+async fn main() {
+    println(await isolate.run(async fn() -> int { return await slow() }))
+    println(await isolate.run(slow))
+    try await more() catch { }
+    await time.sleep(50)
+}
+async fn bad() throws -> int {
+    await time.sleep(1)
+    throw Error("nope")
+}
+async fn more() throws {
+    let n = 3
+    println(try await isolate.run(async fn() throws -> int { return n + (await slow()) }))
+    let r = try? await isolate.run(bad)
+    println(r ?? -1)
+    isolate.spawn(async fn() {
+        await time.sleep(1)
+        println("spawned done")
+    })
+}

@@ -167,16 +167,34 @@ func (g *gen) isolateCall(e *ast.CallExpr, c *types.Call) string {
 		fmt.Fprintf(&pre, "vx_enc %s = {0}; ", enc)
 		callee = funcName(g.info.Uses[arg.(*ast.Ident)].(*types.Func))
 	}
-	if ft.Throws != nil {
-		body.WriteString(" void *err = NULL;")
-		args = append(args, "&err")
-	}
-	call := callee + "(" + strings.Join(args, ", ") + ")"
 	run := c.Builtin == "isolate.run"
-	if run && ft.Result != types.Void {
-		fmt.Fprintf(&body, " %s = %s;", decl(ft.Result, "r"), call)
+	if ft.Async {
+		// An async function runs as a task of the isolate's own loop, which
+		// the isolate drives until the task is done.
+		start := "sp_" + callee + "()"
+		if _, ok := arg.(*ast.FuncLit); ok {
+			start = fmt.Sprintf("%s((vx_fn){(void *)%s, %s})", g.valueSpawner(ft), callee, args[0])
+		}
+		fmt.Fprintf(&body, " vx_future *fut = %s;", start)
+		if ft.Throws != nil {
+			fmt.Fprintf(&body, " void *err = vx_run(fut, %d);", g.lineOf(e))
+		} else {
+			fmt.Fprintf(&body, " vx_run(fut, %d);", g.lineOf(e))
+		}
+		if run && ft.Result != types.Void {
+			fmt.Fprintf(&body, " %s = *(%s *)fut->value;", decl(ft.Result, "r"), ctype(ft.Result))
+		}
 	} else {
-		fmt.Fprintf(&body, " %s;", call)
+		if ft.Throws != nil {
+			body.WriteString(" void *err = NULL;")
+			args = append(args, "&err")
+		}
+		call := callee + "(" + strings.Join(args, ", ") + ")"
+		if run && ft.Result != types.Void {
+			fmt.Fprintf(&body, " %s = %s;", decl(ft.Result, "r"), call)
+		} else {
+			fmt.Fprintf(&body, " %s;", call)
+		}
 	}
 	if run {
 		body.WriteString(" vx_enc e = {0};")
