@@ -1,0 +1,8 @@
+const a: int? = nil
+const b = a ?? return
+fn f(x: int = return) {}
+fn main() {}
+
+// error: 2:16: return after ?? only works inside a function
+// error: 2:16: a constant must be known when compiling, but this expression isn't
+// error: 3:15: return can only be used as a statement or after ??

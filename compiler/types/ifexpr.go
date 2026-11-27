@@ -28,7 +28,9 @@ func (c *checker) ifValue(e *ast.IfExpr, want Type) Type {
 			c.cond(s.Cond, "if")
 		}
 		c.pushNarrowed(s.Cond)
+		_, pushed := c.conds(s.More, "if")
 		result = c.branchValue(e, s.Then, result, given)
+		c.popN(pushed)
 		c.pop()
 		c.pop()
 		switch els := s.Else.(type) {

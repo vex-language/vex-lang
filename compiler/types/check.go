@@ -1100,7 +1100,9 @@ func (c *checker) stmt(s ast.Stmt) {
 			elem := c.unwrapped(c.expr(s.Cond, nil), s.Cond, "if let")
 			c.push()
 			c.declare(s.Bind, elem, false, LocalVar)
+			_, pushed := c.conds(s.More, "if")
 			c.stmt(s.Then)
+			c.popN(pushed)
 			c.pop()
 		} else if s.Case != nil {
 			t := c.expr(s.Cond, nil)
@@ -1116,19 +1118,16 @@ func (c *checker) stmt(s ast.Stmt) {
 		} else {
 			c.cond(s.Cond, "if")
 			c.pushNarrowed(s.Cond)
+			_, pushed := c.conds(s.More, "if")
 			c.stmt(s.Then)
+			c.popN(pushed)
 			c.pop()
 		}
 		if s.Else != nil {
 			c.stmt(s.Else)
 		}
 	case *ast.GuardStmt:
-		elem := c.unwrapped(c.expr(s.Value, nil), s.Value, "guard let")
-		c.stmt(s.Else)
-		if !leaves(s.Else) {
-			c.errorAtPos(s.Else.Pos(), 1, "end it with return, break, continue or panic(...)", "the else block of guard must leave, so '%s' always has a value after it", s.Bind.Name)
-		}
-		c.declare(s.Bind, elem, false, LocalVar)
+		c.guardStmt(s)
 	case *ast.WhileStmt:
 		if s.Bind != nil {
 			elem := c.unwrapped(c.expr(s.Cond, nil), s.Cond, "while let")
@@ -1138,9 +1137,11 @@ func (c *checker) stmt(s ast.Stmt) {
 			c.cond(s.Cond, "while")
 			c.pushNarrowed(s.Cond)
 		}
+		_, pushed := c.conds(s.More, "while")
 		c.loops++
 		c.stmt(s.Body)
 		c.loops--
+		c.popN(pushed)
 		c.pop()
 	case *ast.ForStmt:
 		c.forStmt(s)

@@ -169,7 +169,13 @@ func (g *gen) coalesce(e *ast.BinaryExpr) string {
 	if _, ok := g.info.Types[e].(*types.Optional); ok {
 		value = tmp
 	}
-	return fmt.Sprintf("({ %s %s ? %s : %s; })", x, present(o, tmp), value, g.expr(e.Y))
+	fallback := ""
+	if j, ok := e.Y.(*ast.JumpExpr); ok {
+		fallback = g.jumpExpr(j, g.info.Types[e])
+	} else {
+		fallback = g.expr(e.Y)
+	}
+	return fmt.Sprintf("({ %s %s ? %s : %s; })", x, present(o, tmp), value, fallback)
 }
 
 // Returns an optional chain such as `x?.name` or `x?.greet()`: nil when the
