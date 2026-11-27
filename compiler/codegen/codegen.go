@@ -1671,6 +1671,20 @@ func (g *gen) value(e ast.Expr) string {
 		if m.Const != nil {
 			return g.constRef(m.Const)
 		}
+		switch m.Builtin {
+		case "int.max":
+			return "INT64_MAX"
+		case "int.min":
+			return "INT64_MIN"
+		case "float.infinity":
+			return "((double)INFINITY)"
+		case "float.nan":
+			return "((double)NAN)"
+		case "isNaN":
+			return "((bool)isnan(" + g.expr(e.X) + "))"
+		case "isFinite":
+			return "((bool)isfinite(" + g.expr(e.X) + "))"
+		}
 		x := g.expr(e.X)
 		if m.RecordField != "" {
 			return fmt.Sprintf("(%s).%s", x, recordField(m.RecordField))
@@ -1868,7 +1882,7 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 		case "Channel":
 			return "vx_chan_new()"
 		}
-		return g.builtin(c, line)
+		return g.builtin(c, g.info.Types[e], line)
 	case types.MemberBuiltinCall:
 		return g.memberBuiltin(e, c, line)
 	case types.ValueCall:
@@ -1888,7 +1902,7 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 	panic("codegen: unknown call kind")
 }
 
-func (g *gen) builtin(c *types.Call, line int) string {
+func (g *gen) builtin(c *types.Call, result types.Type, line int) string {
 	return g.ordered(c.Args, func(cs []string) string {
 		arg := func(i int, fallback string) string {
 			if i < len(cs) && cs[i] != "" {
@@ -1914,6 +1928,14 @@ func (g *gen) builtin(c *types.Call, line int) string {
 			return fmt.Sprintf("vx_assert(%s, %s, %d)", cs[0], arg(1, `VX_LIT("")`), line)
 		case "str":
 			return show(g.info.Types[c.Args[0]], cs[0])
+		case "str.radix":
+			return fmt.Sprintf("vx_int_str_radix(%s, %s, %d)", cs[0], cs[1], line)
+		case "int.parse", "float.parse":
+			t, v := ctype(result), g.temp()
+			if c.Builtin == "int.parse" {
+				return fmt.Sprintf("({ int64_t %s; bool ok = vx_int_parse(%s, %s, %d, &%s); (%s){ok, %s}; })", v, cs[0], arg(1, "10"), line, v, t, v)
+			}
+			return fmt.Sprintf("({ double %s; bool ok = vx_float_parse(%s, &%s); (%s){ok, %s}; })", v, cs[0], v, t, v)
 		}
 		from := g.info.Types[c.Args[0]]
 		switch {
@@ -1935,6 +1957,9 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 	return g.ordered(append([]ast.Expr{c.Recv}, c.Args...), func(cs []string) string {
 		if ch, ok := recv.(*types.Channel); ok {
 			return g.channelCall(e, c, ch, cs, line)
+		}
+		if recv == types.Float && c.Builtin == "toFixed" {
+			return fmt.Sprintf("vx_float_fixed(%s, %s, %d)", cs[0], cs[1], line)
 		}
 		if m, ok := recv.(*types.Map); ok {
 			k := g.temp()

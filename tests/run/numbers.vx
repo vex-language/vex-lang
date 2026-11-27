@@ -1,0 +1,37 @@
+// Safe parsing, limits, float checks and number formatting.
+const LIMIT = int.max / 2
+const FLOOR = -float.infinity
+
+/// Returns the age typed into a form, or nil when it isn't a whole number
+/// from 0 to 150.
+fn age(text: string) -> int? {
+    if let n = int.parse(text) {
+        if n >= 0 && n <= 150 {
+            return n
+        }
+    }
+    return nil
+}
+
+fn main() {
+    println(age("42"), age(" 7 "), age("x"), age("-3"), age("4.5"), age(""))
+    println(int.parse("+12"), int.parse("1_000"), int.parse("0x10"), int.parse("ff", radix: 16), int.parse("FF", radix: 16))
+    println(int.parse("9223372036854775807"), int.parse("-9223372036854775808"), int.parse("9223372036854775808"), int.parse("-9223372036854775809"))
+    println(int.parse("-zz", radix: 36), int.parse("102", radix: 2), int.parse("777", radix: 8))
+    println(float.parse("2.5"), float.parse("-1e3"), float.parse(" .5 "), float.parse("nan"), float.parse("1e400"), float.parse("1.2.3"))
+    let total = ["3", "x", "4", ""].map(int.parse)
+    var sum = 0
+    for v in total {
+        sum += v ?? 0
+    }
+    println(total, sum)
+    println(int.max, int.min, LIMIT, FLOOR, float.infinity, float.nan)
+    let ratio = 0.0 / 0.0
+    println(ratio.isNaN, ratio.isFinite, (1.0 / 0.0).isFinite, 2.5.isFinite, 2.5.isNaN)
+    println(3.14159.toFixed(2), 2.5.toFixed(0), (-2.5).toFixed(0), 0.125.toFixed(2), 1.0.toFixed(3), 9.995.toFixed(2), float.infinity.toFixed(1))
+    println(str(255, radix: 16), str(-10, radix: 2), str(int.max, radix: 36), str(int.min, radix: 16), str(0, radix: 7))
+    for r in [2, 8, 16, 36] {
+        print(int.parse(str(-123456789, radix: r), radix: r), "")
+    }
+    println()
+}

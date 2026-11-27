@@ -786,6 +786,9 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		}
 		return Invalid
 	}
+	if t := basicRef(e.X); t != nil {
+		return c.basicStatic(e, t, writing, want)
+	}
 	if g := c.genStructRef(e.X); g != nil && name == "new" {
 		var names []string
 		for _, f := range c.structTemplate(g).Fields {
@@ -877,6 +880,10 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 	if x == String && name == "len" {
 		c.info.Members[e] = &Member{Builtin: "len"}
 		return Int
+	}
+	if x == Float && (name == "isNaN" || name == "isFinite") {
+		c.info.Members[e] = &Member{Builtin: name}
+		return Bool
 	}
 	if x == Invalid {
 		return Invalid

@@ -1,0 +1,25 @@
+// Mistakes with number parsing, limits and formatting.
+fn main() {
+    println(int.parse(5))
+    println(int.parse("1", base: 2))
+    println(int.foo, int.parsee("x"), int.max())
+    println(bool.parse("true"), string.max)
+    int.max = 3
+    println(float.parse("1", radix: 2))
+    println(str(1.5, radix: 2), 1.5.isNan, 2.toFixed(1))
+    let n: int = int.parse("4")
+}
+
+// error: 3:23: argument 'text': expected string, found int
+// error: 4:28: int.parse has no parameter 'base'
+// error: 5:17: int has no static member 'foo'
+// error: 5:26: int has no static method 'parsee'
+// error: 5:43: 'max' is a constant, not a method
+// error: 6:18: bool has no static method 'parse'
+// error: 6:40: string has no static member 'max'
+// error: 7:9: int.max can't be changed
+// error: 8:30: float.parse has no parameter 'radix'
+// error: 9:17: argument 'value': expected int, found float
+// error: 9:37: float has no member 'isNan'
+// error: 9:46: int has no method 'toFixed'
+// error: 10:18: expected int, found int?

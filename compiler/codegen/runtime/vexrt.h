@@ -1624,36 +1624,137 @@ static char *vx_cstr_trim(vx_str s, int64_t *len) {
     return buf;
 }
 
-static int64_t vx_str_to_int(vx_str s, int line) {
-    int64_t n;
-    char *c = vx_cstr_trim(s, &n), *end;
-    char *digits = c + (*c == '-' || *c == '+');
-    if (*digits < '0' || *digits > '9') {
-        vx_fail(line, "can't convert \"%.*s\" to int", (int)s.len, s.ptr);
-    }
-    errno = 0;
-    long long v = strtoll(c, &end, 10);
-    // Checking against the length also catches a NUL inside the text.
-    if (end != c + n) vx_fail(line, "can't convert \"%.*s\" to int", (int)s.len, s.ptr);
-    if (errno == ERANGE) vx_fail(line, "can't convert \"%s\" to int: the number is too big", c);
-    return (int64_t)v;
+static void vx_check_radix(int64_t radix, int line) {
+    if (radix < 2 || radix > 36) vx_fail(line, "radix %" PRId64 " is outside 2 to 36", radix);
 }
 
-static double vx_str_to_float(vx_str s, int line) {
+// The value of digit [c] in bases up to 36, or 36 if it isn't one.
+static int vx_digit(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'z') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'Z') return c - 'A' + 10;
+    return 36;
+}
+
+// Parses [s], with surrounding spaces and an optional sign, as an int in
+// [radix]. Returns 0 on success, 1 if it isn't a number and 2 if it doesn't
+// fit in an int.
+static int vx_parse_int(vx_str s, int64_t radix, int64_t *out) {
+    int64_t a = 0, b = s.len;
+    while (a < b && (s.ptr[a] == ' ' || s.ptr[a] == '\t' || s.ptr[a] == '\n' || s.ptr[a] == '\r')) a++;
+    while (b > a && (s.ptr[b - 1] == ' ' || s.ptr[b - 1] == '\t' || s.ptr[b - 1] == '\n' || s.ptr[b - 1] == '\r')) b--;
+    bool neg = a < b && s.ptr[a] == '-';
+    if (a < b && (s.ptr[a] == '-' || s.ptr[a] == '+')) a++;
+    if (a == b) return 1;
+    // Accumulates the negative value, which reaches INT64_MIN.
+    int64_t v = 0;
+    bool big = false;
+    for (int64_t i = a; i < b; i++) {
+        int d = vx_digit(s.ptr[i]);
+        if (d >= radix) return 1;
+        if (!big && (__builtin_mul_overflow(v, radix, &v) || __builtin_sub_overflow(v, d, &v))) big = true;
+    }
+    if (big || (!neg && v == INT64_MIN)) return 2;
+    *out = neg ? v : -v;
+    return 0;
+}
+
+static int64_t vx_str_to_int(vx_str s, int line) {
+    int64_t v;
+    switch (vx_parse_int(s, 10, &v)) {
+    case 1: vx_fail(line, "can't convert \"%.*s\" to int", (int)s.len, s.ptr);
+    case 2: {
+        int64_t n;
+        vx_fail(line, "can't convert \"%s\" to int: the number is too big", vx_cstr_trim(s, &n));
+    }
+    }
+    return v;
+}
+
+static bool vx_int_parse(vx_str s, int64_t radix, int line, int64_t *out) {
+    vx_check_radix(radix, line);
+    *out = 0;
+    return vx_parse_int(s, radix, out) == 0;
+}
+
+// Parses [s], with surrounding spaces, as a decimal float into [out];
+// unlike strtod, hex, nan and inf aren't accepted, nor values too big for
+// a float.
+static bool vx_parse_float(vx_str s, double *out) {
     int64_t n;
     char *c = vx_cstr_trim(s, &n), *end;
-    // Only decimal numbers: strtod would also take hex, nan and inf.
     bool digit = false;
     for (int64_t i = 0; i < n; i++) {
         if (c[i] >= '0' && c[i] <= '9') digit = true;
-        else if (!strchr(".eE+-", c[i]) || c[i] == 0) goto bad;
+        else if (!strchr(".eE+-", c[i]) || c[i] == 0) return false;
     }
-    if (!digit) goto bad;
+    if (!digit) return false;
     double v = strtod(c, &end);
-    if (end != c + n || isinf(v)) goto bad;
+    if (end != c + n || isinf(v)) return false;
+    *out = v;
+    return true;
+}
+
+static double vx_str_to_float(vx_str s, int line) {
+    double v;
+    if (!vx_parse_float(s, &v)) vx_fail(line, "can't convert \"%.*s\" to float", (int)s.len, s.ptr);
     return v;
-bad:
-    vx_fail(line, "can't convert \"%.*s\" to float", (int)s.len, s.ptr);
+}
+
+static bool vx_float_parse(vx_str s, double *out) {
+    *out = 0;
+    return vx_parse_float(s, out);
+}
+
+// Returns [v] in [radix], with lowercase letters for digits past 9.
+static vx_str vx_int_str_radix(int64_t v, int64_t radix, int line) {
+    vx_check_radix(radix, line);
+    char tmp[66];
+    int n = 0;
+    uint64_t u = v < 0 ? 0 - (uint64_t)v : (uint64_t)v;
+    do {
+        tmp[n++] = "0123456789abcdefghijklmnopqrstuvwxyz"[u % (uint64_t)radix];
+        u /= (uint64_t)radix;
+    } while (u);
+    if (v < 0) tmp[n++] = '-';
+    char *buf = vx_alloc_atomic((size_t)n);
+    for (int i = 0; i < n; i++) buf[i] = tmp[n - 1 - i];
+    return (vx_str){buf, n};
+}
+
+// Returns [v] with exactly [digits] digits after the point. A value exactly
+// halfway rounds away from zero, as in Dart and JavaScript, where printf
+// would round it to even.
+static vx_str vx_float_fixed(double v, int64_t digits, int line) {
+    if (digits < 0 || digits > 20) vx_fail(line, "toFixed(%" PRId64 "): the digits must be 0 to 20", digits);
+    if (isnan(v) || isinf(v)) return vx_float_str(v);
+    int d = (int)digits;
+    // The exact digits of |v|, after a '-' slot and a '0' slot for a carry.
+    int n = snprintf(NULL, 0, "%.*f", d + 40, fabs(v));
+    char *buf = vx_alloc_atomic((size_t)n + 3);
+    snprintf(buf + 2, (size_t)n + 1, "%.*f", d + 40, fabs(v));
+    char *dot = strchr(buf + 2, '.'), *cut = dot + 1 + d;
+    bool tie = *cut == '5';
+    for (char *p = cut + 1; tie && *p; p++) tie = *p == '0';
+    if (!tie) {
+        n = snprintf(NULL, 0, "%.*f", d, v);
+        char *out = vx_alloc_atomic((size_t)n + 1);
+        snprintf(out, (size_t)n + 1, "%.*f", d, v);
+        return (vx_str){out, n};
+    }
+    char *end = d == 0 ? dot : cut;
+    buf[1] = '0';
+    for (char *p = end - 1;; p--) {
+        if (*p == '.') continue;
+        if (*p != '9') {
+            (*p)++;
+            break;
+        }
+        *p = '0';
+    }
+    char *start = buf[1] == '0' ? buf + 2 : buf + 1;
+    if (signbit(v)) *--start = '-';
+    return (vx_str){start, end - start};
 }
 
 static int64_t vx_float_to_int(double v, int line) {
