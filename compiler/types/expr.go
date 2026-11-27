@@ -391,6 +391,10 @@ func (c *checker) listLit(e *ast.ListLit, want Type) Type {
 		c.expr(leadingNils[0], nil)
 		return Invalid
 	}
+	if elem == nil {
+		// Every item had no value.
+		return Invalid
+	}
 	return &List{Elem: elem}
 }
 

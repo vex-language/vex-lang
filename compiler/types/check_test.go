@@ -553,6 +553,7 @@ func TestErrors(t *testing.T) {
 		{"int too big", "", "let n = 9223372036854775808", "2:9", "number 9223372036854775808 is too big for int", "the largest int is 9223372036854775807"},
 		{"modulo float", "", "let x = 5.5 % 2.0", "2:9", "'%' can't be used with float", ""},
 		{"compare types", "", "let b = 1 == \"1\"", "2:9", "can't compare int with string", "parse it with int(...)"},
+		{"list of no values", "fn f() {}", "let a = [f()]\na {}", "3:10", "this expression has no value", ""},
 		{"compare lists", "", "let b = [1] == [1]", "2:9", "values of type [int] can't be compared with ==", ""},
 		{"and on int", "", "let b = 1 && true", "2:9", "'&&' needs bool on both sides, found int", ""},
 		{"not on int", "", "let b = !1", "2:10", "'!' needs a bool, found int", ""},
