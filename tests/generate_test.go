@@ -229,10 +229,39 @@ func negC(a int64) int64 {
 	return -a
 }
 
+// The longest string a generated program may build. Strings that append to
+// themselves in nested loops grow exponentially, so a program that would
+// pass this is replaced.
+const maxGenString = 1 << 16
+
+// A panic value raised when a generated program builds a string longer than
+// [maxGenString].
+type tooBig struct{}
+
+// Returns [s], or panics with [tooBig] if it is too long.
+func capped(s string) string {
+	if len(s) > maxGenString {
+		panic(tooBig{})
+	}
+	return s
+}
+
 // Returns a random program, the output it must print, and whether it must
-// then stop with an integer overflow error.
+// then stop with an integer overflow error. A program whose strings grow
+// too long is replaced by the next one from the same seed.
 func generateProgram(seed int64) (src string, want string, overflows bool) {
-	g := &generator{r: rand.New(rand.NewSource(seed))}
+	r := rand.New(rand.NewSource(seed))
+	for {
+		if src, want, overflows, ok := tryProgram(r); ok {
+			return src, want, overflows
+		}
+	}
+}
+
+// Generates one program from [r], reporting false if it builds a string
+// longer than [maxGenString].
+func tryProgram(r *rand.Rand) (src string, want string, overflows bool, ok bool) {
+	g := &generator{r: r}
 	var stmts []stmt
 	for i := 0; i < 120; i++ {
 		stmts = append(stmts, g.stmt(0))
@@ -248,11 +277,14 @@ func generateProgram(seed int64) (src string, want string, overflows bool) {
 	b.WriteString("}\n")
 	var out strings.Builder
 	defer func() {
-		if r := recover(); r != nil {
-			if _, ok := r.(overflow); !ok {
-				panic(r)
-			}
-			want, overflows = out.String(), true
+		switch r := recover().(type) {
+		case nil:
+		case overflow:
+			want, overflows, ok = out.String(), true, true
+		case tooBig:
+			ok = false
+		default:
+			panic(r)
 		}
 	}()
 	e := env{}
@@ -260,7 +292,7 @@ func generateProgram(seed int64) (src string, want string, overflows bool) {
 	for _, s := range stmts {
 		s.exec(e, &out)
 	}
-	return src, out.String(), false
+	return src, out.String(), false, true
 }
 
 func (g *generator) name(prefix string) string {
@@ -377,7 +409,7 @@ func (g *generator) assign() (stmt, bool) {
 	if v.t == tStr {
 		if g.r.Intn(2) == 0 {
 			return stmt{[]string{v.name + " += " + x.code}, func(e env, _ *strings.Builder) {
-				e[v.name] = e[v.name].(string) + x.eval(e).(string)
+				e[v.name] = capped(e[v.name].(string) + x.eval(e).(string))
 			}}, true
 		}
 		return stmt{[]string{v.name + " = " + x.code}, func(e env, _ *strings.Builder) { e[v.name] = x.eval(e) }}, true
@@ -852,13 +884,13 @@ func (g *generator) strExpr(leaf bool) expr {
 		x, y := g.expr(tStr), g.expr(tStr)
 		return expr{"(" + x.code + " + " + y.code + ")", func(e env) any {
 			a := x.eval(e).(string)
-			return a + y.eval(e).(string)
+			return capped(a + y.eval(e).(string))
 		}}
 	case 2:
 		x, y := g.expr(tInt), g.expr(tStr)
 		return expr{`"<{` + x.code + `}|{` + y.code + `}>"`, func(e env) any {
 			a := x.eval(e).(int64)
-			return "<" + strconv.FormatInt(a, 10) + "|" + y.eval(e).(string) + ">"
+			return capped("<" + strconv.FormatInt(a, 10) + "|" + y.eval(e).(string) + ">")
 		}}
 	case 3:
 		x := g.expr(tStr)
