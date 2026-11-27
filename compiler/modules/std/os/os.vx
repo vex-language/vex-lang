@@ -67,3 +67,15 @@ pub fn output(command: string) throws -> string {
     }
     return text
 }
+
+/// An operating system a program can be built for. `os.target` is the one
+/// the program is built for.
+pub enum Target {
+    macos, linux, windows
+}
+
+/// A processor architecture a program can be built for. `os.arch` is the
+/// one the program is built for.
+pub enum Arch {
+    arm64, x64
+}
