@@ -1,0 +1,2 @@
+go test fuzz v1
+string("struct Account{0 0 A00000000000000000000000000000{A000000\"000\"0 }\nfn A000(){{0X0}A000}fn A0()=>\"\"static fn opening()->Account{A0000000000000000000000000000000}A=Account.opening()}")

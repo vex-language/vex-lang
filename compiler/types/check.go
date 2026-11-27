@@ -809,7 +809,11 @@ func (c *checker) checkStructCycles() {
 			if inner, ok := f.Type.(*Struct); ok && visit(inner, depth+1) {
 				if inner == s || depth == 0 {
 					defer c.enter(s.Decl)()
-					c.errorAt(f.Decl.Type, "use a list instead, e.g. children: ["+inner.Name+"]",
+					var at ast.Node = f.Decl.Name
+					if f.Decl.Type != nil {
+						at = f.Decl.Type
+					}
+					c.errorAt(at, "use a list instead, e.g. children: ["+inner.Name+"]",
 						"struct '%s' contains itself through field '%s', so it could never be created", s.Name, f.Name)
 				}
 				state[s] = 2

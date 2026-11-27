@@ -76,6 +76,12 @@ struct Strict {
     }
 }
 
+struct Ledger {
+    next = Ledger.empty()
+
+    static fn empty() -> Ledger => Ledger()
+}
+
 // error: 7:9: field 'name' is a let field, so it can't provide the setter Named requires
 // error: 11:9: can't change 'name': it's a let field of User
 // error: 24:17: 'size' is read before init sets it
@@ -92,3 +98,4 @@ struct Strict {
 // error: 68:10: can't tell the type of an empty list
 // error: 73:13: init can't throw
 // error: 75:17: the error can't pass up: init can't throw
+// error: 80:5: struct 'Ledger' contains itself through field 'next', so it could never be created
