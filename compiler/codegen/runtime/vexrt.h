@@ -470,6 +470,8 @@ static void vx_mark_stack(void) {
 }
 
 static void vx_async_mark(void);
+static void vx_gens_mark(void);
+static void vx_gens_sweep(void);
 
 // Finds the object holding the address [p], giving its start and size, or
 // returns false when [p] isn't in an object. [marked] tells whether the
@@ -528,6 +530,7 @@ static void vx_mark_roots(void) {
     }
     vx_async_mark();
     vx_mark_gray();
+    vx_gens_mark();
 }
 
 // Under VEX_GC_VERIFY, each collection ends by copying the old objects, and
@@ -650,6 +653,7 @@ static void vx_collect(void) {
     }
 
     vx_mark_roots();
+    vx_gens_sweep();
 
     // Sweep: rebuild the free lists from the unmarked objects, keeping the
     // marks. A page with nothing live is empty again, and a full one has
@@ -2882,15 +2886,10 @@ void vx_task_main(vx_task *t) {
 
 static void vx_future_own(struct vx_future *f, vx_task *t);
 
-// Starts a task that runs [entry] with [arg] and settles [f], which may be
-// NULL, and runs it until it first waits. It is a child of the running
-// task.
-static void vx_go_f(void (*entry)(void *), void *arg, struct vx_future *f) {
+// Returns a task that will run [entry] with [arg] when first resumed.
+static vx_task *vx_task_make(void (*entry)(void *), void *arg) {
     vx_task *t = calloc(1, sizeof(vx_task));
     if (!t) vx_out_of_memory();
-    t->parent = vx_cur;
-    t->future = f;
-    if (f) vx_future_own(f, t);
     t->size = VX_TASK_STACK;
     if (vx_spare_len > 0) {
         t->stack = vx_spare_stacks[--vx_spare_len];
@@ -2913,6 +2912,17 @@ static void vx_go_f(void (*entry)(void *), void *arg, struct vx_future *f) {
     *(void **)(sp + VX_FRAME_TASK) = t;
     *(void **)(sp + VX_FRAME_RET) = (void *)vx_task_boot;
     t->sp = sp;
+    return t;
+}
+
+// Starts a task that runs [entry] with [arg] and settles [f], which may be
+// NULL, and runs it until it first waits. It is a child of the running
+// task.
+static void vx_go_f(void (*entry)(void *), void *arg, struct vx_future *f) {
+    vx_task *t = vx_task_make(entry, arg);
+    t->parent = vx_cur;
+    t->future = f;
+    if (f) vx_future_own(f, t);
     if (vx_tasks_len == vx_tasks_cap) vx_tasks = vx_grow(vx_tasks, &vx_tasks_cap, sizeof(vx_task *));
     vx_tasks[vx_tasks_len++] = t;
     vx_resume(t);
@@ -3153,6 +3163,114 @@ static void vx_remote_remove(vx_future *f) {
             vx_remote[i] = vx_remote[--vx_remote_len];
             return;
         }
+    }
+}
+
+// --- Generators ---
+
+// The iterator of a generator. Its body runs as a task from the first
+// call of next, and pauses at each yield. Unlike other tasks, a paused
+// generator isn't a root: its stack is scanned only while the iterator
+// is reachable, and the collector frees it once the iterator isn't.
+typedef struct vx_gen {
+    const void *vx_t;         // its descriptor, as an Iterator<T>
+    void *src;                // the Iterable that made it, which holds the arguments
+    void (*entry)(void *);
+    vx_task *task;            // NULL before the first next and after the body ends
+    void *out;                // where yield stores the value, while next runs
+    size_t slot;              // its place in vx_gens, while it has a task
+    int line;                 // the generator function's, for errors
+    bool done, running, scanned;
+} vx_gen;
+
+static VX_TLS vx_gen **vx_gens;
+static VX_TLS size_t vx_gens_len, vx_gens_cap;
+
+// Stacks cost far more than the iterators that hold them, so a collection
+// also runs once the generators with stacks have doubled since the last.
+static VX_TLS size_t vx_gens_next = 64;
+
+static vx_gen *vx_gen_new(void *src, void (*entry)(void *), const void *desc, int line) {
+    vx_gen *g = vx_alloc(sizeof(vx_gen));
+    g->vx_t = desc;
+    g->src = src;
+    g->entry = entry;
+    g->line = line;
+    return g;
+}
+
+static void vx_gen_forget(vx_gen *g) {
+    vx_gen *last = vx_gens[--vx_gens_len];
+    vx_gens[g->slot] = last;
+    last->slot = g->slot;
+    g->task = NULL;
+}
+
+static void vx_gen_main(void *p) {
+    vx_gen *g = p;
+    g->entry(g);
+    g->done = true;
+    vx_gen_forget(g);
+}
+
+// Runs the body of [g] until it yields a value into [out], returning true,
+// or ends, returning false.
+static bool vx_gen_next(vx_gen *g, void *out) {
+    if (g->done) return false;
+    if (g->running) vx_fail(g->line, "a generator can't ask itself for its next value");
+    if (!g->task) {
+        if (vx_gens_len >= vx_gens_next) {
+            vx_collect();
+            vx_gens_next = vx_gens_len * 2 > 64 ? vx_gens_len * 2 : 64;
+        }
+        g->task = vx_task_make(vx_gen_main, g);
+        if (vx_gens_len == vx_gens_cap) vx_gens = vx_grow(vx_gens, &vx_gens_cap, sizeof(vx_gen *));
+        g->slot = vx_gens_len;
+        vx_gens[vx_gens_len++] = g;
+    }
+    g->out = out;
+    g->running = true;
+    vx_resume(g->task);
+    g->running = false;
+    return !g->done;
+}
+
+// Gives the generator's caller the value that its body stored in out.
+static void vx_gen_yield(void) { vx_suspend(); }
+
+static bool vx_is_marked(const void *p) {
+    char *start;
+    size_t size;
+    bool marked, atomic;
+    return vx_object_at((uintptr_t)p, &start, &size, &marked, &atomic) && marked;
+}
+
+// Scans the stacks of the paused generators whose iterators are marked,
+// and what they reach, until no more are found.
+static void vx_gens_mark(void) {
+    for (bool more = true; more;) {
+        more = false;
+        for (size_t i = 0; i < vx_gens_len; i++) {
+            vx_gen *g = vx_gens[i];
+            if (g->scanned || !vx_is_marked(g)) continue;
+            g->scanned = more = true;
+            if (g->task != vx_cur) vx_mark_range(g->task->sp, g->task->top);
+            vx_mark_gray();
+        }
+    }
+}
+
+// Frees the stacks of the generators whose iterators are garbage.
+static void vx_gens_sweep(void) {
+    for (size_t i = vx_gens_len; i-- > 0;) {
+        vx_gen *g = vx_gens[i];
+        if (g->scanned) {
+            g->scanned = false;
+            continue;
+        }
+        vx_task *t = g->task;
+        vx_gen_forget(g);
+        vx_task_free(t);
     }
 }
 

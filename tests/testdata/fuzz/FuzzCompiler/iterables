@@ -1,0 +1,2 @@
+go test fuzz v1
+string("fn evens(limit: int) -> Iterable<int> {\n    var n = 0\n    while n < limit {\n        yield n\n        n += 2\n    }\n}\n\nfn main() {\n    let xs = evens(limit: 20).filter { it % 3 == 0 }.map { it * 10 }.skip(1).take(2)\n    for (i, x) in xs.enumerated() { print(i, x, \"\") }\n    println(xs.toList())\n}\n")
