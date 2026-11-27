@@ -1,6 +1,6 @@
 package types
 
-import "github.com/irshadio/vex-lang/compiler/ast"
+import "github.com/vex-language/vex-lang/compiler/ast"
 
 // Checks an `if` used as a value against [want], returning its type: the
 // type the branches share.

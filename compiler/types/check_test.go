@@ -5,9 +5,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/diag"
-	"github.com/irshadio/vex-lang/compiler/parser"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/parser"
 )
 
 func check(t *testing.T, src string) (*Info, diag.List) {

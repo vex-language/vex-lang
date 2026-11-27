@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // Built-in functions on futures. Unlike the other built-ins, a function

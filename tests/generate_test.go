@@ -15,11 +15,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irshadio/vex-lang/compiler/cc"
-	"github.com/irshadio/vex-lang/compiler/codegen"
-	"github.com/irshadio/vex-lang/compiler/diag"
-	"github.com/irshadio/vex-lang/compiler/parser"
-	"github.com/irshadio/vex-lang/compiler/types"
+	"github.com/vex-language/vex-lang/compiler/cc"
+	"github.com/vex-language/vex-lang/compiler/codegen"
+	"github.com/vex-language/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/parser"
+	"github.com/vex-language/vex-lang/compiler/types"
 )
 
 var (

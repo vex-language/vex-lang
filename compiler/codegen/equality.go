@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/types"
+	"github.com/vex-language/vex-lang/compiler/types"
 )
 
 // Equality and hashing. Simple values compare inline; structs, enums with

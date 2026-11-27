@@ -4,9 +4,9 @@ import (
 	"fmt"
 	"sort"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/lexer"
-	"github.com/irshadio/vex-lang/compiler/types"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/lexer"
+	"github.com/vex-language/vex-lang/compiler/types"
 )
 
 // Reports whether optionals of [o] are a pointer that is NULL for nil,

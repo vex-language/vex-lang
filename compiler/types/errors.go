@@ -3,7 +3,7 @@ package types
 import (
 	"fmt"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // The calls of a try being checked, and what they throw.

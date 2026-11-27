@@ -247,7 +247,7 @@ Goal: the same Vex app running on Android with real Android views.
 | 2026-11-24 | iOS first, then Android |
 | 2026-11-24 | v0.1 has no GC (memory is leaked); revisit in V-107 |
 | 2026-11-24 | Developer-friendly syntax approved (see docs/SYNTAX.md): `User(name:)` constructors, methods inside structs with implicit `self`, `static fn`, named/default arguments, `=>` one-liners, `"{expr}"` interpolation, `[T]` list type, member calls like `nums.push()` |
-| 2026-11-24 | Repo: github.com/irshadio/vex-lang (private) |
+| 2026-11-24 | Repo: github.com/vex-language/vex-lang (private) |
 | 2026-11-24 | Structs are shared references; `let` fixes the name, not the fields |
 | 2026-11-24 | No implicit int/float mixing; whole-number literals adapt to `float` where one is expected |
 | 2026-11-24 | `==` only on `int`, `float`, `bool`, `string` for v0.1 |

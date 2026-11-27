@@ -1,6 +1,6 @@
 package types
 
-import "github.com/irshadio/vex-lang/compiler/ast"
+import "github.com/vex-language/vex-lang/compiler/ast"
 
 // The type parameters and instances of a method with its own type
 // parameters, such as `fn map<U>(f: fn(T) -> U) -> Box<U>`.

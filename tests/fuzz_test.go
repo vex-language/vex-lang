@@ -9,13 +9,13 @@ import (
 	"testing"
 	"unicode/utf8"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
-	"github.com/irshadio/vex-lang/compiler/cc"
-	"github.com/irshadio/vex-lang/compiler/codegen"
-	"github.com/irshadio/vex-lang/compiler/diag"
-	"github.com/irshadio/vex-lang/compiler/lexer"
-	"github.com/irshadio/vex-lang/compiler/parser"
-	"github.com/irshadio/vex-lang/compiler/types"
+	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/cc"
+	"github.com/vex-language/vex-lang/compiler/codegen"
+	"github.com/vex-language/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/lexer"
+	"github.com/vex-language/vex-lang/compiler/parser"
+	"github.com/vex-language/vex-lang/compiler/types"
 )
 
 // Runs any source text through the whole compiler. It must either report

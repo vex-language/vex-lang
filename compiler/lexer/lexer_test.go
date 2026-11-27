@@ -5,7 +5,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/irshadio/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/diag"
 )
 
 // Returns a compact description of a token for comparisons.

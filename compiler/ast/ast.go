@@ -2,8 +2,8 @@
 package ast
 
 import (
-	"github.com/irshadio/vex-lang/compiler/diag"
-	"github.com/irshadio/vex-lang/compiler/lexer"
+	"github.com/vex-language/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/lexer"
 )
 
 // The source range covered by a node.

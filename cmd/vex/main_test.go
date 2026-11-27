@@ -9,7 +9,7 @@ import (
 	"syscall"
 	"testing"
 
-	"github.com/irshadio/vex-lang/compiler/cc"
+	"github.com/vex-language/vex-lang/compiler/cc"
 )
 
 func runCLI(args ...string) (code int, stdout, stderr string) {

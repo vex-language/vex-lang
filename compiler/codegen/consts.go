@@ -5,7 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/types"
+	"github.com/vex-language/vex-lang/compiler/types"
 )
 
 // Returns the C field holding [k] inside `vx_k`.

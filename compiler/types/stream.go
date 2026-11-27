@@ -1,7 +1,7 @@
 package types
 
 import (
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // Reports whether [name] is that of a built-in stream type.

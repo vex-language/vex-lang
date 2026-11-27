@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/lexer"
+	"github.com/vex-language/vex-lang/compiler/lexer"
 )
 
 // A node reduced to a label and children, shared by both printers.

@@ -7,7 +7,7 @@ import (
 	"testing"
 	"testing/fstest"
 
-	"github.com/irshadio/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/diag"
 )
 
 const project = "[package]\nname = \"app\"\n"

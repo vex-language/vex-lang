@@ -1,7 +1,7 @@
 // Package lexer turns Vex source text into tokens.
 package lexer
 
-import "github.com/irshadio/vex-lang/compiler/diag"
+import "github.com/vex-language/vex-lang/compiler/diag"
 
 // The category of a [Token].
 type Kind uint8

@@ -6,7 +6,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // A record type: positional fields, read as `$1`, `$2`..., and named

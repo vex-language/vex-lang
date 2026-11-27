@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/irshadio/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/ast"
 )
 
 // A parameter, field or built-in argument that a call argument can fill.

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/irshadio/vex-lang/compiler/diag"
+	"github.com/vex-language/vex-lang/compiler/diag"
 )
 
 // The maximum number of errors reported before the lexer stops.
