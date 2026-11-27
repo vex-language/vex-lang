@@ -162,7 +162,12 @@ func (c *checker) checkConst(k *Const) {
 		k.Type = Invalid
 		return
 	}
-	k.Value = c.fold(k.Decl.Value, t)
+	if v := c.fold(k.Decl.Value, t); v != nil {
+		// An enum case stays in a global; [checker.constValue] finds it.
+		if _, isCase := v.(*Case); !isCase {
+			k.Value = v
+		}
+	}
 	c.info.Consts = append(c.info.Consts, k)
 }
 
@@ -252,6 +257,9 @@ func (c *checker) constExpr(e ast.Expr) bool {
 // string made of literals and other such constants, or a float literal.
 // Returns nil otherwise. Reports overflow and division by zero.
 func (c *checker) fold(e ast.Expr, t Type) any {
+	if cs := c.info.CaseValues[e]; cs != nil && len(cs.Fields) == 0 {
+		return cs
+	}
 	switch e := e.(type) {
 	case *ast.IntLit:
 		v, err := strconv.ParseInt(e.Value, 0, 64)
@@ -272,11 +280,11 @@ func (c *checker) fold(e ast.Expr, t Type) any {
 		return e.Value
 	case *ast.Ident:
 		if k, ok := c.info.Uses[e].(*Const); ok {
-			return k.Value
+			return c.constValue(k)
 		}
 	case *ast.MemberExpr:
 		if m := c.info.Members[e]; m != nil && m.Const != nil {
-			return m.Const.Value
+			return c.constValue(m.Const)
 		}
 		if m := c.info.Members[e]; m != nil && basicConsts[m.Builtin] != nil {
 			return basicConsts[m.Builtin]
@@ -337,6 +345,17 @@ func (c *checker) fold(e ast.Expr, t Type) any {
 
 func (c *checker) foldBinary(e *ast.BinaryExpr, x, y any) any {
 	switch a := x.(type) {
+	case *Case:
+		b, ok := y.(*Case)
+		if !ok {
+			return nil
+		}
+		switch e.Op {
+		case lexer.Eq:
+			return a == b
+		case lexer.NotEq:
+			return a != b
+		}
 	case int64:
 		b, ok := y.(int64)
 		if !ok {
@@ -655,4 +674,16 @@ func (c *checker) source(n ast.Node) string {
 		return ""
 	}
 	return c.file.Src[start:end]
+}
+
+// Returns the value of [k] when it is known: [Const.Value], or the enum
+// case without fields that its starting value names.
+func (c *checker) constValue(k *Const) any {
+	if k.Value != nil || k.Lazy || k.Decl == nil || k.Decl.Value == nil {
+		return k.Value
+	}
+	if cs := c.info.CaseValues[k.Decl.Value]; cs != nil && len(cs.Fields) == 0 {
+		return cs
+	}
+	return nil
 }

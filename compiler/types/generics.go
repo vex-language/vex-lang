@@ -153,6 +153,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 	i.ThrowingRefs = map[ast.Expr]bool{}
 	i.Elements = map[*ast.ExprStmt]ast.Expr{}
 	i.IfValues = map[*ast.ExprStmt]*ast.IfExpr{}
+	i.Known = map[ast.Expr]bool{}
 	i.TypeTests = map[*ast.TypeTest]Type{}
 	i.PatternTests = map[ast.Pattern]Type{}
 	i.Chains = map[ast.Expr]bool{}

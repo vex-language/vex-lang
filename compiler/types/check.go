@@ -121,6 +121,7 @@ func newChecker() *checker {
 			ThrowingRefs:   map[ast.Expr]bool{},
 			Elements:       map[*ast.ExprStmt]ast.Expr{},
 			IfValues:       map[*ast.ExprStmt]*ast.IfExpr{},
+			Known:          map[ast.Expr]bool{},
 			TypeTests:      map[*ast.TypeTest]Type{},
 			PatternTests:   map[ast.Pattern]Type{},
 			Observers:      map[*ast.AssignStmt]*Func{},
@@ -1087,6 +1088,9 @@ func (c *checker) stmt(s ast.Stmt) {
 func (c *checker) cond(e ast.Expr, keyword string) {
 	t := c.expr(e, Bool)
 	if Identical(t, Bool) {
+		if v, ok := c.fold(e, Bool).(bool); ok && keyword == "if" {
+			c.info.Known[e] = v
+		}
 		return
 	}
 	hint := ""
