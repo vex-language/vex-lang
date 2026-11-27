@@ -310,6 +310,9 @@ func (c *checker) conform(t conformer) {
 	}
 	var listed []*Interface
 	for _, te := range t.decls {
+		if isMarker(te) && c.interfaces[te.Name] == nil {
+			continue
+		}
 		i := c.ifaceRef(te, t.quiet, "an interface")
 		if i == nil {
 			continue

@@ -366,6 +366,7 @@ func (c *checker) collect() {
 	c.declareStaticConsts()
 	c.checkStructCycles()
 	c.checkDefaults()
+	c.checkEquality()
 	c.checkMain()
 }
 

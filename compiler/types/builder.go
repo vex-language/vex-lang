@@ -127,7 +127,7 @@ func (c *checker) element(x ast.Expr, b *build) {
 		kt := c.expr(x.Key, b.key)
 		c.entryType(&b.key, kt, x.Key, "map key")
 		if b.key != nil && b.key != Invalid && !mapKeyType(b.key) {
-			c.errorAt(x.Key, "use int, string, bool or an enum whose cases carry no values", "%s can't be a map key", b.key)
+			c.errorAt(x.Key, keyHint(b.key), "%s can't be a map key", b.key)
 			b.key = Invalid
 		}
 		vt := c.expr(x.Value, b.value)
