@@ -1,0 +1,24 @@
+fn each(xs: [int], f: fn(int)) {}
+fn pairs(f: fn(string, int)) {}
+fn twice(f: fn(int) -> int) -> int => f(1)
+fn column(children: [string]) {}
+fn count(n: int) {}
+
+fn main() {
+    let xs = [1, 2]
+    pairs { println(it) }
+    each(xs) { a, b in println(a) }
+    let a = xs.map { println(it) }
+    let b = twice { "x" }
+    column { s in "a" }
+    count(1) { it }
+    let c = xs.reduce(0) { sum in sum }
+}
+
+// error: 9:11: this block takes 2 parameters, so it must name them
+// error: 10:14: expected a function with 1 parameter, found one with 2
+// error: 11:20: map needs a function that returns a value
+// error: 12:21: expected int, found string
+// error: 13:14: a builder block for 'children' takes no parameters
+// error: 14:14: the last argument of count is given twice: in the call and as a trailing block
+// error: 15:26: expected a function with 2 parameters, found one with 1

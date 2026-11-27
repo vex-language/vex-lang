@@ -1,0 +1,66 @@
+import "vex:time"
+
+struct Person {
+    name: string
+    age: int
+}
+
+fn each(xs: [int], f: fn(int)) {
+    for x in xs {
+        f(x)
+    }
+}
+
+fn pairs(f: fn(string, int)) {
+    f("a", 1)
+    f("b", 2)
+}
+
+fn twice(f: fn(int) -> int) -> int => f(f(1))
+
+fn apply<T, U>(x: T, f: fn(T) -> U) -> U => f(x)
+
+fn main() {
+    let xs = [3, 1, 2]
+    println(xs.map { x in x * 2 })
+    println(xs.map { it + 1 })
+    println(xs.filter { it > 1 })
+    let people = [Person(name: "Ann", age: 30), Person(name: "Bo", age: 12)]
+    println(people.filter { it.age >= 18 }.map { it.name })
+    each(xs) { println("each {it}") }
+    pairs { name, n in
+        println("{name}={n}")
+    }
+    println(twice { it * 10 })
+    println(twice { n in
+        let doubled = n * 2
+        doubled + 1
+    })
+    println(apply(4) { "<{it}>" })
+    var sorted = xs
+    sorted.sort { a, b in a > b }
+    println(sorted)
+
+    let grid = [[1, 2], [3]]
+    println(grid.map { it.map { it * 10 } })
+    println(grid.flatMap { row in row })
+    println(xs.reduce(0) { sum, x in sum + x })
+    println(xs.any { it == 2 }, xs.all { x in x > 0 })
+    let total = loadAll { n in
+        await time.sleep(1)
+        n * 3
+    }
+    println(run(total))
+
+    let it = 99
+    each([1]) { println(it) }
+    each([1]) { x in println(x + it) }
+}
+
+async fn loadAll(f: async fn(int) -> int) -> int {
+    var total = 0
+    for i in 1..=2 {
+        total += await f(i)
+    }
+    return total
+}

@@ -774,7 +774,7 @@ func (c *checker) inferFromArgs(e *ast.CallExpr, slots []slot, b *binding) {
 	}
 	if e.Trailing != nil && len(slots) > 0 && !set[len(slots)-1] {
 		s := slots[len(slots)-1]
-		b.unify(s.typ, c.expr(trailingLit(e.Trailing, s.typ), b.partial(s.typ)))
+		b.unify(s.typ, c.expr(trailingLit(e, s.typ), b.partial(s.typ)))
 	}
 }
 

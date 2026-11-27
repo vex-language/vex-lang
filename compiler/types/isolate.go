@@ -122,7 +122,7 @@ func (c *checker) isolateCall(e *ast.CallExpr, name string, want Type) Type {
 	case len(e.Args) == 1 && e.Args[0].Name == nil && e.Trailing == nil:
 		arg = e.Args[0].Value
 	case len(e.Args) == 0 && e.Trailing != nil:
-		arg = trailingLit(e.Trailing, &FuncType{})
+		arg = trailingLit(e, &FuncType{})
 	default:
 		c.checkArgs(e)
 		c.errorAt(e.Fn, "write "+example, "isolate.%s takes one function", name)
