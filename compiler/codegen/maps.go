@@ -8,7 +8,8 @@ import (
 	"github.com/irshadio/vex-lang/compiler/types"
 )
 
-// Returns the runtime constant for how keys of type [t] are hashed.
+// Returns the runtime constant for how keys of type [t] are hashed, or ""
+// for keys that need generated functions.
 func keyKind(t types.Type) string {
 	switch t {
 	case types.Int:
@@ -18,22 +19,21 @@ func keyKind(t types.Type) string {
 	case types.String:
 		return "VX_KEY_STR"
 	}
-	return "VX_KEY_ENUM"
-}
-
-func newMap(m *types.Map) string {
-	return fmt.Sprintf("vx_map_new(%s, sizeof(%s), sizeof(%s))", keyKind(m.Key), ctype(m.Key), ctype(m.Value))
+	if e, ok := t.(*types.Enum); ok && e.Simple() {
+		return "VX_KEY_ENUM"
+	}
+	return ""
 }
 
 // Generates a map literal. Keys and values run in source order, and a later
 // value for the same key replaces the earlier one.
 func (g *gen) mapLit(e *ast.MapLit, m *types.Map) string {
 	if len(e.Keys) == 0 {
-		return newMap(m)
+		return g.newMap(m)
 	}
 	r := g.temp()
 	var b strings.Builder
-	fmt.Fprintf(&b, "({ vx_map *%s = %s; ", r, newMap(m))
+	fmt.Fprintf(&b, "({ vx_map *%s = %s; ", r, g.newMap(m))
 	for i, k := range e.Keys {
 		kt, vt := g.temp(), g.temp()
 		fmt.Fprintf(&b, "%s = %s; %s = %s; *(%s*)vx_map_set(%s, &%s) = %s; ",

@@ -101,7 +101,7 @@ func (g *gen) listMember(e *ast.CallExpr, c *types.Call, l *types.List, cs []str
 		v, r := g.temp(), g.temp()
 		return fmt.Sprintf("({ vx_list *%s = %s; %s = %s; int64_t %s = -1; "+
 			"for (int64_t %s = 0; %s < %s->len; %s++) if (%s) { %s = %s; break; } (%s){%s >= 0, %s}; })",
-			list, cs[0], decl(l.Elem, v), cs[1], r, i, i, list, i, equal(l.Elem, at, v), r, i, ctype(g.info.Types[e]), r, r)
+			list, cs[0], decl(l.Elem, v), cs[1], r, i, i, list, i, g.eq(l.Elem, at, v), r, i, ctype(g.info.Types[e]), r, r)
 	case "find":
 		f, n, r, o := g.temp(), g.temp(), g.temp(), g.optOf(e)
 		return fmt.Sprintf("({ vx_list *%s = %s; vx_fn %s = %s; %s %s = {0}; %sif (%s) { %s = %s; break; } } %s; })",

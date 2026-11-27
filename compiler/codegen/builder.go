@@ -27,7 +27,7 @@ func (g *gen) collection(lit ast.Expr, body *ast.Block, t types.Type) string {
 			done = fmt.Sprintf("%s->len = %s; ", r, f.len)
 		}
 	case *types.Map:
-		init = fmt.Sprintf("vx_map *%s = %s;", r, newMap(t))
+		init = fmt.Sprintf("vx_map *%s = %s;", r, g.newMap(t))
 	}
 	outer, ind := g.b, g.ind
 	var b strings.Builder

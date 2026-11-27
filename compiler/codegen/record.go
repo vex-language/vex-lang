@@ -66,66 +66,6 @@ func (g *gen) valueTypedefs() {
 	}
 }
 
-// Returns C code comparing [a] and [b] of type [t] with `==`, or "" when
-// they can't be compared.
-func equal(t types.Type, a, b string) string {
-	switch t := t.(type) {
-	case *types.Enum:
-		return fmt.Sprintf("(%s)->tag == (%s)->tag", a, b)
-	case *types.Record:
-		return fmt.Sprintf("eq_%s(%s, %s)", mangle(t), a, b)
-	case *types.Handle:
-		return fmt.Sprintf("%s == %s", a, b)
-	case *types.Struct:
-		if f := t.Operator("=="); f != nil {
-			return fmt.Sprintf("%s(%s, %s)", funcName(f), a, b)
-		}
-	}
-	switch t {
-	case types.String:
-		return fmt.Sprintf("vx_str_eq(%s, %s)", a, b)
-	case types.Int, types.Float, types.Bool:
-		return fmt.Sprintf("%s == %s", a, b)
-	}
-	return ""
-}
-
-// Writes the equality functions of the records that can be compared.
-func (g *gen) recordEquals() {
-	var comparable func(t types.Type) bool
-	comparable = func(t types.Type) bool {
-		if r, ok := t.(*types.Record); ok {
-			for _, f := range r.FieldTypes() {
-				if !comparable(f) {
-					return false
-				}
-			}
-			return true
-		}
-		if e, ok := t.(*types.Enum); ok {
-			return e.Simple()
-		}
-		return equal(t, "a", "b") != ""
-	}
-	var ok []*types.Record
-	for _, name := range sortedKeys(g.recs) {
-		if comparable(g.recs[name]) {
-			ok = append(ok, g.recs[name])
-		}
-	}
-	for _, r := range ok {
-		g.line("static bool eq_%s(%s a, %s b);", mangle(r), ctype(r), ctype(r))
-	}
-	for _, r := range ok {
-		var parts []string
-		for i, f := range r.FieldTypes() {
-			field := recordFields(r)[i]
-			parts = append(parts, equal(f, "a."+field, "b."+field))
-		}
-		g.line("static bool eq_%s(%s a, %s b) { return %s; }", mangle(r), ctype(r), ctype(r), strings.Join(parts, " && "))
-	}
-}
-
 // Generates a record value. Its fields run in source order.
 func (g *gen) recordLit(e *ast.RecordLit, r *types.Record) string {
 	values := make([]ast.Expr, len(e.Fields))

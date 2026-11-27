@@ -1,0 +1,62 @@
+struct Point: Hashable {
+    x: int
+    y: int
+}
+
+struct Email: Hashable {
+    address: string
+    operator ==(other: Email) -> bool => address.lower() == other.address.lower()
+    fn hash() -> int => hash(address.lower())
+}
+
+struct Node: Equatable {
+    value: int
+    next: Node?
+}
+
+enum Key: Hashable {
+    id(n: int)
+    name(s: string)
+    none
+}
+
+struct Box<T: Equatable>: Equatable {
+    item: T
+}
+
+struct Plain {
+    v: int
+}
+
+fn main() {
+    let a = Point(x: 1, y: 2)
+    let b = Point(x: 1, y: 2)
+    println(a == b, a != b, a === b, a === a, a == Point(x: 2, y: 1))
+    var seen: [Point: string] = [a: "first"]
+    seen[b] = "second"
+    seen[Point(x: 0, y: 0)] = "origin"
+    println(seen.len, seen[Point(x: 1, y: 2)] ?? "?", seen)
+    let mails = [Email(address: "Ann@x.io"): 1]
+    println(mails[Email(address: "ann@X.IO")] ?? 0, Email(address: "A") == Email(address: "a"))
+    let n1 = Node(value: 1, next: Node(value: 2, next: nil))
+    let n2 = Node(value: 1, next: Node(value: 2, next: nil))
+    println(n1 == n2, n1 == Node(value: 1, next: nil), n1 !== n2)
+    let keys: [Key: int] = [Key.id(n: 1): 10, Key.name(s: "x"): 20, Key.none: 30]
+    println(keys[Key.id(n: 1)] ?? 0, keys[Key.name(s: "x")] ?? 0, keys[Key.none] ?? 0, keys[Key.id(n: 2)] ?? -1)
+    println(Key.id(n: 1) == Key.id(n: 1), Key.id(n: 1) == Key.id(n: 2), Key.id(n: 1) == Key.none)
+    println([1, 2, 3] == [1, 2, 3], [1, 2] == [1, 2, 3], [[a], [b]] == [[b], [a]], ["a": [1]] == ["a": [1]], ["a": 1] == ["a": 2])
+    let r: [(int, string): bool] = [(1, "a"): true]
+    println(r[(1, "a")] ?? false, r[(2, "a")] ?? false, (1, "a") == (1, "a"))
+    println(Box(item: [1]) == Box(item: [1]), Box(item: "x") == Box(item: "y"))
+    let maybe: int? = 5
+    println(maybe == 5, maybe == 6, [a].contains(Point(x: 1, y: 2)), [a, b].indexOf(Point(x: 1, y: 2)) ?? -1)
+    let p = Plain(v: 1)
+    let q = p
+    println(p === q, p !== Plain(v: 1))
+    println(hash(1, "a") == hash(1, "a"), hash(1, "a") == hash(1, "b"), hash(0.0) == hash(-0.0))
+    var big: [Point: int] = [:]
+    for i in 0..2000 {
+        big[Point(x: i % 100, y: i / 100)] = i
+    }
+    println(big.len, big[Point(x: 99, y: 19)] ?? -1)
+}
