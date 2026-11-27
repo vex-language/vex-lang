@@ -806,6 +806,10 @@ type Info struct {
 	// Enum cases used as values without a call: `Shape.empty`, `.up`.
 	CaseValues map[ast.Expr]*Case
 
+	// Problems that don't stop the program from building, such as a local
+	// variable that is never used.
+	Warnings diag.List
+
 	// Set for a program built to run its tests, with the functions of its
 	// test blocks in order.
 	Testing bool

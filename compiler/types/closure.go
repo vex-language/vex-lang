@@ -111,9 +111,7 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 			c.assignable(ctx.result, t, e.ExprBody, "closure result")
 		}
 	} else {
-		for _, s := range e.Body.Stmts {
-			c.stmt(s)
-		}
+		c.stmts(e.Body.Stmts)
 		if ctx.result == nil {
 			ctx.result = Void
 		}

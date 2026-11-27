@@ -39,6 +39,10 @@ type checker struct {
 	info *Info
 	errs diag.List
 
+	// Local variables in the order declared, with their files, to warn
+	// about the ones never used.
+	locals []local
+
 	// Set when checking a program built to run its tests.
 	testing bool
 
@@ -159,6 +163,7 @@ func (c *checker) run() (*Info, error) {
 		c.bodies()
 	}()
 	c.fileTable()
+	c.warnUnused(0)
 	if len(c.errs) > 0 {
 		c.errs = dedupe(c.errs)
 		c.errs.Sort()
@@ -242,6 +247,9 @@ func (c *checker) pop() { c.scope = c.scope.parent }
 func (c *checker) declare(id *ast.Ident, t Type, mutable bool, kind VarKind) *Var {
 	v := &Var{Name: id.Name, Type: t, Mutable: mutable, Kind: kind, Decl: id, lit: c.curLit()}
 	c.info.Defs[id] = v
+	if kind == LocalVar {
+		c.locals = append(c.locals, local{v: v, file: c.file})
+	}
 	if c.reserved(id, "a variable") {
 		return v
 	}
@@ -921,9 +929,7 @@ func (c *checker) funcBody(f *Func) {
 			c.assignable(f.Result, t, f.Decl.ExprBody, "result of "+f.Name)
 		}
 	} else {
-		for _, s := range f.Decl.Body.Stmts {
-			c.stmt(s)
-		}
+		c.stmts(f.Decl.Body.Stmts)
 		if f.Result != Void && !terminates(f.Decl.Body) {
 			body := f.Decl.Body
 			c.errorAtPos(c.file.PosOf(body.End-1), 1, "add a return statement before the closing }",
@@ -985,9 +991,7 @@ func (c *checker) stmt(s ast.Stmt) {
 	switch s := s.(type) {
 	case *ast.Block:
 		c.push()
-		for _, st := range s.Stmts {
-			c.stmt(st)
-		}
+		c.stmts(s.Stmts)
 		c.pop()
 	case *ast.LetStmt:
 		if s.Pattern != nil {
@@ -1418,4 +1422,96 @@ func (c *checker) checkTests() {
 		}
 		seen[t.Test] = t
 	}
+}
+
+// --- Warnings ---
+
+// A local variable and the file it is declared in.
+type local struct {
+	v    *Var
+	file *diag.File
+	hint string
+}
+
+// Records a warning that underlines [n], once for each place.
+func (c *checker) warnAt(n ast.Node, hint, format string, args ...any) {
+	start, end := n.Pos().Offset, n.EndOffset()
+	length := 1
+	if end > start && end <= len(c.file.Src) {
+		length = utf8.RuneCountInString(c.file.Src[start:end])
+	}
+	d := diag.Diagnostic{File: c.file, Pos: n.Pos(), Len: length, Message: fmt.Sprintf(format, args...), Hint: hint, Warning: true}
+	for _, w := range c.info.Warnings {
+		if w.File == d.File && w.Pos == d.Pos && w.Message == d.Message {
+			return
+		}
+	}
+	c.info.Warnings = append(c.info.Warnings, d)
+}
+
+// Checks the statements of a block, warning at the first one that can't
+// run because the one before it always leaves.
+func (c *checker) stmts(list []ast.Stmt) {
+	warned := false
+	for i, s := range list {
+		if i > 0 && !warned && jumps(list[i-1]) {
+			c.warnAt(s, "remove it, or move it above the "+jumpWord(list[i-1]), "this code is never reached")
+			warned = true
+		}
+		c.stmt(s)
+	}
+}
+
+// Reports whether the statements after [s] in its block can't run.
+func jumps(s ast.Stmt) bool {
+	switch s.(type) {
+	case *ast.BreakStmt, *ast.ContinueStmt:
+		return true
+	}
+	return terminates(s)
+}
+
+// Names what [s], a statement that [jumps], does, for hints.
+func jumpWord(s ast.Stmt) string {
+	switch s := s.(type) {
+	case *ast.ReturnStmt:
+		return "return"
+	case *ast.ThrowStmt:
+		return "throw"
+	case *ast.BreakStmt:
+		return "break"
+	case *ast.ContinueStmt:
+		return "continue"
+	case *ast.ExprStmt:
+		if IsPanic(s.X) {
+			return "panic"
+		}
+	case *ast.WhileStmt:
+		return "loop"
+	}
+	return "statement before it"
+}
+
+// Warns about the local variables from index [start] on that are never
+// used. A name starting with _ marks one that is meant to be unused.
+func (c *checker) warnUnused(start int) {
+	used := map[*Var]bool{}
+	for _, u := range c.info.Uses {
+		for v, ok := u.(*Var); ok && v != nil; v = v.Narrows {
+			used[v] = true
+		}
+	}
+	saved := c.file
+	for _, l := range c.locals[start:] {
+		if used[l.v] || strings.HasPrefix(l.v.Name, "_") || l.file == nil {
+			continue
+		}
+		hint := l.hint
+		if hint == "" {
+			hint = "use it, remove it, or name it _" + l.v.Name
+		}
+		c.file = l.file
+		c.warnAt(l.v.Decl, hint, "'%s' is never used", l.v.Name)
+	}
+	c.file = saved
 }

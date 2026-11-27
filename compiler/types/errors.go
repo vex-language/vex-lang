@@ -123,17 +123,16 @@ func (c *checker) tryExpr(e *ast.TryExpr, want Type, stmt bool) Type {
 		c.push()
 		if e.Catch.Name != nil {
 			info.Bind = c.declare(e.Catch.Name, target, false, LocalVar)
+			if n := len(c.locals); n > 0 && c.locals[n-1].v == info.Bind {
+				c.locals[n-1].hint = "use it, or leave the name out: catch { ... }"
+			}
 		}
 		body := e.Catch.Body
 		if stmt || t == Void || t == Invalid {
-			for _, s := range body.Stmts {
-				c.stmt(s)
-			}
+			c.stmts(body.Stmts)
 		} else {
 			last := len(body.Stmts) - 1
-			for _, s := range body.Stmts[:max(last, 0)] {
-				c.stmt(s)
-			}
+			c.stmts(body.Stmts[:max(last, 0)])
 			es, ok := ast.Stmt(nil), false
 			if last >= 0 {
 				es = body.Stmts[last]
