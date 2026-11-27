@@ -575,7 +575,9 @@ func (g *gen) temp() string {
 func constructorSig(s *types.Struct) string {
 	var params []string
 	for _, f := range s.Fields {
-		params = append(params, decl(f.Type, "f_"+f.Name))
+		if !f.ByInit {
+			params = append(params, decl(f.Type, "f_"+f.Name))
+		}
 	}
 	if len(params) == 0 {
 		params = []string{"void"}
@@ -591,7 +593,12 @@ func (g *gen) constructor(s *types.Struct) {
 		g.line("    o->vx_t = &desc_%s;", structIdent(s))
 	}
 	for _, f := range s.Fields {
-		g.line("    o->f_%s = f_%s;", f.Name, f.Name)
+		if !f.ByInit {
+			g.line("    o->f_%s = f_%s;", f.Name, f.Name)
+		}
+	}
+	if s.Init != nil {
+		g.line("    %s(o);", funcName(s.Init))
 	}
 	g.line("    return o;")
 	g.line("}")
@@ -2008,6 +2015,8 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 		return g.orderedBy(c.Args, rank, func(cs []string) string {
 			return "new_" + structName(c.Struct) + "(" + strings.Join(cs, ", ") + ")"
 		})
+	case types.CopyCall:
+		return g.copyCall(c, rank)
 	case types.CaseCall:
 		return g.orderedBy(c.Args, rank, func(cs []string) string {
 			return caseFunc(c.Case) + "(" + strings.Join(cs, ", ") + ")"

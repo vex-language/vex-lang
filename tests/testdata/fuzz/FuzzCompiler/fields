@@ -1,0 +1,2 @@
+go test fuzz v1
+string("struct R {\n    let lo: int\n    hi = 9\n    private(set) n = 0\n    let size: int\n    init {\n        size = hi - lo\n        n += 1\n    }\n}\nfn main() {\n    let r = R(lo: 2)\n    println(r.copy(hi: 20), r.size)\n}\n")
