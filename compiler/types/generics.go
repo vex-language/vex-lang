@@ -179,6 +179,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 		i.Elements, i.IfValues, i.Spawns, i.ThrowingRefs, i.TearOffs = saved.Elements, saved.IfValues, saved.Spawns, saved.ThrowingRefs, saved.TearOffs
 		i.Operators, i.IndexSets = saved.Operators, saved.IndexSets
 		i.Chains, i.Matches, i.Throwing, i.Tries = saved.Chains, saved.Matches, saved.Throwing, saved.Tries
+		i.Known = saved.Known
 		i.PatternTypes, i.PatternCases, i.PatternStructs, i.PatternVars = saved.PatternTypes, saved.PatternCases, saved.PatternStructs, saved.PatternVars
 		if !keepErrors {
 			c.errs = errs
