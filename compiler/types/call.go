@@ -398,7 +398,7 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 				}
 			}
 		}
-		c.errorAt(m.Name, hint, "%s has no method '%s'", recv, name)
+		c.errorAt(m.Name, c.narrowHint(m.X, hint), "%s has no method '%s'", recv, name)
 		return Invalid
 	}
 	if l, ok := recv.(*List); ok {

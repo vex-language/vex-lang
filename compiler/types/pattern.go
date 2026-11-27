@@ -55,6 +55,10 @@ func (c *checker) bindInvalid(p ast.Pattern, b *binder) {
 		if !b.alt[p.Name.Name] {
 			c.bindName(b, p.Name, Invalid)
 		}
+	case *ast.TypedPattern:
+		if !b.alt[p.Name.Name] {
+			c.bindName(b, p.Name, Invalid)
+		}
 	case *ast.CasePattern:
 		for _, f := range p.Args {
 			c.bindInvalid(f.Pattern, b)
@@ -89,6 +93,8 @@ func (c *checker) pattern(p ast.Pattern, t Type, b *binder, arm, guarded bool) {
 		c.namePattern(p, t, b, arm, guarded)
 	case *ast.CasePattern:
 		c.casePattern(p, t, b)
+	case *ast.TypedPattern:
+		c.typedPattern(p, t, b)
 	case *ast.RecordPattern:
 		c.recordPattern(p, t, b)
 	case *ast.ListPattern:
@@ -271,6 +277,18 @@ func (c *checker) casePattern(p *ast.CasePattern, t Type, b *binder) {
 			fields[i] = slotField{f.Name, f.Type}
 		}
 		c.namedFields(p.Args, fields, t.Name, b)
+	case *Interface:
+		target := c.testTarget(&ast.NamedType{Span: p.Name.Span, Name: p.Name.Name}, t, "a struct pattern", p.Name)
+		s, ok := target.(*Struct)
+		if !ok {
+			if target != nil {
+				c.errorAt(p.Name, "bind it with a typed pattern, e.g. x: "+target.String(), "only a struct pattern can take %s apart", t)
+			}
+			fail()
+			return
+		}
+		c.info.PatternTests[p] = s
+		c.casePattern(p, s, b)
 	default:
 		if t != Invalid {
 			c.errorAt(p.Name, "", "'%s(...)' can't match a value of type %s", p.Name.Name, t)

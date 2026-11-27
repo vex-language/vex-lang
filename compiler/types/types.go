@@ -505,6 +505,10 @@ type Var struct {
 	// Set when a closure uses the variable.
 	Captured bool
 
+	// For a name narrowed by a type test, as in `if view is Text`, the
+	// variable it narrows. The two share storage.
+	Narrows *Var
+
 	// The closure the variable is declared in, or nil for a function body.
 	lit *ast.FuncLit
 }
@@ -753,6 +757,13 @@ type Info struct {
 	// blocks: each expression statement that adds an element, mapped to
 	// the [ast.ListLit] or [ast.MapLit] it adds to.
 	Elements map[*ast.ExprStmt]ast.Expr
+
+	// The type each `is` or `as?` tests for.
+	TypeTests map[*ast.TypeTest]Type
+
+	// The type each typed pattern, or struct pattern matching an interface
+	// value, tests the value for.
+	PatternTests map[ast.Pattern]Type
 
 	// The branches of each `if` used as a value: the expression statement
 	// of each branch that gives a value, mapped to its [ast.IfExpr].

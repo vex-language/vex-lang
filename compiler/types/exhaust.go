@@ -36,6 +36,15 @@ type patRow struct {
 
 // Reduces [p], which tests a value of type [t], for coverage checks.
 func (c *checker) lower(p ast.Pattern, t Type) *spat {
+	if target := c.info.PatternTests[p]; target != nil {
+		// Interfaces are open, so a type test never covers every value.
+		// Tests that accept every value of the type repeat each other.
+		key := "type " + target.String()
+		if cp, ok := p.(*ast.CasePattern); ok && len(cp.Args) > 0 {
+			key = fmt.Sprintf("type %p", p)
+		}
+		return &spat{kind: sOpaque, key: key}
+	}
 	switch p := p.(type) {
 	case *ast.NamePattern:
 		if cs := c.info.PatternCases[p]; cs != nil {

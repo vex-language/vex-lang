@@ -133,6 +133,8 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		return Invalid
 	case *ast.IfExpr:
 		return c.ifValue(e, want)
+	case *ast.TypeTest:
+		return c.typeTest(e)
 	case *ast.MatchExpr:
 		return c.match(e, want, false)
 	case *ast.TryExpr:
@@ -152,7 +154,11 @@ func (c *checker) ident(id *ast.Ident) Type {
 	}
 	if v := c.lookupVar(id.Name); v != nil {
 		c.info.Uses[id] = v
-		c.use(v)
+		if v.Narrows != nil {
+			c.use(v.Narrows)
+		} else {
+			c.use(v)
+		}
 		return v.Type
 	}
 	if id.Name != "self" && c.selfMember(id.Name) {
@@ -483,7 +489,12 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 			return c.nilComparison(e)
 		}
 	case lexer.AndAnd, lexer.OrOr:
-		for _, x := range []ast.Expr{e.X, e.Y} {
+		for i, x := range []ast.Expr{e.X, e.Y} {
+			if i == 1 && e.Op == lexer.AndAnd {
+				// The right side runs only when the left holds.
+				c.pushNarrowed(e.X)
+				defer c.pop()
+			}
 			if t := c.expr(x, Bool); !Identical(t, Bool) {
 				c.errorAt(x, "", "'%s' needs bool on both sides, found %s", op, t)
 			}
@@ -910,7 +921,7 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 				return c.tearOff(e, sig, x, called, want)
 			}
 		} else {
-			c.errorAt(e.Name, didYouMean(name, ifaceNames(x)), "%s has no member '%s'", x, name)
+			c.errorAt(e.Name, c.narrowHint(e.X, didYouMean(name, ifaceNames(x))), "%s has no member '%s'", x, name)
 		}
 		return Invalid
 	}
