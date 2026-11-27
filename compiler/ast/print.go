@@ -100,6 +100,9 @@ func TypeString(t TypeExpr) string {
 			params[i] = TypeString(p)
 		}
 		s := "fn(" + strings.Join(params, ", ") + ")" + ThrowsString(t.Throws)
+		if t.Async {
+			s = "async " + s
+		}
 		if t.Result != nil {
 			s += " -> " + TypeString(t.Result)
 		}
@@ -561,6 +564,9 @@ func buildExpr(e Expr) *tree {
 		}
 		return branch(label, buildExpr(e.Lo), buildExpr(e.Hi))
 	case *FuncLit:
+		if e.Async {
+			return funcTree("async fn", e.Params, e.Throws, e.Result, e.Body, e.ExprBody)
+		}
 		return funcTree("fn", e.Params, e.Throws, e.Result, e.Body, e.ExprBody)
 	case *ImplicitMember:
 		return leaf("." + e.Name.Name)

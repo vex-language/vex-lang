@@ -1205,7 +1205,7 @@ let file = try open(path) catch e {
 - A `catch` block that gives a value ends with an expression of the try's type, or leaves with `return`, `break`, `continue`, `throw` or `panic(...)`. Without a value it is a statement: `try save(x) catch e { println(e.message) }`.
 - A typed error passed up through a plain `throws` function becomes an `Error` whose message describes it, such as `LoadError.notFound(path: "a.txt")`. Passing it up through a function that throws a different enum is an error: catch it there.
 - A catch receives the enum when every call in the try throws the same enum, and `Error` otherwise.
-- Closures and function types can throw too: `fn(int) throws -> int`. A closure passed where a throwing function is expected may throw.
+- Closures and function types can throw too: `fn(int) throws -> int`. A closure passed where a throwing function is expected may throw. Async ones are written `async fn(int) throws -> int`.
 - `fn main() throws` lets errors reach the top: the program prints `error: <message>` and exits with code 1.
 - Errors are passed back like return values, not by unwinding the stack, so code that doesn't throw pays nothing and a `try` costs one check after each call.
 
@@ -1241,10 +1241,37 @@ let first = try await any([fetch("x.com"), fetch("y.com")])   // the first to fi
 - `all(futures)` gives a future of every value, failing at the first error; with `Future<void>` it gives `Future<void>`. `any(futures)` gives the first to finish.
 - `async fn main()` runs as the first task. The program ends when main is done and nothing else is pending: tasks still running and timers keep it alive. A plain `fn main()` can start tasks too, and they run after it returns.
 - `run(future)` waits for a future from code that isn't async, running the other tasks meanwhile: `let page = try run(fetch("a.com"))`. Async functions use `await` instead.
-- Methods and static methods can be async. Interface methods, closures, `extern fn` and `export fn` can't be, and an async function can't be used as a value yet.
+- Methods, static methods and interface methods can be async; `extern fn` and `export fn` can't be. A struct method that implements an async interface method must be async too.
 - Each task has its own small stack, so an `await` deep inside nested calls costs no more than one at the top, and code that doesn't await pays nothing.
 - Apps with their own run loop, such as iOS and Android, call the C function `int64_t vex_poll(void)` from it. It runs everything that is ready and returns the milliseconds until the next timer, or -1 when nothing is pending.
 - `all`, `any` and `run` are ordinary names: a function of the program with the same name replaces them.
+
+**Async closures and function values.** `async fn(T) -> R` is the type of an async function used as a value. Calling such a value works like calling an async function: `await` gives the result, and a call without `await` gives a future.
+
+```swift
+let load: async fn(string) throws -> string = fetch     // an async function as a value
+let page = try await load("a.com")
+let later = load("b.com")                                // Future<string, Error>
+
+let save = async fn() {
+    await api.post(form)
+}
+
+fn button(label: string, action: async fn()) { ... }
+button("Save") {
+    await save()                // the block is async, since button expects an async fn
+}
+
+interface Repo {
+    async fn find(id: int) -> User?
+}
+let user = await repo.find(7)
+let tear = repo.find            // async fn(int) -> User?
+```
+
+- A closure is async when written `async fn(...)`, or when it is passed or assigned where an async function is expected, such as a trailing block. Only async closures can `await`.
+- A plain function can be used where an async one is expected; it simply never waits. An async function can't be used where a plain one is expected.
+- Async methods can be torn off like other methods, and `isolate.run` and `isolate.spawn` take async closures and functions, running them on the isolate's own loop.
 
 ## Isolates
 
@@ -1318,7 +1345,7 @@ async fn main() {
 
 ## Types
 
-The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, structs, enums, function types `fn(T) -> R`, optionals `T?`, records `(int, string)` and futures `Future<T>`.
+The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, structs, enums, function types `fn(T) -> R` and `async fn(T) -> R`, optionals `T?`, records `(int, string)` and futures `Future<T>`.
 
 - `let x = ...` takes its type from the value. An empty list or map needs the type written: `let xs: [int] = []`, `let m: [string: int] = [:]`.
 - Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.

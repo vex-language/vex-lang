@@ -965,6 +965,8 @@ func TestAsync(t *testing.T) {
 		{"let x = await a.b().c", "(let x (await (. (call (. a b)) c)))"},
 		{"let x = -await f()", "(let x (- (await (call f))))"},
 		{"while let x = f() { g(x) }", "(while let x (call f) (block (call g x)))"},
+		{"let f = async fn() { await g() }", "(let f (async fn (block (await (call g)))))"},
+		{"let f: async fn(int) throws -> string = load", "(let f: async fn(int) throws -> string load)"},
 	}
 	for _, c := range cases {
 		got := body(t, c.src)
@@ -985,7 +987,14 @@ func TestAsync(t *testing.T) {
 			t.Errorf("%s: Async not set", m.Name.Name)
 		}
 	}
-	for _, src := range []string{"async struct S {}", "interface I {\n    async fn f()\n}", "export async fn f() {}"} {
+	i, errs := parse(t, "interface Repo {\n    async fn find(id: int) -> int\n}")
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	if m := i.Decls[0].(*ast.InterfaceDecl).Methods[0]; !m.Async {
+		t.Errorf("find: Async not set")
+	}
+	for _, src := range []string{"async struct S {}", "export async fn f() {}", "let t: async int = 1"} {
 		if _, errs := parse(t, src); errs == nil {
 			t.Errorf("%q: expected an error", src)
 		}

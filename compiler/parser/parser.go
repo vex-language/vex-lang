@@ -553,7 +553,7 @@ func (p *parser) interfaceDecl() *ast.InterfaceDecl {
 			case lexer.Fn:
 				d.Methods = append(d.Methods, p.funcDecl(false))
 			case lexer.Async:
-				p.fail(t, "make the struct's method async instead, and call it from a non-async interface method", "interface methods can't be async yet")
+				d.Methods = append(d.Methods, p.funcDecl(false))
 			case lexer.Static:
 				p.fail(t, "", "interfaces can't have static methods")
 			case lexer.Pub:
@@ -1199,9 +1199,16 @@ func (p *parser) baseType() ast.TypeExpr {
 		}
 		nt.Span = p.span(t.Pos)
 		return nt
-	case lexer.Fn:
-		p.next()
+	case lexer.Async, lexer.Fn:
 		ft := &ast.FuncType{}
+		if t.Kind == lexer.Async {
+			p.next()
+			ft.Async = true
+			if !p.at(lexer.Fn) {
+				p.fail(p.tok(), "write async fn(...) -> T", "expected 'fn' after 'async', found %s", describe(p.tok()))
+			}
+		}
+		p.next()
 		open := p.expect(lexer.LParen)
 		p.list(open, lexer.RParen, func() { ft.Params = append(ft.Params, p.typeExpr()) })
 		ft.Throws = p.throws()
@@ -2061,6 +2068,14 @@ func (p *parser) primary() ast.Expr {
 		return x
 	case lexer.Fn:
 		return p.funcLit()
+	case lexer.Async:
+		if p.peek(1).Kind == lexer.Fn {
+			start := p.next().Pos
+			lit := p.funcLit().(*ast.FuncLit)
+			lit.Async = true
+			lit.Span = p.span(start)
+			return lit
+		}
 	case lexer.Match:
 		return p.matchExpr()
 	case lexer.If:

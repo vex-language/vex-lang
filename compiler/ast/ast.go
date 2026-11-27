@@ -322,9 +322,10 @@ type MapType struct {
 	Key, Value TypeExpr
 }
 
-// A function type: `fn(int, string) -> bool`.
+// A function type: `fn(int, string) -> bool`, or `async fn() -> T`.
 type FuncType struct {
 	Span
+	Async  bool
 	Params []TypeExpr
 
 	// Nil when the function returns nothing.
@@ -647,6 +648,7 @@ type MemberExpr struct {
 // parameters during checking.
 type FuncLit struct {
 	Span
+	Async    bool
 	Params   []*Param
 	Result   TypeExpr
 	Throws   *Throws

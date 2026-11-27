@@ -30,6 +30,15 @@ func methodFnType(m *types.Func) *types.FuncType {
 	return ft
 }
 
+// Returns [cs] each preceded by a comma, for appending to an argument list.
+func prefixed(cs []string) string {
+	s := ""
+	for _, c := range cs {
+		s += ", " + c
+	}
+	return s
+}
+
 // Writes the descriptor type, sized for the program's interfaces.
 func (g *gen) descType() {
 	n := max(1, len(g.info.Interfaces))
@@ -164,6 +173,11 @@ func (g *gen) ifaceCall(e *ast.CallExpr, c *types.Call, rank []int) string {
 	fp := fnPtrType(methodFnType(c.Func))
 	dispatch := func(recv string, cs []string) string {
 		o := g.temp()
+		if g.info.Spawns[e] {
+			spawn := g.valueSpawner(methodFnType(c.Func))
+			return fmt.Sprintf("({ void *%s = %s; %s((vx_fn){(void *)((*(const vx_desc **)%s)->itabs[%d][%d]), %s}%s); })",
+				o, recv, spawn, o, i.Index, i.Slot(c.Func), o, prefixed(cs))
+		}
 		return fmt.Sprintf("({ void *%s = %s; ((%s)((*(const vx_desc **)%s)->itabs[%d][%d]))(%s); })",
 			o, recv, fp, o, i.Index, i.Slot(c.Func), g.args(e, append([]string{o}, cs...)))
 	}

@@ -237,9 +237,6 @@ func (c *checker) ident(id *ast.Ident) Type {
 		return k.Type
 	}
 	if f := c.funcs[id.Name]; f != nil {
-		if c.asyncValue(id, f) {
-			return Invalid
-		}
 		c.info.Uses[id] = f
 		return funcValue(f)
 	}
@@ -308,7 +305,7 @@ func (c *checker) throwingRef(e ast.Expr, t, want Type) Type {
 }
 
 func funcValue(f *Func) *FuncType {
-	ft := &FuncType{Result: f.Result, Throws: f.Throws}
+	ft := &FuncType{Result: f.Result, Throws: f.Throws, Async: f.Async}
 	for _, p := range f.Params {
 		ft.Params = append(ft.Params, p.Type)
 	}

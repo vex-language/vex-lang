@@ -98,14 +98,72 @@ func (g *gen) spawnWrapper(f *types.Func) {
 	g.line("}")
 }
 
-// Generates `await x`.
+// Generates `await x`. A call of an async function or function value runs
+// it here, on this task's stack.
 func (g *gen) await(e *ast.AwaitExpr) string {
-	if call, ok := e.X.(*ast.CallExpr); ok {
-		if c := g.info.Calls[call]; c != nil && c.Func != nil && c.Func.Async {
-			return g.expr(e.X)
-		}
+	if call, ok := e.X.(*ast.CallExpr); ok && g.asyncCallee(g.info.Calls[call]) {
+		return g.expr(e.X)
 	}
 	return g.settle(e, g.expr(e.X), "vx_await(%s)")
+}
+
+// Reports whether [c] calls an async function, method or function value.
+func (g *gen) asyncCallee(c *types.Call) bool {
+	switch {
+	case c == nil:
+		return false
+	case c.Func != nil:
+		return c.Func.Async
+	case c.Kind == types.ValueCall:
+		ft, _ := g.info.Types[c.Callee].(*types.FuncType)
+		return ft != nil && ft.Async
+	}
+	return false
+}
+
+// Returns the name of the C function that starts a function value of type
+// [ft] as a new task and returns its future. It takes the value and then
+// the arguments; each function type gets one, made on first use.
+func (g *gen) valueSpawner(ft *types.FuncType) string {
+	sync := *ft
+	sync.Async = false
+	m := mangle(&sync)
+	name := "spv_" + m
+	if g.codecs[name] {
+		return name
+	}
+	g.codecs[name] = true
+	var fields, params, args, sets []string
+	for i, p := range ft.Params {
+		n := fmt.Sprintf("a%d", i)
+		fields = append(fields, decl(p, n)+";")
+		params = append(params, decl(p, n))
+		args = append(args, "a->"+n)
+		sets = append(sets, fmt.Sprintf("a->%s = %s;", n, n))
+	}
+	var b strings.Builder
+	fmt.Fprintf(&b, "typedef struct { vx_future *f; vx_fn fn; %s } arv_%s;\n", strings.Join(fields, " "), m)
+	fmt.Fprintf(&b, "static void env_%s(void *p) { arv_%s *a = p; ", m, m)
+	call := fmt.Sprintf("((%s)a->fn.fn)(%s)", fnPtrType(ft), strings.Join(append([]string{"a->fn.env"}, args...), ", "))
+	if ft.Throws != nil {
+		b.WriteString("void *err = NULL; ")
+		call = call[:len(call)-1] + ", &err)"
+	}
+	value := "NULL"
+	if ft.Result != types.Void {
+		fmt.Fprintf(&b, "%s = %s; ", decl(ft.Result, "r"), call)
+		value = "&r"
+	} else {
+		b.WriteString(call + "; ")
+	}
+	if ft.Throws != nil {
+		b.WriteString("if (err) { vx_future_fail(a->f, err); return; } ")
+	}
+	fmt.Fprintf(&b, "vx_future_done(a->f, %s); }\n", value)
+	fmt.Fprintf(&b, "static vx_future *%s(%s) { arv_%s *a = vx_alloc(sizeof(arv_%s)); a->f = vx_future_new(%s); a->fn = fn; %s vx_remember(a); vx_go(env_%s, a); return a->f; }\n",
+		name, strings.Join(append([]string{"vx_fn fn"}, params...), ", "), m, m, valueSize(ft.Result), strings.Join(sets, " "), m)
+	g.codecDefs.WriteString(b.String())
+	return name
 }
 
 // Returns code that waits for the future [x] with [wait], a call of the

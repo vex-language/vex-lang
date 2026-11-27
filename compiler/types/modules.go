@@ -532,7 +532,7 @@ func (c *checker) moduleIdent(id *ast.Ident) Type {
 		return k.Type
 	}
 	if f := m.funcs[name]; f != nil {
-		if c.private(id, m, f.Decl.Pub, "function '"+name+"'") || c.asyncValue(id, f) {
+		if c.private(id, m, f.Decl.Pub, "function '"+name+"'") {
 			return Invalid
 		}
 		c.info.Uses[id] = f

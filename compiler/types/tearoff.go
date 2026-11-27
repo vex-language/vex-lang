@@ -14,20 +14,18 @@ type tearSig struct {
 	types  []Type
 	result Type
 	throws Type
+	async  bool
 }
 
 // Returns the signature of method [f] for a tear-off, or nil after
 // reporting why it can't be torn off.
 func (c *checker) funcSig(at ast.Node, f *Func) *tearSig {
 	switch {
-	case f.Async:
-		c.errorAt(at, fmt.Sprintf("call it in a closure: fn() => %s()", f.Name), "async method '%s' can't be used as a value yet", f.Name)
-		return nil
 	case len(f.Decl.TypeParams) > 0:
 		c.errorAt(at, fmt.Sprintf("call it in a closure: fn(...) => %s(...)", f.Name), "generic method '%s' can't be used as a value", f.Name)
 		return nil
 	}
-	s := &tearSig{result: f.Result, throws: f.Throws}
+	s := &tearSig{result: f.Result, throws: f.Throws, async: f.Async}
 	for _, p := range f.Params {
 		s.names = append(s.names, p.Name)
 		s.types = append(s.types, p.Type)
@@ -83,16 +81,20 @@ func (c *checker) tearOff(e *ast.MemberExpr, sig *tearSig, recv Type, callee fun
 		lit.Result = known(sig.result)
 	}
 	lit.ExprBody = call
+	if sig.async {
+		lit.Async = true
+		lit.ExprBody = &ast.AwaitExpr{Span: e.Span, X: call}
+	}
 	if sig.throws != nil {
 		lit.Throws = &ast.Throws{Span: at, Type: known(sig.throws)}
-		lit.ExprBody = &ast.TryExpr{Span: e.Span, X: call}
+		lit.ExprBody = &ast.TryExpr{Span: e.Span, X: lit.ExprBody}
 	}
 	var value ast.Expr = lit
 	if recv != nil {
 		// Binds the receiver now: (fn(recv) => fn(...) => recv.m(...))(x).
 		// For `x?.m`, the chain gives the value inside the optional.
 		outer := &ast.FuncLit{Span: e.Span, Params: []*ast.Param{{Span: at, Name: id("recv"), Type: known(recv)}}, ExprBody: lit,
-			Result: known(&FuncType{Params: sig.types, Result: sig.result, Throws: sig.throws})}
+			Result: known(&FuncType{Params: sig.types, Result: sig.result, Throws: sig.throws, Async: sig.async})}
 		value = &ast.CallExpr{Span: e.Span, Fn: outer, Args: []*ast.Arg{{Span: at, Value: &ast.KnownExpr{Span: ast.Span{Start: e.X.Pos(), End: e.X.EndOffset()}, X: e.X, Type: recv}}}}
 	}
 	c.info.TearOffs[e] = value

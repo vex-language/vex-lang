@@ -19,6 +19,9 @@ type litCtx struct {
 
 	// The loop depth of the enclosing code, restored after the closure.
 	outerLoops int
+
+	// Set for an async closure, which may await.
+	async bool
 }
 
 // Returns the closure being checked, or nil inside a plain function body.
@@ -57,7 +60,9 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 		c.errorAt(e, "", "expected a function with %s, found one with %d", plural(len(wantFn.Params), "parameter"), len(e.Params))
 		wantFn = nil
 	}
-	ft := &FuncType{}
+	// A closure is async when marked, or when the context expects an async
+	// function, as for a trailing block.
+	ft := &FuncType{Async: e.Async || wantFn != nil && wantFn.Async}
 	for i, p := range e.Params {
 		switch {
 		case p.Type != nil:
@@ -84,7 +89,7 @@ func (c *checker) funcLit(e *ast.FuncLit, want Type) Type {
 	case wantFn != nil:
 		ft.Throws = wantFn.Throws
 	}
-	ctx := &litCtx{lit: e, result: ft.Result, throws: ft.Throws, outerLoops: c.loops}
+	ctx := &litCtx{lit: e, result: ft.Result, throws: ft.Throws, outerLoops: c.loops, async: ft.Async}
 	c.lits = append(c.lits, ctx)
 	outerTries := c.tries
 	c.tries = nil

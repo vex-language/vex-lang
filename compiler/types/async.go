@@ -45,7 +45,9 @@ func (c *checker) futureType(te *ast.NamedType) Type {
 func (c *checker) awaitExpr(e *ast.AwaitExpr, want Type) Type {
 	switch {
 	case len(c.lits) > 0:
-		c.errorAt(e, "await in the enclosing async function instead", "closures can't await yet")
+		if !c.lits[len(c.lits)-1].async {
+			c.errorAt(e, "mark the closure async: async fn() { ... }", "await is only allowed in async closures")
+		}
 	case c.fn == nil || !c.fn.Async:
 		hint := "mark the function async: async fn ..."
 		if c.fn != nil && c.fn.Name == "main" && c.fn.Owner == nil && c.fn.Enum == nil {
@@ -60,7 +62,7 @@ func (c *checker) awaitExpr(e *ast.AwaitExpr, want Type) Type {
 	t := c.expr(e.X, want)
 	c.awaited = nil
 	if isCall {
-		if info := c.info.Calls[call]; info != nil && info.Func != nil && info.Func.Async {
+		if async, _ := c.asyncCall(call); async {
 			return t
 		}
 	}
@@ -90,7 +92,7 @@ func (c *checker) asyncBuiltin(e *ast.CallExpr, name string, want Type) Type {
 	arg := e.Args[0].Value
 	call.Args = []ast.Expr{arg}
 	if name == "run" {
-		if c.fn != nil && c.fn.Async {
+		if c.inAsync() {
 			c.errorAt(e.Fn, "use await inside async functions", "run waits for the whole loop, so async functions can't use it")
 		}
 		var hint Type
@@ -129,12 +131,28 @@ func (c *checker) asyncBuiltin(e *ast.CallExpr, name string, want Type) Type {
 	return &Future{Elem: &List{Elem: fut.Elem}, Throws: fut.Throws}
 }
 
-// Reports, and returns true, when the async function [f] is used as a
-// value at [id].
-func (c *checker) asyncValue(id *ast.Ident, f *Func) bool {
-	if !f.Decl.Async {
-		return false
+// Reports whether the code being checked may await: the body of an async
+// function or closure.
+func (c *checker) inAsync() bool {
+	if len(c.lits) > 0 {
+		return c.lits[len(c.lits)-1].async
 	}
-	c.errorAt(id, "call it instead: "+f.Name+"(...) starts it and gives its future", "async functions can't be used as values yet")
-	return true
+	return c.fn != nil && c.fn.Async
+}
+
+// Reports whether the call [e] runs an async function or function value,
+// and what it throws.
+func (c *checker) asyncCall(e *ast.CallExpr) (bool, Type) {
+	call := c.info.Calls[e]
+	switch {
+	case call == nil:
+		return false, nil
+	case call.Func != nil:
+		return call.Func.Async, call.Func.Throws
+	case call.Kind == ValueCall:
+		if ft, ok := c.info.Types[call.Callee].(*FuncType); ok {
+			return ft.Async, ft.Throws
+		}
+	}
+	return false, nil
 }

@@ -1929,7 +1929,14 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 	case types.MemberBuiltinCall:
 		return g.memberBuiltin(e, c, line)
 	case types.ValueCall:
-		fp := fnPtrType(g.info.Types[c.Callee].(*types.FuncType))
+		ft := g.info.Types[c.Callee].(*types.FuncType)
+		if g.info.Spawns[e] {
+			spawn := g.valueSpawner(ft)
+			return g.ordered(append([]ast.Expr{c.Callee}, c.Args...), func(cs []string) string {
+				return spawn + "(" + strings.Join(cs, ", ") + ")"
+			})
+		}
+		fp := fnPtrType(ft)
 		return g.ordered(append([]ast.Expr{c.Callee}, c.Args...), func(cs []string) string {
 			f := g.temp()
 			args := ""
