@@ -80,11 +80,43 @@ func runEmitC(args []string, stdout, stderr io.Writer) int {
 	return exitOK
 }
 
+// The flags that choose how a program is built, shared by build, run and
+// test.
+type modeFlags struct {
+	debug    *bool
+	sanitize *string
+}
+
+func addModeFlags(fs *flag.FlagSet) modeFlags {
+	return modeFlags{
+		debug:    fs.Bool("debug", false, "build without optimizations and with debug information"),
+		sanitize: fs.String("sanitize", "", "sanitizers to build in: address, undefined, thread"),
+	}
+}
+
+// Sets the build mode of [opts] from the flags, reporting a bad sanitizer
+// to [stderr]. Returns false when it fails.
+func (m modeFlags) apply(opts *cc.Options, stderr io.Writer) bool {
+	opts.Debug = *m.debug
+	if *m.sanitize != "" {
+		s, err := cc.ParseSanitizers(*m.sanitize)
+		if err != nil {
+			fmt.Fprintf(stderr, "vex: %v\n", err)
+			return false
+		}
+		opts.Sanitize = s
+	}
+	return true
+}
+
 func runBuild(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	out := fs.String("o", "", "output file")
-	fs.Usage = func() { fmt.Fprintln(stderr, "Usage: vex build [file or folder] [-o output]") }
+	mode := addModeFlags(fs)
+	fs.Usage = func() {
+		fmt.Fprintln(stderr, "Usage: vex build [file or folder] [-o output] [--debug] [--sanitize=list]")
+	}
 	// Accept the flag after the file name too: vex build app.vx -o app.
 	var files []string
 	for len(args) > 0 {
@@ -122,17 +154,41 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintf(stderr, "vex: building would replace the source file %s; choose another name with -o\n", path)
 		return exitUsage
 	}
-	if err := cc.CompileWith(src, *out, prog.CCOptions()); err != nil {
+	opts := prog.CCOptions()
+	if !mode.apply(&opts, stderr) {
+		return exitUsage
+	}
+	if opts.Debug {
+		opts.KeepC = *out + ".c"
+		if same(opts.KeepC, path) {
+			fmt.Fprintf(stderr, "vex: keeping the C would replace %s; choose another name with -o\n", path)
+			return exitUsage
+		}
+	}
+	if err := cc.CompileWith(src, *out, opts); err != nil {
 		fmt.Fprintf(stderr, "vex: %v\n", err)
 		return exitError
 	}
 	fmt.Fprintf(stdout, "Built %s\n", *out)
+	if opts.KeepC != "" {
+		fmt.Fprintf(stdout, "Kept the C code in %s\n", opts.KeepC)
+	}
 	return exitOK
 }
 
 func runRun(args []string, stdout, stderr io.Writer) int {
-	// The program is the first argument when it names a .vx file or a
-	// folder; the rest, after an optional --, go to the program.
+	// Flags come first; then the program, when the next argument names a
+	// .vx file or a folder; the rest, after an optional --, go to it.
+	fs := flag.NewFlagSet("run", flag.ContinueOnError)
+	fs.SetOutput(stderr)
+	mode := addModeFlags(fs)
+	fs.Usage = func() { fmt.Fprintln(stderr, "Usage: vex run [--debug] [--sanitize=list] [file or folder] [-- args]") }
+	if len(args) > 0 && args[0] != "--" && strings.HasPrefix(args[0], "-") {
+		if err := fs.Parse(args); err != nil {
+			return exitUsage
+		}
+		args = fs.Args()
+	}
 	var program []string
 	if len(args) > 0 && args[0] != "--" {
 		if info, err := os.Stat(args[0]); strings.HasSuffix(args[0], ".vx") || err == nil && info.IsDir() {
@@ -153,7 +209,11 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	}
 	defer os.RemoveAll(dir)
 	exe := filepath.Join(dir, "main")
-	if err := cc.CompileWith(src, exe, prog.CCOptions()); err != nil {
+	opts := prog.CCOptions()
+	if !mode.apply(&opts, stderr) {
+		return exitUsage
+	}
+	if err := cc.CompileWith(src, exe, opts); err != nil {
 		fmt.Fprintf(stderr, "vex: %v\n", err)
 		return exitError
 	}
@@ -199,7 +259,10 @@ func runTest(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("test", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	filter := fs.String("filter", "", "run only the tests whose names contain this text")
-	fs.Usage = func() { fmt.Fprintln(stderr, "Usage: vex test [file or folder] [-filter text]") }
+	mode := addModeFlags(fs)
+	fs.Usage = func() {
+		fmt.Fprintln(stderr, "Usage: vex test [file or folder] [-filter text] [--debug] [--sanitize=list]")
+	}
 	var files []string
 	for len(args) > 0 {
 		if err := fs.Parse(args); err != nil {
@@ -226,7 +289,11 @@ func runTest(args []string, stdout, stderr io.Writer) int {
 	}
 	defer os.RemoveAll(dir)
 	exe := filepath.Join(dir, "test")
-	if err := cc.CompileWith(src, exe, prog.CCOptions()); err != nil {
+	opts := prog.CCOptions()
+	if !mode.apply(&opts, stderr) {
+		return exitUsage
+	}
+	if err := cc.CompileWith(src, exe, opts); err != nil {
 		fmt.Fprintf(stderr, "vex: %v\n", err)
 		return exitError
 	}
