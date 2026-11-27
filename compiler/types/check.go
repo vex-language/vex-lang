@@ -766,6 +766,9 @@ func (c *checker) typeOf(te ast.TypeExpr) Type {
 		if h := c.handles[te.Name]; h != nil {
 			return h
 		}
+		if te.Name == "Range" {
+			return Range
+		}
 		if cNumbers[te.Name] != "" {
 			c.errorAt(te, "use int or float here; sized C numbers convert at the call", "%s is only for the signatures of extern fn and export fn", te.Name)
 			return Invalid
@@ -1366,6 +1369,11 @@ func (c *checker) assign(s *ast.AssignStmt) {
 		}
 		target = c.indexOf(x, xt)
 		c.info.Types[x] = target
+		if c.info.Types[x.Index] == Range {
+			c.expr(s.Value, nil)
+			c.errorAt(x.Index, "assign each element, or build a new list", "a slice is a copy, so it can't be assigned to")
+			return
+		}
 	default:
 		target = c.expr(s.Target, nil)
 	}
@@ -1437,18 +1445,18 @@ func (c *checker) forLoop(s *ast.ForStmt, body func()) {
 	if s.Await {
 		elem = c.forAwait(s)
 	} else if r, ok := s.Iter.(*ast.RangeExpr); ok {
-		for _, bound := range []ast.Expr{r.Lo, r.Hi} {
-			if t := c.expr(bound, Int); !Identical(t, Int) {
-				c.errorAt(bound, conversionHint(Int, t), "range bounds must be int, found %s", t)
-			}
-		}
+		c.rangeBounds(r, false)
 		c.info.Types[r] = Int
 		elem = Int
 		if s.Index != nil {
 			c.errorAt(s.Index, "write for i in a..b", "a range has no separate index")
 		}
+	} else if t := c.expr(s.Iter, nil); t == Range {
+		elem = Int
+		if s.Index != nil {
+			c.errorAt(s.Index, "write for i in r", "a range has no separate index")
+		}
 	} else {
-		t := c.expr(s.Iter, nil)
 		switch t := t.(type) {
 		case *List:
 			elem = t.Elem

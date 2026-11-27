@@ -71,6 +71,10 @@ func TestExpressions(t *testing.T) {
 		{"f(~a & b, -~a)", "(call f (& (~ a) b) (- (~ a)))"},
 		{"f(a > b, a >= b)", "(call f (> a b) (>= a b))"},
 		{"f(a >> b > c)", "(call f (> (>> a b) c))"},
+		{"f(0..n + 1, 1..=n * 2)", "(call f (.. 0 (+ n 1)) (..= 1 (* n 2)))"},
+		{"f((0..10).step(2), r == 0..3)", "(call f (call (. (.. 0 10) step) 2) (== r (.. 0 3)))"},
+		{"f(x ?? 0..5)", "(call f (?? x (.. 0 5)))"},
+		{"f(xs[1..3], xs[2..], xs[..2], xs[..=i])", "(call f (index xs (.. 1 3)) (index xs (.. 2 _)) (index xs (.. _ 2)) (index xs (..= _ i)))"},
 	}
 	for _, c := range cases {
 		got := body(t, c.src)
@@ -854,7 +858,10 @@ func TestErrors(t *testing.T) {
 		{"assign in condition", "fn main() {\n if a = 1 {}\n}", "2:7", "use == to compare in a condition", "= assigns a value; == compares"},
 		{"brace on next line", "fn main() {\n if a\n {}\n}", "2:6", "expected '{' after the if condition, found end of line", "put { on the same line as if"},
 		{"for without in", "fn main() {\n for x of xs {}\n}", "2:8", "expected 'in', found 'of'", "write for x in items { ... }"},
-		{"range outside for", "fn main() {\n let r = 0..10\n}", "2:11", "ranges can only be used in for loops", "for i in 0..10 { ... }"},
+		{"range without an end", "fn main() {\n let r = 0..\n}", "2:11", "a range needs an end", "write both ends, e.g. 0..10; only xs[a..] leaves the end out"},
+		{"range without a start", "fn main() {\n let r = ..3\n}", "2:10", "a range needs a start", "write both ends, e.g. 0..5; only xs[..b] leaves the start out"},
+		{"chained ranges", "fn main() {\n let r = 0..1..2\n}", "2:14", "ranges can't be chained", "use one range, e.g. a..c"},
+		{"inclusive open range", "fn main() {\n let r = xs[1..=]\n}", "2:14", "a range with ..= needs an end", "write xs[a..] to go to the end"},
 		{"chained comparison", "fn main() {\n f(a < b < c)\n}", "2:10", "comparisons can't be chained", "use a < b && b < c"},
 		{"two statements on a line", "fn main() {\n let a = 1 let b = 2\n}", "2:12", "expected end of statement, found 'let'", "put each statement on its own line or separate them with ;"},
 		{"assign to call", "fn main() {\n f() = 1\n}", "2:2", "can't assign to this expression", "assign to a variable, list element or field"},

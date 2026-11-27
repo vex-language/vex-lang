@@ -1,0 +1,90 @@
+/// Ranges as values: stepping, reversing, slicing and passing them around.
+import "vex:isolate"
+
+const window = 0..24
+let hours = (0..24).step(6)
+
+fn rows(r: Range = 0..3) -> [int] => r.toList()
+
+fn total(r: Range) -> int {
+    var t = 0
+    for i in r {
+        t += i
+    }
+    return t
+}
+
+struct Page: Equatable {
+    rows: Range
+    title = "p"
+}
+
+fn pick(r: Range?) -> Range => r ?? 0..1
+
+fn basics() {
+    for i in (0..10).step(3) { print(i, "") }
+    println()
+    for i in (1..=5).reversed() { print(i, "") }
+    println()
+    for i in (0..=10).reversed().step(3) { print(i, "") }
+    println()
+    let r = 0..100
+    println(r, r.len, r.start, r.end, r.isEmpty, r.contains(50), r.contains(100))
+    let s = (0..10).step(3)
+    println(s, s.contains(9), s.contains(10), s.toList(), s.len, s.reversed(), s.reversed().toList())
+    println(total(1..=4), 0..3 == 0..=2, (5..5).isEmpty, 5..2 == 9..1, [for i in r.step(25) i * 2])
+    let xs = [10, 20, 30, 40, 50]
+    println(xs[1..3], xs[1..=3], xs[2..], xs[..2], xs[..=1], xs[..], xs[(0..5).step(2)], xs[(0..5).reversed()], xs[5..])
+    let h = "héllo😀"
+    println(h[1..3], h[4..], h[..=1], h[(0..6).reversed()], h[0..0])
+    let n = 3
+    for i in 0..n + 1 { print(i, "") }
+    println()
+    println(int.min..=int.max, (int.min..=int.max).contains(7))
+}
+
+fn values() {
+    println(window, hours, rows(), rows(1..2))
+    let x = 7
+    let label = match x {
+        0..5 => "low"
+        _ => "high"
+    }
+    println(label, window.contains(x))
+}
+
+async fn shared() {
+    let p = Page(rows: 10..20)
+    println(p, p == Page(rows: 10..20), p == Page(rows: 10..21))
+    let opt: Range? = nil
+    println(opt, pick(opt), pick(3..4), "{(1..=3).reversed()}", str(0..2))
+    let rs = [0..2, 5..=6]
+    let m = ["a": (0..9).step(4)]
+    println(rs, m, rs.contains(0..2), m["a"]?.toList())
+    let f = fn(r: Range) -> int => r.len
+    println(f(0..7), rs.map { r in r.len })
+    let n = await isolate.run { (0..1000).step(7).len }
+    println(n)
+    let words = "the quick brown fox"
+    let parts = words.split(" ")
+    for i in (0..parts.len).reversed() {
+        print(parts[i][0..1], "")
+    }
+    println()
+    let r = await isolate.run { (2..=8).step(3) }
+    println(r, r.toList())
+    let ch = Channel<[Range]>()
+    isolate.spawn {
+        ch.send([0..1, (5..0).reversed()])
+        ch.close()
+    }
+    while let v = await ch.receive() {
+        println(v)
+    }
+}
+
+async fn main() {
+    basics()
+    values()
+    await shared()
+}

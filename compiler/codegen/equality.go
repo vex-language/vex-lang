@@ -31,6 +31,8 @@ func (g *gen) eq(t types.Type, a, b string) string {
 		return fmt.Sprintf("vx_str_eq(%s, %s)", a, b)
 	case types.Int, types.Float, types.Bool:
 		return fmt.Sprintf("(%s == %s)", a, b)
+	case types.Range:
+		return fmt.Sprintf("vx_range_eq(%s, %s)", a, b)
 	}
 	return fmt.Sprintf("%s(%s, %s)", g.eqFunc(t), a, b)
 }
@@ -43,7 +45,7 @@ func needsEqFunc(t types.Type) bool {
 	case *types.Enum:
 		return !t.Simple()
 	}
-	return false
+	return t == types.Range
 }
 
 // Returns the name of the generated function comparing two values of [t].

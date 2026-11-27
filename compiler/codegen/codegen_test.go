@@ -1261,6 +1261,11 @@ fn main() {
 func TestRuntimeErrors(t *testing.T) {
 	cases := []struct{ name, body, want string }{
 		{"index", "let xs = [1, 2, 3]\nprintln(xs[5])", "index 5 is out of range for a list of length 3\n --> main.vx:3"},
+		{"slice past end", "let xs = [1, 2, 3]\nprintln(xs[1..5])", "range 1..5 is out of range for a list of length 3\n --> main.vx:3"},
+		{"open slice past end", "let xs = [1, 2, 3]\nprintln(xs[4..])", "range 4..3 is out of range for a list of length 3\n --> main.vx:3"},
+		{"stepped slice", "let xs = [1, 2, 3]\nprintln(xs[(0..=4).step(2)])", "range (0..=4).step(2) is out of range for a list of length 3\n --> main.vx:3"},
+		{"string slice", "println(\"héllo\"[2..9])", "range 2..9 is out of range for a string of length 5\n --> main.vx:2"},
+		{"zero step", "let n = 0\nfor i in (0..5).step(n) { println(i) }", "a range's step must be more than 0, found 0\n --> main.vx:3"},
 		{"negative index", "var xs = [1]\nxs[-1] = 0", "index -1 is out of range for a list of length 1\n --> main.vx:3"},
 		{"empty list", "let xs: [int] = []\nprintln(xs[0])", "index 0 is out of range: the list is empty\n --> main.vx:3"},
 		{"divide", "let z = 0\nprintln(10 / z)", "division by zero\n --> main.vx:3"},

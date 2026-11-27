@@ -602,7 +602,13 @@ func buildExpr(e Expr) *tree {
 		if e.Inclusive {
 			label = "..="
 		}
-		return branch(label, buildExpr(e.Lo), buildExpr(e.Hi))
+		end := func(x Expr) *tree {
+			if x == nil {
+				return leaf("_")
+			}
+			return buildExpr(x)
+		}
+		return branch(label, end(e.Lo), end(e.Hi))
 	case *FuncLit:
 		if e.Async {
 			return funcTree("async fn", e.Params, e.Throws, e.Result, e.Body, e.ExprBody)

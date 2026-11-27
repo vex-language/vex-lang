@@ -1388,6 +1388,152 @@ static vx_str vx_str_substring(vx_str s, int64_t from, int64_t to, int line) {
     return (vx_str){s.ptr + a, b - a};
 }
 
+// --- Ranges ---
+
+// A range of ints: the [n] values from [first] on, [step] apart, with
+// [step] negative once reversed. [start], [end] and [incl] keep the bounds
+// as written, for printing.
+typedef struct { int64_t first, step, start, end; uint64_t n; bool incl; } vx_range;
+
+static vx_range vx_range_new(int64_t start, int64_t end, bool incl) {
+    uint64_t n;
+    // The whole of int has one more value than n can count; it gives up
+    // the last.
+    if (incl) n = start > end ? 0 : start == INT64_MIN && end == INT64_MAX ? UINT64_MAX : (uint64_t)end - (uint64_t)start + 1;
+    else n = start >= end ? 0 : (uint64_t)end - (uint64_t)start;
+    return (vx_range){start, 1, start, end, n, incl};
+}
+
+// Returns the value at position [k] of [r].
+static inline int64_t vx_range_at(vx_range r, uint64_t k) {
+    return (int64_t)((uint64_t)r.first + k * (uint64_t)r.step);
+}
+
+static int64_t vx_range_count(vx_range r, int line) {
+    if (r.n > (uint64_t)INT64_MAX) vx_fail(line, "the range has more than int.max values");
+    return (int64_t)r.n;
+}
+
+// Returns [r] with values [by] apart, starting from the same first value.
+static vx_range vx_range_step(vx_range r, int64_t by, int line) {
+    if (by <= 0) vx_fail(line, "a range's step must be more than 0, found %" PRId64, by);
+    if (r.n > 0) {
+        uint64_t span = (r.n - 1) * (uint64_t)(r.step < 0 ? -r.step : r.step);
+        r.n = span / (uint64_t)by + 1;
+    }
+    r.step = r.step < 0 ? -by : by;
+    return r;
+}
+
+// Returns [r] with its values in the opposite order.
+static vx_range vx_range_reversed(vx_range r) {
+    if (r.n > 0) r.first = vx_range_at(r, r.n - 1);
+    r.step = -r.step;
+    return r;
+}
+
+static bool vx_range_contains(vx_range r, int64_t x) {
+    if (r.n == 0) return false;
+    int64_t a = r.first, b = vx_range_at(r, r.n - 1);
+    int64_t lo = a < b ? a : b, hi = a < b ? b : a;
+    uint64_t step = (uint64_t)(r.step < 0 ? -r.step : r.step);
+    return x >= lo && x <= hi && ((uint64_t)x - (uint64_t)lo) % step == 0;
+}
+
+// Reports whether [a] and [b] give the same values.
+static bool vx_range_eq(vx_range a, vx_range b) {
+    return a.n == b.n && (a.n == 0 || (a.first == b.first && (a.n == 1 || a.step == b.step)));
+}
+
+static vx_str vx_range_str(vx_range r) {
+    char buf[128];
+    int n = snprintf(buf, sizeof buf, r.incl ? "%" PRId64 "..=%" PRId64 : "%" PRId64 "..%" PRId64, r.start, r.end);
+    int64_t step = r.step < 0 ? -r.step : r.step;
+    if (step != 1 || r.step < 0) {
+        char inner[128];
+        memcpy(inner, buf, (size_t)n + 1);
+        n = snprintf(buf, sizeof buf, "(%s)", inner);
+        if (step != 1) n += snprintf(buf + n, sizeof buf - (size_t)n, ".step(%" PRId64 ")", step);
+        if (r.step < 0) n += snprintf(buf + n, sizeof buf - (size_t)n, ".reversed()");
+    }
+    return vx_str_new(buf, n);
+}
+
+static vx_list *vx_range_list(vx_range r, int line) {
+    int64_t n = vx_range_count(r, line);
+    vx_list *l = vx_list_make(sizeof(int64_t), 0, n, NULL, true);
+    for (int64_t k = 0; k < n; k++) ((int64_t *)l->data)[k] = vx_range_at(r, (uint64_t)k);
+    l->len = n;
+    return l;
+}
+
+// Returns the elements of [l] at the positions [r] gives.
+static vx_list *vx_list_slice_range(vx_list *l, vx_range r, int line) {
+    bool flat = vx_is_atomic(l->data);
+    if (r.step == 1) {
+        int64_t from = r.first, to = vx_range_at(r, r.n);
+        if (from < 0 || from > l->len || (r.n > 0 && to > l->len) || r.n > (uint64_t)l->len) {
+            vx_str s = vx_range_str(r);
+            vx_fail(line, "range %.*s is out of range for a list of length %" PRId64, (int)s.len, s.ptr, l->len);
+        }
+        return vx_list_make(l->esz, (int64_t)r.n, 0, l->data + from * l->esz, flat);
+    }
+    int64_t n = vx_range_count(r, line);
+    for (int64_t k = 0; k < n; k++) {
+        int64_t i = vx_range_at(r, (uint64_t)k);
+        if (i < 0 || i >= l->len) {
+            vx_str s = vx_range_str(r);
+            vx_fail(line, "range %.*s is out of range for a list of length %" PRId64, (int)s.len, s.ptr, l->len);
+        }
+    }
+    vx_list *out = vx_list_make(l->esz, 0, n, NULL, flat);
+    for (int64_t k = 0; k < n; k++) {
+        memcpy(out->data + k * out->esz, l->data + vx_range_at(r, (uint64_t)k) * l->esz, (size_t)l->esz);
+    }
+    out->len = n;
+    return out;
+}
+
+// Returns the characters of [s] at the positions [r] gives.
+static vx_str vx_str_slice_range(vx_str s, vx_range r, int line) {
+    int64_t len = vx_str_len(s);
+    if (r.step == 1) {
+        int64_t from = r.first, to = vx_range_at(r, r.n);
+        if (from < 0 || from > len || r.n > (uint64_t)len || (r.n > 0 && to > len)) {
+            vx_str rs = vx_range_str(r);
+            vx_fail(line, "range %.*s is out of range for a string of length %" PRId64, (int)rs.len, rs.ptr, len);
+        }
+        if (r.n == 0) return VX_LIT("");
+        return vx_str_substring(s, from, to, line);
+    }
+    int64_t n = vx_range_count(r, line);
+    int64_t *offs = vx_alloc_atomic((size_t)(len + 1) * sizeof(int64_t));
+    int64_t b = 0;
+    for (int64_t i = 0; i < len; i++) {
+        offs[i] = b;
+        b += vx_utf8_width(s, b);
+    }
+    offs[len] = s.len;
+    int64_t bytes = 0;
+    for (int64_t k = 0; k < n; k++) {
+        int64_t i = vx_range_at(r, (uint64_t)k);
+        if (i < 0 || i >= len) {
+            vx_str rs = vx_range_str(r);
+            vx_fail(line, "range %.*s is out of range for a string of length %" PRId64, (int)rs.len, rs.ptr, len);
+        }
+        bytes += offs[i + 1] - offs[i];
+    }
+    char *buf = vx_alloc_atomic((size_t)bytes + 1);
+    int64_t at = 0;
+    for (int64_t k = 0; k < n; k++) {
+        int64_t i = vx_range_at(r, (uint64_t)k);
+        memcpy(buf + at, s.ptr + offs[i], (size_t)(offs[i + 1] - offs[i]));
+        at += offs[i + 1] - offs[i];
+    }
+    buf[at] = 0;
+    return (vx_str){buf, at};
+}
+
 static vx_list *vx_str_chars(vx_str s) {
     vx_list *l = vx_list_new(sizeof(vx_str), 0, NULL);
     int64_t i = 0;

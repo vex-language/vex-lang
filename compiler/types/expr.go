@@ -100,8 +100,8 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 	case *ast.BinaryExpr:
 		return c.binary(e, want)
 	case *ast.RangeExpr:
-		c.errorAt(e, "for i in 0..10 { ... }", "ranges can only be used in for loops")
-		return Invalid
+		c.rangeBounds(e, false)
+		return Range
 	case *ast.CallExpr:
 		t := c.call(e, want)
 		if m, ok := e.Fn.(*ast.MemberExpr); ok {
@@ -726,7 +726,7 @@ func comparable(t Type) bool {
 	if _, ok := t.(*Handle); ok {
 		return true
 	}
-	return t == Int || t == Float || t == Bool || t == String
+	return t == Int || t == Float || t == Bool || t == String || t == Range
 }
 
 func (c *checker) index(e *ast.IndexExpr) Type {
@@ -751,7 +751,21 @@ func (c *checker) indexOf(e *ast.IndexExpr, x Type) Type {
 		c.info.Operators[e] = f
 		return f.Result
 	}
-	if t := c.expr(e.Index, Int); !Identical(t, Int) {
+	_, list := x.(*List)
+	if r, ok := e.Index.(*ast.RangeExpr); ok && (list || x == String) {
+		c.rangeBounds(r, true)
+		c.info.Types[r] = Range
+		return x
+	}
+	t := c.expr(e.Index, Int)
+	if t == Range && (list || x == String) {
+		return x
+	}
+	if x == String && Identical(t, Int) {
+		c.errorAt(e.Index, "slice it with a range, e.g. s[i..=i], or use s.chars()[i]", "a string can't be indexed by int")
+		return Invalid
+	}
+	if !Identical(t, Int) {
 		c.errorAt(e.Index, conversionHint(Int, t), "index must be int, found %s", t)
 	}
 	switch x := x.(type) {
@@ -941,6 +955,16 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 	if x == String && name == "len" {
 		c.info.Members[e] = &Member{Builtin: "len"}
 		return Int
+	}
+	if x == Range {
+		switch name {
+		case "start", "end", "len":
+			c.info.Members[e] = &Member{Builtin: name}
+			return Int
+		case "isEmpty":
+			c.info.Members[e] = &Member{Builtin: name}
+			return Bool
+		}
 	}
 	if x == Float && (name == "isNaN" || name == "isFinite") {
 		c.info.Members[e] = &Member{Builtin: name}

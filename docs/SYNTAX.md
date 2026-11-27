@@ -269,7 +269,7 @@ let letters = words.reduce(0, fn(n, w) => n + w.len)
 | `.len`, `.isEmpty`, `.first`, `.last` | Properties; `first` and `last` are `nil` for an empty list |
 | `.push(x)`, `.pop()`, `.insert(x, at: i)`, `.remove(at: i)`, `.removeWhere(f)`, `.clear()` | Change the list in place; `remove` and `pop` give the element removed |
 | `.sort()`, `.sort(by: f)` | Sort in place. `sort()` needs elements that `<` orders: numbers, strings, enums whose cases carry no values, and structs that define `operator <`. `by:` takes whether `a` goes before `b`. Sorting is stable: equal elements keep their order |
-| `.sorted()`, `.sorted(by: f)`, `.reversed()`, `.slice(from, to)`, `.copy()` | New lists; the original is unchanged. `slice` takes the elements from `from` up to `to` |
+| `.sorted()`, `.sorted(by: f)`, `.reversed()`, `.slice(from, to)`, `.copy()` | New lists; the original is unchanged. `slice` takes the elements from `from` up to `to`, as `xs[from..to]` does (see [Slicing](#ranges)) |
 | `.contains(x)`, `.indexOf(x)` | Whether `x` is in the list, and the index of the first match as an `int?`; elements need `==` |
 | `.find(f)`, `.any(f)`, `.all(f)` | The first element `f` accepts, as an optional; whether any or every element passes |
 | `.filter(f)`, `.map(f)`, `.flatMap(f)` | New lists: the elements `f` accepts; what `f` returns for each; the lists `f` returns, joined |
@@ -321,6 +321,42 @@ let empty: [string: int] = [:]
 - Keys can be `int`, `string`, `bool`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable` (see [Equality and hashing](#equality-and-hashing)). Values can be any type except an optional, since a missing key already reads as `nil`.
 - Maps are shared references, like lists and structs.
 - `m[k] += 1` is an error, since the key may be missing. Write `m[k] = (m[k] ?? 0) + 1`.
+
+## Ranges
+
+`a..b` counts from `a` up to, not including, `b`, and `a..=b` includes `b`. Besides driving `for` loops, a range is a value of type `Range`, as in Kotlin:
+
+```swift
+let hours = 0..24                          // hours: Range
+println(hours.len, hours.start, hours.end) // 24 0 24
+if hours.contains(now) { open() }
+
+for i in (0..10).step(2) { }               // 0 2 4 6 8
+for i in (1..=5).reversed() { }            // 5 4 3 2 1
+for i in (0..=10).reversed().step(3) { }   // 10 7 4 1
+let evens = (0..10).step(2).toList()       // [0, 2, 4, 6, 8]
+```
+
+- Ranges hold ints. A range whose end comes before its start is empty: `5..2` gives nothing.
+- `step(n)` keeps the first value and takes every `n`th one; `n` must be more than 0. `reversed()` gives the same values backwards.
+- `len`, `isEmpty`, `start`, `end`, `contains(x)` and `toList()` read a range. `start` and `end` are the bounds as written. Two ranges are `==` when they give the same values, so `0..3 == 0..=2`.
+- `..` binds looser than arithmetic and tighter than comparisons: `0..n + 1` is `0..(n + 1)`. Ranges can be constants, fields and parameters, and can be sent to other isolates.
+
+**Slicing.** A range inside `[ ]` copies part of a list, or the characters of a string, as in Swift. Either end may be left out inside `[ ]`, meaning the start or the end:
+
+```swift
+let xs = [10, 20, 30, 40, 50]
+xs[1..3]                // [20, 30]
+xs[1..=3]               // [20, 30, 40]
+xs[2..]                 // [30, 40, 50]
+xs[..2]                 // [10, 20]
+xs[(0..5).step(2)]      // [10, 30, 50]
+"héllo"[1..3]           // "él"
+```
+
+- A slice is a new list or string; changing it doesn't change the original, and it can't be assigned to.
+- A range that reaches outside the list or string stops the program, as an index does.
+- A string can't be indexed by an `int`. `s[i..=i]` gives the character at `i` as a string.
 
 ## Structs
 
@@ -1762,11 +1798,11 @@ $ vex test
 | `s.len`, `.upper()`, `.lower()`, `.contains(x)`, `.split(sep)` | String members. `len` counts Unicode code points, so an emoji with a modifier counts as more than one; `upper` and `lower` change only the letters A–Z for now |
 | `.replace(old, with)`, `.trim()`, `.trimStart()`, `.trimEnd()` | New strings: every `old` replaced; spaces, tabs and line endings removed from the ends |
 | `.startsWith(x)`, `.endsWith(x)`, `.indexOf(x)` | `indexOf` gives an `int?`: the index of the first match, or `nil` |
-| `.substring(from, to)`, `.chars()`, `.lines()` | The characters from `from` up to `to`; each character; each line without its line ending. Indexes count characters, as `len` does, and an index out of range stops the program |
+| `.substring(from, to)`, `.chars()`, `.lines()` | The characters from `from` up to `to`, as `s[from..to]` gives them; each character; each line without its line ending. Indexes count characters, as `len` does, and an index out of range stops the program |
 
 ## Types
 
-The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, structs, enums, function types `fn(T) -> R` and `async fn(T) -> R`, optionals `T?`, records `(int, string)` and futures `Future<T>`.
+The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, structs, enums, function types `fn(T) -> R` and `async fn(T) -> R`, optionals `T?`, records `(int, string)`, ranges `Range` and futures `Future<T>`.
 
 - `let x = ...` takes its type from the value. An empty list or map needs the type written: `let xs: [int] = []`, `let m: [string: int] = [:]`.
 - Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.
