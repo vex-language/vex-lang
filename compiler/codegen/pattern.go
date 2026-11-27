@@ -13,6 +13,17 @@ import (
 // set once the condition holds.
 func (g *gen) patCond(p ast.Pattern, x string) string {
 	t := g.info.PatternTypes[p]
+	if target := g.info.PatternTests[p]; target != nil {
+		cast := fmt.Sprintf("((%s)%s)", ctype(target), x)
+		if tp, ok := p.(*ast.TypedPattern); ok {
+			return joinConds([]string{typeCheck(x, target), g.patBind(g.info.Defs[tp.Name], cast)})
+		}
+		conds := []string{typeCheck(x, target)}
+		for _, a := range p.(*ast.CasePattern).Args {
+			conds = append(conds, g.patCond(a.Pattern, fmt.Sprintf("%s->f_%s", cast, a.Name.Name)))
+		}
+		return joinConds(conds)
+	}
 	switch p := p.(type) {
 	case *ast.NamePattern:
 		if cs := g.info.PatternCases[p]; cs != nil {

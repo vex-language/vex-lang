@@ -1,0 +1,18 @@
+T:hi
+B:ok
+wide image 50
+empty image
+other image 5
+S:spacer
+true false
+-1  tapped ok
+tappable: tapped ok
+-1  50  0  5  -1  
+hi
+55
+skip skip tapped ok none
+text then button: a, b | text first, then 1 more | something else
+4 0
+button follows
+true true false not text
+a spacer

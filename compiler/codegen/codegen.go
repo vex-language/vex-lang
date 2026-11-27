@@ -1458,6 +1458,8 @@ func (g *gen) hasCall(e ast.Expr) bool {
 	case *ast.MatchExpr, *ast.IfExpr:
 		// Branches may run calls, so these are ordered like one.
 		return true
+	case *ast.TypeTest:
+		return g.hasCall(e.X)
 	}
 	return false
 }
@@ -1552,6 +1554,9 @@ func (g *gen) value(e ast.Expr) string {
 	case *ast.Ident:
 		switch u := g.info.Uses[e].(type) {
 		case *types.Var:
+			if u.Narrows != nil {
+				return fmt.Sprintf("((%s)%s)", ctype(u.Type), g.varName(u.Narrows))
+			}
 			return g.varName(u)
 		case *types.Field:
 			return g.selfRef() + "->f_" + u.Name
@@ -1585,6 +1590,8 @@ func (g *gen) value(e ast.Expr) string {
 		return g.matchExpr(e)
 	case *ast.IfExpr:
 		return g.ifValue(e)
+	case *ast.TypeTest:
+		return g.typeTest(e)
 	case *ast.ListLit:
 		if e.Body != nil {
 			return g.collection(e, e.Body, t)

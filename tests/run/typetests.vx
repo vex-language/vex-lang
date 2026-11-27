@@ -1,0 +1,125 @@
+// Type tests, smart casts and type patterns on interface values.
+interface View {
+    fn describe() -> string
+}
+
+interface Tappable {
+    fn tap() -> string
+}
+
+struct Text: View {
+    content: string
+    fn describe() -> string => "text {content}"
+}
+
+struct Button: View, Tappable {
+    label: string
+    fn describe() -> string => "button {label}"
+    fn tap() -> string => "tapped {label}"
+}
+
+struct Image: View {
+    width: int
+    fn describe() -> string => "image {width}"
+}
+
+enum Spacer: View {
+    small
+    sized(n: int)
+    fn describe() -> string => "spacer"
+}
+
+fn render(view: View) -> string {
+    if view is Text {
+        return "T:" + view.content
+    }
+    if view is Image && view.width > 10 {
+        return "wide image {view.width}"
+    }
+    return match view {
+        Button(:label) => "B:" + label
+        s: Spacer => "S:" + s.describe()
+        i: Image when i.width == 0 => "empty image"
+        _ => "other " + view.describe()
+    }
+}
+
+fn sameKind(a: View, b: View) -> bool => (a is Text && b is Text) || (a is Button && b is Button)
+
+struct Node {
+    view: View
+    next: Node?
+}
+
+fn firstTappable(views: [View]) -> string {
+    for v in views {
+        if v is Tappable {
+            return v.tap()
+        } else {
+            print("skip ")
+        }
+    }
+    return "none"
+}
+
+fn pairs(views: [View]) -> string => match views {
+    [t: Text, b: Button, ...] => "text then button: {t.content}, {b.label}"
+    [Text(:content), ...rest] => "text first, then {rest.len} more"
+    _ => "something else"
+}
+
+fn depth(start: View) -> int {
+    let probe: View = start
+    var n = 0
+    while probe is Image && n < probe.width {
+        n += 1
+    }
+    return n
+}
+
+fn chain(node: Node) -> string {
+    let next = node.next
+    if let after = next {
+        if after.view is Button {
+            return "button follows"
+        }
+    }
+    return "end"
+}
+
+fn main() {
+    let views: [View] = [Text(content: "hi"), Button(label: "ok"), Image(width: 50), Image(width: 0), Image(width: 5), Spacer.sized(n: 2)]
+    for v in views {
+        println(render(v))
+    }
+    println(sameKind(views[0], Text(content: "x")), sameKind(views[0], views[1]))
+    for v in views {
+        if let t = v as? Tappable {
+            println(t.tap())
+        }
+        let w = (v as? Image)?.width ?? -1
+        if v is Tappable {
+            println("tappable:", v.tap())
+        }
+        print(w, " ")
+    }
+    println()
+    let first = views[0]
+    let check = fn() -> string => if first is Text { first.content } else { "no" }
+    println(check())
+    var n = 0
+    for v in views {
+        if v case Image(width: w) when w > 1 {
+            n += w
+        }
+    }
+    println(n)
+    println(firstTappable(views), firstTappable([Text(content: "a")]))
+    println(pairs([Text(content: "a"), Button(label: "b")]), "|", pairs([Text(content: "a"), Image(width: 1)]), "|", pairs([]))
+    println(depth(Image(width: 4)), depth(Text(content: "x")))
+    println(chain(Node(view: Text(content: "x"), next: Node(view: Button(label: "y"), next: nil))))
+    let sp: View = Spacer.small
+    println(sp is Spacer, (sp as? Spacer) != nil, sp is Tappable, (sp as? Text)?.content ?? "not text")
+    let label = if sp is Spacer && sp.describe() == "spacer" { "a spacer" } else { "not" }
+    println(label)
+}
