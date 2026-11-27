@@ -135,6 +135,11 @@ func TestFor(t *testing.T) {
 		{"for fruit in fruits { f(fruit) }", "(for fruit fruits (block (call f fruit)))"},
 		{"for i, fruit in fruits { }", "(for i, fruit fruits block)"},
 		{"for x in items() { }", "(for x (call items) block)"},
+		{"for await t in ticks(3) { f(t) }", "(for await t (call ticks 3) (block (call f t)))"},
+		{"for await (a, b) in pairs { }", "(for await (a, b) pairs block)"},
+		{"yield x + 1", "(yield (+ x 1))"},
+		{"yield = 2", "(= yield 2)"},
+		{"yield(1)", "(yield 1)"},
 	}
 	for _, c := range cases {
 		got := body(t, c.src)
