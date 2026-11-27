@@ -491,6 +491,32 @@ func run(body []stmt, e env, out *strings.Builder) {
 	}
 }
 
+// Returns an `if` used as a value of type [t], at times an `if let` that
+// unwraps an int? for its first branch. Only the branch taken runs.
+func (g *generator) ifValue(t typ) expr {
+	if g.r.Intn(3) == 0 {
+		o, u := g.expr(tOpt), g.name("u")
+		g.scope = append(g.scope, variable{u, tInt, false})
+		a := g.expr(t)
+		g.scope = g.scope[:len(g.scope)-1]
+		b := g.expr(t)
+		return expr{fmt.Sprintf("(if let %s = %s { %s } else { %s })", u, o.code, a.code, b.code), func(e env) any {
+			if v := o.eval(e).(*int64); v != nil {
+				e[u] = *v
+				return a.eval(e)
+			}
+			return b.eval(e)
+		}}
+	}
+	c, a, b := g.expr(tBool), g.expr(t), g.expr(t)
+	return expr{"(if " + c.code + " { " + a.code + " } else { " + b.code + " })", func(e env) any {
+		if c.eval(e).(bool) {
+			return a.eval(e)
+		}
+		return b.eval(e)
+	}}
+}
+
 func (g *generator) forLoop(depth int) stmt {
 	i := g.name("i")
 	limit := g.r.Intn(5)
@@ -615,6 +641,9 @@ func (g *generator) expr(t typ) expr {
 	if vs := g.vars(t, false); len(vs) > 0 && (leaf || g.r.Intn(4) == 0) {
 		v := g.pick(vs)
 		return expr{v.name, ref(v.name)}
+	}
+	if !leaf && g.r.Intn(12) == 0 {
+		return g.ifValue(t)
 	}
 	switch t {
 	case tInt:
