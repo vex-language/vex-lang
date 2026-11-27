@@ -342,6 +342,9 @@ func (p *parser) decl() ast.Decl {
 		if t.Text == "test" && p.peek(1).Kind == lexer.String {
 			return p.testDecl()
 		}
+		if t.Text == "class" && p.peek(1).Kind == lexer.Ident {
+			p.fail(t, fmt.Sprintf("write struct %s { ... }: structs hold fields and methods, and interfaces share behaviour", p.peek(1).Text), "Vex has no classes")
+		}
 	case lexer.Const:
 		return p.constDecl()
 	case lexer.Typedef:
@@ -1485,11 +1488,13 @@ func (p *parser) stmt() ast.Stmt {
 		return &ast.ThrowStmt{Value: value, Span: p.span(t.Pos)}
 	case lexer.Break:
 		p.next()
+		p.noLabel("break")
 		return &ast.BreakStmt{Span: p.span(t.Pos)}
 	case lexer.Ellipsis:
 		return &ast.ExprStmt{X: p.spread()}
 	case lexer.Continue:
 		p.next()
+		p.noLabel("continue")
 		return &ast.ContinueStmt{Span: p.span(t.Pos)}
 	case lexer.LBrace:
 		return p.block()
@@ -1508,11 +1513,31 @@ func (p *parser) stmt() ast.Stmt {
 	case lexer.Else:
 		p.fail(t, "", "'else' without a matching 'if'")
 	case lexer.Ident:
-		if p.peek(1).Kind == lexer.Colon {
+		next := p.peek(1)
+		if next.Kind == lexer.Colon && (p.peek(2).Kind == lexer.For || p.peek(2).Kind == lexer.While) {
+			p.fail(t, "move the inner loop into a function and return from it, or stop the outer loop with a flag", "loop labels aren't supported yet")
+		}
+		if next.Kind == lexer.Colon {
 			p.fail(t, fmt.Sprintf("write let %s = ... or var %s = ...", t.Text, t.Text), "missing 'let' or 'var' before '%s'", t.Text)
+		}
+		onLine := !next.IsAutoSemi() && next.Kind != lexer.Semi && next.Kind != lexer.Assign && next.Kind != lexer.Dot
+		switch {
+		case t.Text == "defer" && onLine:
+			p.fail(t, "run the cleanup before each return, or pass a closure to a helper that runs it last", "defer isn't supported yet")
+		case t.Text == "do" && next.Kind == lexer.LBrace:
+			p.fail(t, "write while true { ...; if !cond { break } }", "Vex has no do-while loop")
+		case t.Text == "switch" && onLine && startsExpr(next.Kind):
+			p.fail(t, "write match x { 1 => a  _ => b }", "Vex uses match, not switch")
 		}
 	}
 	return p.simpleStmt()
+}
+
+// Reports a label after `break` or `continue`, which Vex doesn't have.
+func (p *parser) noLabel(keyword string) {
+	if t := p.tok(); t.Kind == lexer.Ident && !t.IsAutoSemi() {
+		p.fail(t, "move the inner loop into a function and return from it, or stop the outer loop with a flag", "loop labels aren't supported yet; %s applies to the innermost loop", keyword)
+	}
 }
 
 func (p *parser) letStmt() *ast.LetStmt {
@@ -2023,6 +2048,14 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			opt := p.next().Kind == lexer.QuestionDot
 			name := p.ident("a member name")
 			x = &ast.MemberExpr{Span: p.span(x.Pos()), X: x, Name: name, Optional: opt}
+		case lexer.Not:
+			p.fail(p.tok(), "use x ?? fallback, or open it with if let or guard let", "Vex has no ! to force an optional open")
+		case lexer.Plus, lexer.Minus:
+			op := p.tok()
+			if next := p.peek(1); next.Kind == op.Kind && next.Pos.Offset == op.End {
+				p.fail(op, fmt.Sprintf("write x %s= 1", op.Text), "Vex has no %s%s operator", op.Text, op.Text)
+			}
+			return x
 		case lexer.Question:
 			if next := p.peek(1); startsExpr(next.Kind) && !next.IsAutoSemi() {
 				p.fail(p.tok(), "write if cond { a } else { b }", "Vex has no ? : operator")
