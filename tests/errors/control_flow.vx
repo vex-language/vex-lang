@@ -1,0 +1,37 @@
+fn risky() throws -> int => 1
+
+fn f(xs: [int]) throws {
+    defer {
+        return
+    }
+    defer {
+        throw Error("x")
+    }
+    for x in xs {
+        defer {
+            break
+        }
+        defer {
+            let n = try risky()
+        }
+    }
+    outer: for x in xs {
+        break inner
+    }
+    a: for x in xs {
+        a: while true {
+            continue a
+        }
+    }
+    continue
+}
+
+fn main() {}
+
+// error: 5:9: return can't be used in a defer block
+// error: 8:9: throw can't be used in a defer block
+// error: 12:13: break can only be used inside a loop
+// error: 15:21: the error can't pass up: a defer block doesn't throw
+// error: 19:15: no loop around this is named 'inner'
+// error: 22:9: a loop around this one is already named 'a'
+// error: 26:5: continue can only be used inside a loop

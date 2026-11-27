@@ -1544,14 +1544,12 @@ func (p *parser) stmt() ast.Stmt {
 		return &ast.ThrowStmt{Value: value, Span: p.span(t.Pos)}
 	case lexer.Break:
 		p.next()
-		p.noLabel("break")
-		return &ast.BreakStmt{Span: p.span(t.Pos)}
+		return &ast.BreakStmt{Label: p.jumpLabel(), Span: p.span(t.Pos)}
 	case lexer.Ellipsis:
 		return &ast.ExprStmt{X: p.spread()}
 	case lexer.Continue:
 		p.next()
-		p.noLabel("continue")
-		return &ast.ContinueStmt{Span: p.span(t.Pos)}
+		return &ast.ContinueStmt{Label: p.jumpLabel(), Span: p.span(t.Pos)}
 	case lexer.LBrace:
 		return p.block()
 	case lexer.Fn:
@@ -1572,8 +1570,12 @@ func (p *parser) stmt() ast.Stmt {
 		p.fail(t, "", "'else' without a matching 'if'")
 	case lexer.Ident:
 		next := p.peek(1)
-		if next.Kind == lexer.Colon && (p.peek(2).Kind == lexer.For || p.peek(2).Kind == lexer.While) {
-			p.fail(t, "move the inner loop into a function and return from it, or stop the outer loop with a flag", "loop labels aren't supported yet")
+		if next.Kind == lexer.Colon && p.loopAhead(2) {
+			p.next()
+			p.next()
+			label := &ast.Ident{Span: ast.Span{Start: t.Pos, End: t.End}, Name: t.Text}
+			loop := p.stmt()
+			return &ast.LabeledStmt{Span: p.span(t.Pos), Label: label, Loop: loop}
 		}
 		if next.Kind == lexer.Colon {
 			p.fail(t, fmt.Sprintf("write let %s = ... or var %s = ...", t.Text, t.Text), "missing 'let' or 'var' before '%s'", t.Text)
@@ -1584,10 +1586,15 @@ func (p *parser) stmt() ast.Stmt {
 			p.next()
 			value := p.expr()
 			return &ast.YieldStmt{Value: value, Span: p.span(t.Pos)}
+		case t.Text == "defer" && next.Kind == lexer.LBrace:
+			p.next()
+			return &ast.DeferStmt{Body: p.block(), Span: p.span(t.Pos)}
 		case t.Text == "defer" && onLine:
-			p.fail(t, "run the cleanup before each return, or pass a closure to a helper that runs it last", "defer isn't supported yet")
+			p.fail(next, "write defer { cleanup() }", "defer takes a block")
+		case t.Text == "repeat" && next.Kind == lexer.LBrace:
+			return p.repeatStmt()
 		case t.Text == "do" && next.Kind == lexer.LBrace:
-			p.fail(t, "write while true { ...; if !cond { break } }", "Vex has no do-while loop")
+			p.fail(t, "write repeat { ... } while cond", "Vex has no do-while loop")
 		case t.Text == "switch" && onLine && startsExpr(next.Kind):
 			p.fail(t, "write match x { 1 => a  _ => b }", "Vex uses match, not switch")
 		}
@@ -1595,11 +1602,51 @@ func (p *parser) stmt() ast.Stmt {
 	return p.simpleStmt()
 }
 
-// Reports a label after `break` or `continue`, which Vex doesn't have.
-func (p *parser) noLabel(keyword string) {
-	if t := p.tok(); t.Kind == lexer.Ident && !t.IsAutoSemi() {
-		p.fail(t, "move the inner loop into a function and return from it, or stop the outer loop with a flag", "loop labels aren't supported yet; %s applies to the innermost loop", keyword)
+// Parses the loop name after `break` or `continue`, if any.
+func (p *parser) jumpLabel() *ast.Ident {
+	if t := p.tok(); t.Kind == lexer.Ident {
+		p.next()
+		return &ast.Ident{Span: ast.Span{Start: t.Pos, End: t.End}, Name: t.Text}
 	}
+	return nil
+}
+
+// Reports whether the token [i] ahead starts a loop: `for`, `while` or
+// `repeat {`.
+func (p *parser) loopAhead(i int) bool {
+	t := p.peek(i)
+	return t.Kind == lexer.For || t.Kind == lexer.While || t.Kind == lexer.Ident && t.Text == "repeat" && p.peek(i+1).Kind == lexer.LBrace
+}
+
+// Reports whether a `{` comes before the end of the line, from the token
+// [i] ahead.
+func (p *parser) braceOnLine(i int) bool {
+	for ; ; i++ {
+		switch t := p.peek(i); {
+		case t.Kind == lexer.LBrace:
+			return true
+		case t.Kind == lexer.EOF || t.IsAutoSemi():
+			return false
+		}
+	}
+}
+
+// Parses `repeat { ... } while cond`. Without the `while`, it is a call of
+// a function named repeat with a trailing block.
+func (p *parser) repeatStmt() ast.Stmt {
+	t := p.next()
+	body := p.block()
+	if p.tok().IsAutoSemi() && p.peek(1).Kind == lexer.While && !p.braceOnLine(2) {
+		p.fail(p.peek(1), "write } while cond on one line", "while must follow the repeat block on the same line")
+	}
+	if !p.at(lexer.While) {
+		fn := &ast.Ident{Span: ast.Span{Start: t.Pos, End: t.End}, Name: t.Text}
+		call := &ast.CallExpr{Fn: fn, Trailing: body, Span: p.span(t.Pos)}
+		return &ast.ExprStmt{X: call, Span: call.Span}
+	}
+	p.next()
+	cond := p.condExpr()
+	return &ast.RepeatStmt{Span: p.span(t.Pos), Body: body, Cond: cond}
 }
 
 func (p *parser) letStmt() *ast.LetStmt {

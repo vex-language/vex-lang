@@ -1,0 +1,191 @@
+import "vex:time"
+
+enum Failure {
+    broken
+}
+
+fn early(n: int) -> int {
+    defer { println("early: cleanup") }
+    if n > 0 {
+        return n * 2
+    }
+    println("early: end of body")
+    return 0
+}
+
+fn ordered() {
+    defer { println("ordered: first deferred, runs last") }
+    defer { println("ordered: second deferred, runs first") }
+    println("ordered: body")
+}
+
+fn failing(fail: bool) throws(Failure) -> int {
+    defer { println("failing: cleanup") }
+    if fail {
+        throw Failure.broken
+    }
+    return 1
+}
+
+fn propagating() throws(Failure) -> int {
+    defer { println("propagating: cleanup") }
+    let n = try failing(true)
+    return n
+}
+
+fn perIteration() {
+    for i in 0..3 {
+        defer { println("iteration {i} done") }
+        if i == 1 {
+            continue
+        }
+        println("iteration {i} body")
+    }
+}
+
+fn nested() {
+    defer { println("nested: outer") }
+    do_ {
+        defer { println("nested: inner") }
+        println("nested: in block")
+    }
+    println("nested: after block")
+}
+
+fn do_(body: fn()) {
+    body()
+}
+
+fn search(grid: [[int]]) -> string {
+    var found = "none"
+    outer: for row in grid {
+        for cell in row {
+            if cell < 0 {
+                continue outer
+            }
+            if cell == 7 {
+                found = "7"
+                break outer
+            }
+        }
+        println("search: row without negatives")
+    }
+    return found
+}
+
+fn crossing() {
+    rows: for r in 0..3 {
+        defer { println("crossing: row {r} left") }
+        for c in 0..3 {
+            defer { println("crossing: cell {r},{c} left") }
+            if c == 1 {
+                continue rows
+            }
+            if r == 1 {
+                break rows
+            }
+        }
+    }
+}
+
+fn countdown() {
+    var n = 3
+    repeat {
+        println("repeat {n}")
+        n -= 1
+    } while n > 0
+    repeat {
+        println("repeat runs once")
+    } while false
+}
+
+fn labelledRepeat() {
+    var i = 0
+    outer: repeat {
+        i += 1
+        while true {
+            if i == 2 {
+                continue outer
+            }
+            if i == 4 {
+                break outer
+            }
+            break
+        }
+        println("labelled repeat {i}")
+    } while i < 10
+}
+
+fn spin() -> int {
+    // A loop left only through a labelled break still ends.
+    var n = 0
+    outer: while true {
+        while true {
+            n += 1
+            if n == 5 {
+                break outer
+            }
+        }
+    }
+    return n
+}
+
+async fn numbers() -> Stream<int> {
+    for i in 0..10 {
+        yield i
+    }
+}
+
+async fn reading() {
+    var total = 0
+    outer: for await n in numbers() {
+        defer { println("stream item {n} done") }
+        for k in 0..2 {
+            if n == 2 {
+                break outer
+            }
+            total += k
+        }
+    }
+    println("stream total {total}")
+}
+
+fn innerWhile() {
+    for i in 0..2 {
+        defer { println("innerWhile: {i} left") }
+        var k = 0
+        while true {
+            defer { println("innerWhile: step {k}") }
+            k += 1
+            if k == 2 {
+                break
+            }
+        }
+        var next: int? = 1
+        while let n = next {
+            defer { println("innerWhile: bound {n}") }
+            next = nil
+            if n == 1 {
+                continue
+            }
+        }
+    }
+}
+
+async fn main() {
+    println(early(4))
+    println(early(0))
+    ordered()
+    println(try? failing(false))
+    let r = try? propagating()
+    println(r)
+    perIteration()
+    nested()
+    println(search([[1, 2], [-1, 7], [3, 7, 9]]))
+    crossing()
+    countdown()
+    labelledRepeat()
+    println(spin())
+    await reading()
+    innerWhile()
+}

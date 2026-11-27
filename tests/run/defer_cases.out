@@ -1,0 +1,14 @@
+arm cleanup
+1
+arm 0
+arm 0 left
+arm 2 left
+closure cleanup 5
+5
+each 1
+each 1 done
+each 2
+each 2 done
+nestedDefer body
+defer loop 0
+inner of defer

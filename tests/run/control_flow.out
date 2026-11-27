@@ -1,0 +1,48 @@
+early: cleanup
+8
+early: end of body
+early: cleanup
+0
+ordered: body
+ordered: second deferred, runs first
+ordered: first deferred, runs last
+failing: cleanup
+1
+failing: cleanup
+propagating: cleanup
+nil
+iteration 0 body
+iteration 0 done
+iteration 1 done
+iteration 2 body
+iteration 2 done
+nested: in block
+nested: inner
+nested: after block
+nested: outer
+search: row without negatives
+7
+crossing: cell 0,0 left
+crossing: cell 0,1 left
+crossing: row 0 left
+crossing: cell 1,0 left
+crossing: row 1 left
+repeat 3
+repeat 2
+repeat 1
+repeat runs once
+labelled repeat 1
+labelled repeat 3
+5
+stream item 0 done
+stream item 1 done
+stream item 2 done
+stream total 2
+innerWhile: step 1
+innerWhile: step 2
+innerWhile: bound 1
+innerWhile: 0 left
+innerWhile: step 1
+innerWhile: step 2
+innerWhile: bound 1
+innerWhile: 1 left

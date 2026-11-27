@@ -62,9 +62,7 @@ func (g *gen) ifConds(s *ast.IfStmt) {
 	g.line("bool %s = false;", ok)
 	g.condChain(headerConds(s.Bind, s.Cond, s.More), false, func() {
 		g.line("%s = true;", ok)
-		for _, st := range s.Then.Stmts {
-			g.stmt(st)
-		}
+		g.stmtsIn(s.Then.Stmts, nil)
 	})
 	switch e := s.Else.(type) {
 	case *ast.IfStmt:
@@ -127,5 +125,5 @@ func (g *gen) jumpExpr(e *ast.JumpExpr, t types.Type) string {
 	g.b, g.ind = &b, 0
 	g.stmt(e.Stmt)
 	g.b, g.ind = outer, ind
-	return fmt.Sprintf("({ %s (%s){0}; })", strings.Join(strings.Fields(b.String()), " "), ctype(t))
+	return fmt.Sprintf("({ %s (%s){0}; })", strings.TrimSpace(b.String()), ctype(t))
 }

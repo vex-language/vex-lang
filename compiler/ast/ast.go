@@ -534,10 +534,44 @@ type ThrowStmt struct {
 }
 
 // A `break` statement.
-type BreakStmt struct{ Span }
+type BreakStmt struct {
+	Span
+
+	// The loop named in `break outer`, or nil for the innermost.
+	Label *Ident
+}
 
 // A `continue` statement.
-type ContinueStmt struct{ Span }
+type ContinueStmt struct {
+	Span
+
+	// The loop named in `continue outer`, or nil for the innermost.
+	Label *Ident
+}
+
+// A loop with a name, as in `outer: for row in grid { ... }`, which
+// `break outer` and `continue outer` refer to.
+type LabeledStmt struct {
+	Span
+	Label *Ident
+
+	// A [*ForStmt], [*WhileStmt] or [*RepeatStmt].
+	Loop Stmt
+}
+
+// A `defer { ... }` statement, whose block runs when the enclosing block
+// ends, however it ends.
+type DeferStmt struct {
+	Span
+	Body *Block
+}
+
+// A `repeat { ... } while cond` loop, which runs its body at least once.
+type RepeatStmt struct {
+	Span
+	Body *Block
+	Cond Expr
+}
 
 func (*Block) stmtNode()         {}
 func (*LetStmt) stmtNode()       {}
@@ -549,6 +583,9 @@ func (*WhileStmt) stmtNode()     {}
 func (*ForStmt) stmtNode()       {}
 func (*YieldStmt) stmtNode()     {}
 func (*LocalFuncStmt) stmtNode() {}
+func (*LabeledStmt) stmtNode()   {}
+func (*DeferStmt) stmtNode()     {}
+func (*RepeatStmt) stmtNode()    {}
 func (*ReturnStmt) stmtNode()    {}
 func (*ThrowStmt) stmtNode()     {}
 func (*BreakStmt) stmtNode()     {}

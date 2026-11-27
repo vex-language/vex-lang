@@ -1,7 +1,6 @@
 package codegen
 
 import (
-	"fmt"
 	"strings"
 
 	"github.com/vex-language/vex-lang/compiler/ast"
@@ -22,9 +21,7 @@ func (g *gen) streamFunction(f *types.Func) {
 	g.line("")
 	g.line("static void bd_%s(%s) {", name, strings.Join(params, ", "))
 	g.ind++
-	for _, s := range f.Decl.Body.Stmts {
-		g.stmt(s)
-	}
+	g.stmtsIn(f.Decl.Body.Stmts, nil)
 	g.ind--
 	g.line("}")
 
@@ -81,21 +78,10 @@ func (g *gen) forAwait(s *ast.ForStmt) {
 		g.letBind(s.Pattern, g.varName(elem))
 	}
 	g.ind--
-	g.streams = append(g.streams, st)
+	g.loopOf(s.Body).stream = st
 	g.body(s.Body)
-	g.streams = g.streams[:len(g.streams)-1]
 	g.line("}")
 	g.line("vx_stream_stop(%s);", st)
 	g.ind--
 	g.line("}")
-}
-
-// Returns the C statements that stop the streams of the for await loops
-// a return leaves.
-func (g *gen) leaving() string {
-	var b strings.Builder
-	for i := len(g.streams) - 1; i >= 0; i-- {
-		fmt.Fprintf(&b, "vx_stream_stop(%s); ", g.streams[i])
-	}
-	return b.String()
 }
