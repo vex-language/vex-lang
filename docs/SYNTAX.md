@@ -736,7 +736,7 @@ fn helper() { }                         // private to models
 - `vex:` modules come with the compiler:
   - `vex:math`: `abs`, `min`, `max`, `clamp`, `pow` and `gcd` for integers and comparable values; `sqrt`, `cbrt`, `powf`, `exp`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `hypot`, `floor`, `ceil`, `round`, `trunc`, `absf` and `pi()` for floats
   - `vex:strings`: `repeat`, `join`, `padLeft`, `padRight`
-  - `vex:time`: `nanos()` for measuring, `unix()` for the date, and `sleep(ms)`, a future that completes after `ms` milliseconds
+  - `vex:time`: `nanos()` for measuring, `unix()` for the date, `sleep(ms)`, a future that completes after `ms` milliseconds, and `timeout(future, ms)` (see [Cancellation](#cancellation-and-timeouts))
   - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, and failures throw an `Error` naming the path and the reason
   - `vex:isolate`: `run` and `spawn`, which start work on other cores (see Isolates), and `cores()`
   - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status)
@@ -1239,7 +1239,7 @@ let first = try await any([fetch("x.com"), fetch("y.com")])   // the first to fi
 - `Future<T>` holds a value of `T` once it is done; `Future<T, E>` can also fail with `E`, which is `Error` or an enum. A future can be stored, passed and awaited any number of times.
 - `await` works on a call of an async function, which runs it here, or on any future. Code that can fail needs `try`, `try?` or `try ... catch` around the await, as with other calls.
 - `all(futures)` gives a future of every value, failing at the first error; with `Future<void>` it gives `Future<void>`. `any(futures)` gives the first to finish.
-- `async fn main()` runs as the first task. The program ends when main is done and nothing else is pending: tasks still running and timers keep it alive. A plain `fn main()` can start tasks too, and they run after it returns.
+- `async fn main()` runs as the first task. The program ends when main is done and nothing else is pending: tasks still running keep it alive, and so do the timers they wait for. A plain `fn main()` can start tasks too, and they run after it returns.
 - `run(future)` waits for a future from code that isn't async, running the other tasks meanwhile: `let page = try run(fetch("a.com"))`. Async functions use `await` instead.
 - Methods, static methods and interface methods can be async; `extern fn` and `export fn` can't be. A struct method that implements an async interface method must be async too.
 - Each task has its own small stack, so an `await` deep inside nested calls costs no more than one at the top, and code that doesn't await pays nothing.
@@ -1272,6 +1272,30 @@ let tear = repo.find            // async fn(int) -> User?
 - A closure is async when written `async fn(...)`, or when it is passed or assigned where an async function is expected, such as a trailing block. Only async closures can `await`.
 - A plain function can be used where an async one is expected; it simply never waits. An async function can't be used where a plain one is expected.
 - Async methods can be torn off like other methods, and `isolate.run` and `isolate.spawn` take async closures and functions, running them on the isolate's own loop.
+
+**Cancellation and timeouts.** `f.cancel()` stops the task behind a future. A timeout gives `nil` when the time runs out, and cancels the late task.
+
+```swift
+let req = fetch(url)
+req.cancel()                    // fetch stops at its next await
+println(req.isCancelled)        // true
+
+let page = await time.timeout(fetch(url), 5000) ?? "offline"
+
+async fn loadScreen() {
+    let a = fetch("a")          // started by loadScreen
+    let b = fetch("b")
+    show(await a, await b)
+}
+let screen = loadScreen()
+screen.cancel()                 // cancels a and b too
+```
+
+- A cancelled task stops at its next `await` that waits for a future or a timer; the code after it never runs. Work that never awaits runs to its end.
+- A task waiting for a cancelled future stops too, so cancellation reaches the code that needed the result. In code that isn't async, `run` of a cancelled future stops the program with an error; check `f.isCancelled` first.
+- Cancelling a task also cancels every task it started that is still running, and theirs in turn.
+- `time.timeout(f, ms)` is a future of the value as an optional: the value when `f` finishes in time, otherwise `nil`. Errors from `f` still need `try`. For a `Future<void>` it gives whether `f` finished. A future whose value is already optional can't be timed out, since `nil` would be ambiguous.
+- Cancelling a future that is already done does nothing. A future from `isolate.run` can be cancelled, which drops its result, but the other isolate finishes its work.
 
 ## Isolates
 
