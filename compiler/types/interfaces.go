@@ -662,7 +662,11 @@ func ifaceNames(t Type) []string {
 func (c *checker) meetsConstraints(p *TypeParam, t Type, at ast.Node, callee string, bound map[*TypeParam]Type) bool {
 	for _, cst := range p.Constraints {
 		if !satisfies(t, cst) {
-			c.errorAt(at, constraintHint(cst), "%s needs %s to be %s, but %s isn't", callee, p.Name, cst, t)
+			hint := constraintHint(cst)
+			if cst == "Codable" {
+				hint = codableHint(t)
+			}
+			c.errorAt(at, hint, "%s needs %s to be %s, but %s isn't", callee, p.Name, cst, t)
 			return false
 		}
 	}

@@ -104,6 +104,11 @@ type gen struct {
 
 	// The value type of the stream function being generated.
 	yields types.Type
+
+	// The enums of the JSON module, and the functions converting values
+	// to and from them, which come after the constants they may use.
+	json, jsonErr *types.Enum
+	jsonDefs      strings.Builder
 }
 
 // Returns the C source of the program described by [info]. [srcName] is
@@ -222,6 +227,7 @@ func Generate(info *types.Info, srcName string) string {
 	g.b.WriteString(g.codecDefs.String())
 	g.constsStruct(info)
 	g.varsStruct(info)
+	g.b.WriteString(g.jsonDefs.String())
 	g.b.WriteString(defs.String())
 	g.b.WriteString(g.lams.String())
 	g.b.WriteString(consts)
@@ -2106,6 +2112,10 @@ func (g *gen) builtin(c *types.Call, result types.Type, line int) string {
 			return g.hashCall(ts, cs)
 		case "str.radix":
 			return fmt.Sprintf("vx_int_str_radix(%s, %s, %d)", cs[0], cs[1], line)
+		case "jsonOf":
+			return g.toJSON(g.info.Types[c.Args[0]], cs[0])
+		case "jsonAs":
+			return fmt.Sprintf("%s(%s, NULL, &%s)", g.fromJSONFunc(result), cs[0], g.tries[len(g.tries)-1].err)
 		case "int.parse", "float.parse":
 			t, v := ctype(result), g.temp()
 			if c.Builtin == "int.parse" {

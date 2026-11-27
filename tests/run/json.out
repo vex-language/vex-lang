@@ -1,0 +1,62 @@
+{"name":"Ann","age":30,"tags":["a","b"],"email":"a@x.io","role":"admin","scores":{"m":1.5},"shape":{"rect":{"w":2,"h":3}}}
+{
+  "name": "Ann",
+  "age": 30,
+  "tags": [
+    "a",
+    "b"
+  ],
+  "email": "a@x.io",
+  "role": "admin",
+  "scores": {
+    "m": 1.5
+  },
+  "shape": {
+    "rect": {
+      "w": 2,
+      "h": 3
+    }
+  }
+}
+User(name: "Ann", age: 30, tags: ["a", "b"], email: "a@x.io", role: Role.admin, scores: ["m": 1.5], shape: Shape.rect(w: 2, h: 3))
+[User(name: "Bo", age: 4, tags: [], email: nil, role: Role.guest, scores: [:], shape: Shape.circle(radius: 2.0))]
+nil
+[0].age: expected an int, found a string
+name: missing
+invalid JSON at line 1, column 12: expected a key in quotes
+unknown case 'boss' of Role
+{"a":[1,2.5,true,null,"s\né"],"b":{}} s
+é 2.5
+{
+  "a": [
+    1,
+    2.5,
+    true,
+    null,
+    "s\né"
+  ],
+  "b": {}
+}
+0
+{"name":"x","days":["2024-5-1"]}
+Trip(name: "x", days: [Day(year: 2024, month: 5, day: 1)])
+days[1]: bad date 'oops'
+{"item":[1,2],"count":1} Box<[int]>(item: [3], count: 1)
+"2024-5-1" Trip(name: "x", days: [Day(year: 2024, month: 5, day: 1)])
+true false true
+5 [1.0,0.1,1e+21,-0.0] "a\"b\\\u0001"
+invalid JSON at line 1, column 1: expected a value, found the end
+invalid JSON at line 1, column 3: expected a value, found the end
+invalid JSON at line 1, column 4: unexpected character
+invalid JSON at line 1, column 6: expected ':' after the key
+invalid JSON at line 1, column 2: unexpected text after the value
+invalid JSON at line 1, column 1: bad number
+invalid JSON at line 1, column 1: bad number
+invalid JSON at line 1, column 1: unclosed string
+invalid JSON at line 1, column 3: bad escape in a string
+invalid JSON at line 1, column 4: expected ',' or ']'
+invalid JSON at line 1, column 1: unexpected character
+invalid JSON at line 1, column 3: unexpected text after the value
+invalid JSON at line 1, column 3: bad \u escape
+invalid JSON at line 1, column 2: expected a key in quotes
+"😀 é" 1.2345678901234567e+19 0

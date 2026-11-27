@@ -8,7 +8,7 @@ import (
 )
 
 // The built-in constraints a type parameter can require.
-var constraintNames = []string{"Equatable", "Comparable", "Hashable"}
+var constraintNames = []string{"Equatable", "Comparable", "Hashable", "Codable"}
 
 // How deeply generic code may instantiate more generic code, which stops
 // functions like `fn f<T>(x: T) { f([x]) }` from creating types forever.
@@ -98,7 +98,7 @@ func (c *checker) typeParams(tps []*ast.TypeParam) []*TypeParam {
 				}
 				hint := didYouMean(id.Name, names)
 				if hint == "" {
-					hint = "use an interface, or Equatable (==), Comparable (< >) or Hashable (map keys)"
+					hint = "use an interface, or Equatable (==), Comparable (< >), Hashable (map keys) or Codable (JSON)"
 				}
 				c.errorAt(id, hint, "unknown constraint '%s'", id.Name)
 				continue
@@ -736,6 +736,8 @@ func constraintHint(cst string) string {
 		return "Comparable types are int, float, string, enums whose cases carry no values and structs that define operator < and operator =="
 	case "Hashable":
 		return "Hashable types are int, string, bool, enums whose cases carry no values, records of those, and structs and enums that list Hashable"
+	case "Codable":
+		return codableHint(Void)
 	}
 	return "Equatable types are int, float, bool, string, enums whose cases carry no values, structs that define operator ==, structs and enums that list Equatable or Hashable, and lists, maps, optionals and records of those"
 }
@@ -749,6 +751,8 @@ func satisfies(t Type, constraint string) bool {
 		return ordered(t)
 	case "Hashable":
 		return mapKeyType(t)
+	case "Codable":
+		return codable(t)
 	}
 	return false
 }

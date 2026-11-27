@@ -1,5 +1,6 @@
 // Runtime library compiled into every Vex program.
 
+#include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
 #include <pthread.h>
@@ -190,6 +191,9 @@ static VX_TLS char *vx_stack_base;
 // collector marks them, since only the stack is scanned otherwise.
 static VX_TLS char **vx_fs_entries;
 static VX_TLS int64_t vx_fs_entry_count;
+
+// The text read by the last vx_json_scan, which its events point into.
+static VX_TLS const char *vx_json_src;
 
 // Closures handed to C as callback contexts. They stay alive, since C
 // may keep them, until C passes the context to vex_release.
@@ -512,6 +516,7 @@ static void vx_mark_remembered(bool major) {
 static void vx_mark_roots(void) {
     vx_mark_stack();
     vx_mark_range((const char *)&vx_fs_entries, (const char *)(&vx_fs_entries + 1));
+    vx_mark_range((const char *)&vx_json_src, (const char *)(&vx_json_src + 1));
     if (vx_kept) vx_mark_range((const char *)vx_kept, (const char *)(vx_kept + vx_kept_len));
     if (vx_roots_lo) vx_mark_range(vx_roots_lo, vx_roots_hi);
     if (vx_vars_lo) vx_mark_range(vx_vars_lo, vx_vars_hi);
@@ -2160,6 +2165,337 @@ static int64_t vx_fs_list_open(const char *path) {
 
 static const char *vx_fs_list_name(int64_t i) {
     return i >= 0 && i < vx_fs_entry_count ? vx_fs_entries[i] : NULL;
+}
+
+// JSON is read in two steps: vx_json_scan checks the text and records it
+// as a flat list of events, which Vex code walks to build its values. An
+// event points into the text; strings and numbers are decoded when read.
+enum { VX_J_NULL, VX_J_TRUE, VX_J_FALSE, VX_J_INT, VX_J_FLOAT, VX_J_STR, VX_J_LIST, VX_J_OBJ, VX_J_END };
+
+typedef struct { int8_t kind; int64_t start, end; } vx_json_event;
+
+static VX_TLS vx_json_event *vx_json_events;
+static VX_TLS int64_t vx_json_len, vx_json_cap;
+static VX_TLS char vx_json_err[160];
+static VX_TLS int64_t vx_json_err_line, vx_json_err_col;
+
+static void vx_json_add(int8_t kind, int64_t start, int64_t end) {
+    if (vx_json_len == vx_json_cap) {
+        vx_json_cap = vx_json_cap ? vx_json_cap * 2 : 256;
+        vx_json_events = realloc(vx_json_events, (size_t)vx_json_cap * sizeof(vx_json_event));
+        if (!vx_json_events) { fputs("error: out of memory\n", stderr); exit(1); }
+    }
+    vx_json_events[vx_json_len++] = (vx_json_event){kind, start, end};
+}
+
+// Reports a scan error at byte [at] of [s], with its line and column.
+static bool vx_json_fail(const char *s, int64_t at, const char *what) {
+    int64_t line = 1, col = 1;
+    for (int64_t i = 0; i < at; i++) {
+        if (s[i] == '\n') { line++; col = 1; } else if (((unsigned char)s[i] & 0xC0) != 0x80) col++;
+    }
+    snprintf(vx_json_err, sizeof vx_json_err, "%s", what);
+    vx_json_err_line = line;
+    vx_json_err_col = col;
+    return false;
+}
+
+static void vx_json_space(const char *s, int64_t n, int64_t *i) {
+    while (*i < n && (s[*i] == ' ' || s[*i] == '\t' || s[*i] == '\n' || s[*i] == '\r')) (*i)++;
+}
+
+static bool vx_json_string(const char *s, int64_t n, int64_t *i) {
+    int64_t start = ++*i;
+    while (*i < n && s[*i] != '"') {
+        unsigned char c = (unsigned char)s[*i];
+        if (c < 0x20) return vx_json_fail(s, *i, "control character in a string");
+        if (c == '\\') {
+            (*i)++;
+            if (*i >= n) break;
+            switch (s[*i]) {
+            case '"': case '\\': case '/': case 'b': case 'f': case 'n': case 'r': case 't': break;
+            case 'u':
+                for (int k = 1; k <= 4; k++) {
+                    if (*i + k >= n || !isxdigit((unsigned char)s[*i + k])) return vx_json_fail(s, *i, "bad \\u escape");
+                }
+                *i += 4;
+                break;
+            default: return vx_json_fail(s, *i, "bad escape in a string");
+            }
+        }
+        (*i)++;
+    }
+    if (*i >= n) return vx_json_fail(s, start - 1, "unclosed string");
+    vx_json_add(VX_J_STR, start, *i);
+    (*i)++;
+    return true;
+}
+
+static bool vx_json_number(const char *s, int64_t n, int64_t *i) {
+    int64_t start = *i;
+    bool frac = false;
+    if (s[*i] == '-') (*i)++;
+    if (*i >= n || !isdigit((unsigned char)s[*i])) return vx_json_fail(s, start, "bad number");
+    if (s[*i] == '0') (*i)++;
+    else while (*i < n && isdigit((unsigned char)s[*i])) (*i)++;
+    if (*i < n && s[*i] == '.') {
+        frac = true;
+        (*i)++;
+        if (*i >= n || !isdigit((unsigned char)s[*i])) return vx_json_fail(s, start, "bad number");
+        while (*i < n && isdigit((unsigned char)s[*i])) (*i)++;
+    }
+    if (*i < n && (s[*i] == 'e' || s[*i] == 'E')) {
+        frac = true;
+        (*i)++;
+        if (*i < n && (s[*i] == '+' || s[*i] == '-')) (*i)++;
+        if (*i >= n || !isdigit((unsigned char)s[*i])) return vx_json_fail(s, start, "bad number");
+        while (*i < n && isdigit((unsigned char)s[*i])) (*i)++;
+    }
+    if (!frac) {
+        errno = 0;
+        char buf[32];
+        int64_t len = *i - start;
+        if (len < (int64_t)sizeof buf) {
+            memcpy(buf, s + start, (size_t)len);
+            buf[len] = 0;
+            (void)strtoll(buf, NULL, 10);
+        }
+        // Whole numbers too big for an int are kept as floats.
+        frac = len >= (int64_t)sizeof buf || errno == ERANGE;
+    }
+    vx_json_add(frac ? VX_J_FLOAT : VX_J_INT, start, *i);
+    return true;
+}
+
+static bool vx_json_value(const char *s, int64_t n, int64_t *i, int depth) {
+    vx_json_space(s, n, i);
+    if (*i >= n) return vx_json_fail(s, *i, "expected a value, found the end");
+    if (depth > 512) return vx_json_fail(s, *i, "nested too deeply");
+    char c = s[*i];
+    if (c == '{' || c == '[') {
+        bool obj = c == '{';
+        char close = obj ? '}' : ']';
+        vx_json_add(obj ? VX_J_OBJ : VX_J_LIST, *i, *i + 1);
+        (*i)++;
+        vx_json_space(s, n, i);
+        if (*i < n && s[*i] == close) {
+            vx_json_add(VX_J_END, *i, *i + 1);
+            (*i)++;
+            return true;
+        }
+        for (;;) {
+            if (obj) {
+                vx_json_space(s, n, i);
+                if (*i >= n || s[*i] != '"') return vx_json_fail(s, *i, "expected a key in quotes");
+                if (!vx_json_string(s, n, i)) return false;
+                vx_json_space(s, n, i);
+                if (*i >= n || s[*i] != ':') return vx_json_fail(s, *i, "expected ':' after the key");
+                (*i)++;
+            }
+            if (!vx_json_value(s, n, i, depth + 1)) return false;
+            vx_json_space(s, n, i);
+            if (*i < n && s[*i] == ',') { (*i)++; continue; }
+            if (*i < n && s[*i] == close) break;
+            return vx_json_fail(s, *i, obj ? "expected ',' or '}'" : "expected ',' or ']'");
+        }
+        vx_json_add(VX_J_END, *i, *i + 1);
+        (*i)++;
+        return true;
+    }
+    if (c == '"') return vx_json_string(s, n, i);
+    if (c == '-' || isdigit((unsigned char)c)) return vx_json_number(s, n, i);
+    static const struct { const char *word; int8_t kind; } words[] = {{"null", VX_J_NULL}, {"true", VX_J_TRUE}, {"false", VX_J_FALSE}};
+    for (int k = 0; k < 3; k++) {
+        size_t len = strlen(words[k].word);
+        if ((size_t)(n - *i) >= len && memcmp(s + *i, words[k].word, len) == 0) {
+            vx_json_add(words[k].kind, *i, *i + (int64_t)len);
+            *i += (int64_t)len;
+            return true;
+        }
+    }
+    return vx_json_fail(s, *i, "unexpected character");
+}
+
+// Checks [text] as JSON and records its events. Returns how many there
+// are, or -1 with the reason in vx_json_error.
+static int64_t vx_json_scan(vx_str text) {
+    vx_json_src = text.ptr;
+    vx_json_len = 0;
+    int64_t i = 0;
+    if (!vx_json_value(text.ptr, text.len, &i, 0)) return -1;
+    vx_json_space(text.ptr, text.len, &i);
+    if (i < text.len) {
+        vx_json_fail(text.ptr, i, "unexpected text after the value");
+        return -1;
+    }
+    return vx_json_len;
+}
+
+static vx_str vx_json_error(void) { return vx_str_from_c(vx_json_err); }
+
+static int64_t vx_json_error_line(void) { return vx_json_err_line; }
+
+static int64_t vx_json_error_column(void) { return vx_json_err_col; }
+
+// A step from the outermost JSON value to the one being read: a field
+// name, or an item index when [key] has no pointer.
+typedef struct vx_jpath { const struct vx_jpath *up; vx_str key; int64_t index; } vx_jpath;
+
+// Returns [p] written as in `users[2].age`; empty for the outermost value.
+static vx_str vx_json_path(const vx_jpath *p) {
+    if (!p) return VX_LIT("");
+    vx_str up = vx_json_path(p->up);
+    char tail[32];
+    vx_str seg;
+    if (p->key.ptr) {
+        seg = p->key;
+    } else {
+        int n = snprintf(tail, sizeof tail, "[%lld]", (long long)p->index);
+        seg = (vx_str){tail, n};
+    }
+    bool dot = p->key.ptr && up.len > 0;
+    int64_t len = up.len + dot + seg.len;
+    char *buf = vx_alloc_atomic((size_t)len + 1);
+    memcpy(buf, up.ptr, (size_t)up.len);
+    if (dot) buf[up.len] = '.';
+    memcpy(buf + up.len + dot, seg.ptr, (size_t)seg.len);
+    buf[len] = 0;
+    return (vx_str){buf, len};
+}
+
+// Returns the path [inner], found inside the value at [outer].
+static vx_str vx_json_join(vx_str outer, vx_str inner) {
+    if (outer.len == 0) return inner;
+    if (inner.len == 0) return outer;
+    bool dot = inner.ptr[0] != '[';
+    int64_t len = outer.len + dot + inner.len;
+    char *buf = vx_alloc_atomic((size_t)len + 1);
+    memcpy(buf, outer.ptr, (size_t)outer.len);
+    if (dot) buf[outer.len] = '.';
+    memcpy(buf + outer.len + dot, inner.ptr, (size_t)inner.len);
+    buf[len] = 0;
+    return (vx_str){buf, len};
+}
+
+// The kinds of JSON value, in the order of the cases of `Json`.
+static const char *const vx_json_kinds[] = {"null", "a bool", "an int", "a float", "a string", "a list", "an object"};
+
+// Returns the reason a value of kind [tag] doesn't fit where [want] is
+// expected.
+static vx_str vx_json_want(const char *want, int32_t tag) {
+    char buf[160];
+    snprintf(buf, sizeof buf, "expected %s, found %s", want, tag >= 0 && tag < 7 ? vx_json_kinds[tag] : "a value");
+    return vx_str_from_c(buf);
+}
+
+// Returns the reason [name] doesn't name a case of the enum [type].
+static vx_str vx_json_unknown_case(vx_str name, const char *type) {
+    size_t n = (size_t)name.len + strlen(type) + 32;
+    char *buf = vx_alloc_atomic(n);
+    int len = snprintf(buf, n, "unknown case '%.*s' of %s", (int)name.len, name.ptr, type);
+    return (vx_str){buf, len};
+}
+
+static int64_t vx_json_kind(int64_t i) { return vx_json_events[i].kind; }
+
+static int64_t vx_json_int(int64_t i) {
+    return strtoll(vx_json_src + vx_json_events[i].start, NULL, 10);
+}
+
+static double vx_json_float(int64_t i) {
+    return strtod(vx_json_src + vx_json_events[i].start, NULL);
+}
+
+// Writes code point [cp] to [out] as UTF-8, returning the bytes written.
+static int vx_json_utf8(char *out, uint32_t cp) {
+    if (cp < 0x80) { out[0] = (char)cp; return 1; }
+    if (cp < 0x800) { out[0] = (char)(0xC0 | cp >> 6); out[1] = (char)(0x80 | (cp & 0x3F)); return 2; }
+    if (cp < 0x10000) {
+        out[0] = (char)(0xE0 | cp >> 12); out[1] = (char)(0x80 | (cp >> 6 & 0x3F)); out[2] = (char)(0x80 | (cp & 0x3F));
+        return 3;
+    }
+    out[0] = (char)(0xF0 | cp >> 18); out[1] = (char)(0x80 | (cp >> 12 & 0x3F));
+    out[2] = (char)(0x80 | (cp >> 6 & 0x3F)); out[3] = (char)(0x80 | (cp & 0x3F));
+    return 4;
+}
+
+// Returns the string of event [i], with its escapes decoded.
+static vx_str vx_json_text(int64_t i) {
+    const char *s = vx_json_src + vx_json_events[i].start;
+    int64_t n = vx_json_events[i].end - vx_json_events[i].start;
+    if (!memchr(s, '\\', (size_t)n)) return vx_str_new(s, n);
+    char *buf = vx_alloc_atomic((size_t)n + 1);
+    int64_t len = 0;
+    for (int64_t k = 0; k < n; k++) {
+        if (s[k] != '\\') { buf[len++] = s[k]; continue; }
+        char e = s[++k];
+        switch (e) {
+        case 'b': buf[len++] = '\b'; break;
+        case 'f': buf[len++] = '\f'; break;
+        case 'n': buf[len++] = '\n'; break;
+        case 'r': buf[len++] = '\r'; break;
+        case 't': buf[len++] = '\t'; break;
+        case 'u': {
+            uint32_t cp = (uint32_t)strtoul((char[5]){s[k + 1], s[k + 2], s[k + 3], s[k + 4], 0}, NULL, 16);
+            k += 4;
+            if (cp >= 0xD800 && cp < 0xDC00 && k + 6 < n && s[k + 1] == '\\' && s[k + 2] == 'u') {
+                uint32_t lo = (uint32_t)strtoul((char[5]){s[k + 3], s[k + 4], s[k + 5], s[k + 6], 0}, NULL, 16);
+                if (lo >= 0xDC00 && lo < 0xE000) {
+                    cp = 0x10000 + ((cp - 0xD800) << 10) + (lo - 0xDC00);
+                    k += 6;
+                }
+            }
+            if (cp >= 0xD800 && cp < 0xE000) cp = 0xFFFD;
+            len += vx_json_utf8(buf + len, cp);
+            break;
+        }
+        default: buf[len++] = e;
+        }
+    }
+    buf[len] = 0;
+    return (vx_str){buf, len};
+}
+
+// Returns [s] as a JSON string literal, quotes included.
+static vx_str vx_json_quote(vx_str s) {
+    int64_t extra = 2;
+    for (int64_t i = 0; i < s.len; i++) {
+        unsigned char c = (unsigned char)s.ptr[i];
+        if (c == '"' || c == '\\' || c == '\n' || c == '\r' || c == '\t') extra++;
+        else if (c < 0x20) extra += 5;
+    }
+    char *buf = vx_alloc_atomic((size_t)(s.len + extra) + 1);
+    int64_t len = 0;
+    buf[len++] = '"';
+    for (int64_t i = 0; i < s.len; i++) {
+        unsigned char c = (unsigned char)s.ptr[i];
+        switch (c) {
+        case '"': buf[len++] = '\\'; buf[len++] = '"'; break;
+        case '\\': buf[len++] = '\\'; buf[len++] = '\\'; break;
+        case '\n': buf[len++] = '\\'; buf[len++] = 'n'; break;
+        case '\r': buf[len++] = '\\'; buf[len++] = 'r'; break;
+        case '\t': buf[len++] = '\\'; buf[len++] = 't'; break;
+        default:
+            if (c < 0x20) len += snprintf(buf + len, 7, "\\u%04x", c);
+            else buf[len++] = (char)c;
+        }
+    }
+    buf[len++] = '"';
+    buf[len] = 0;
+    return (vx_str){buf, len};
+}
+
+// Returns [v] written as a JSON number, or "null" when it isn't finite.
+static vx_str vx_json_number_str(double v) {
+    if (!isfinite(v)) return VX_LIT("null");
+    char buf[32];
+    int n = 0;
+    for (int p = 15; p <= 17; p++) {
+        n = snprintf(buf, sizeof buf, "%.*g", p, v);
+        if (strtod(buf, NULL) == v) break;
+    }
+    if (!strpbrk(buf, ".eEn")) { buf[n++] = '.'; buf[n++] = '0'; buf[n] = 0; }
+    return vx_str_new(buf, n);
 }
 
 static int64_t vx_os_argc(void) { return vx_argc; }

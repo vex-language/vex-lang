@@ -1,0 +1,233 @@
+/// Reading and writing JSON.
+///
+/// [encode] and [decode] convert between JSON text and values whose types
+/// list Codable. [parse] reads JSON of any shape into a [Json] value, and
+/// [write] turns one back into text.
+
+extern fn cScan(text: string) -> int as "vx_json_scan"
+extern fn cError() -> string as "vx_json_error"
+extern fn cErrorLine() -> int as "vx_json_error_line"
+extern fn cErrorColumn() -> int as "vx_json_error_column"
+extern fn cKind(i: int) -> int as "vx_json_kind"
+extern fn cInt(i: int) -> int as "vx_json_int"
+extern fn cFloat(i: int) -> float as "vx_json_float"
+extern fn cText(i: int) -> string as "vx_json_text"
+extern fn cQuote(s: string) -> string as "vx_json_quote"
+extern fn cNumber(v: float) -> string as "vx_json_number_str"
+
+/// A JSON value of any shape.
+pub enum Json: Codable, Equatable {
+    null
+    boolean(value: bool)
+    integer(value: int)
+    number(value: float)
+    text(value: string)
+    list(items: [Json])
+    object(fields: [string: Json])
+
+    /// Reports whether the value is `null`.
+    pub get isNull -> bool => match self {
+        null => true
+        _ => false
+    }
+
+    /// The value as a bool, or nil when it isn't one.
+    pub get asBool -> bool? => match self {
+        boolean(v) => v
+        _ => nil
+    }
+
+    /// The value as an int, or nil when it isn't a whole number.
+    pub get asInt -> int? => match self {
+        integer(v) => v
+        _ => nil
+    }
+
+    /// The value as a float, or nil when it isn't a number.
+    pub get asFloat -> float? => match self {
+        integer(v) => float(v)
+        number(v) => v
+        _ => nil
+    }
+
+    /// The value as a string, or nil when it isn't one.
+    pub get asString -> string? => match self {
+        text(v) => v
+        _ => nil
+    }
+
+    /// The items of a list, or nil when the value isn't one.
+    pub get asList -> [Json]? => match self {
+        list(items) => items
+        _ => nil
+    }
+
+    /// The fields of an object, or nil when the value isn't one.
+    pub get asObject -> [string: Json]? => match self {
+        object(fields) => fields
+        _ => nil
+    }
+
+    /// Returns the field called [key] of an object, or nil.
+    pub fn get(key: string) -> Json? => match self {
+        object(fields) => fields[key]
+        _ => nil
+    }
+
+    /// Returns the item at [index] of a list, or nil.
+    pub fn at(index: int) -> Json? {
+        guard let items = asList, index >= 0, index < items.len else {
+            return nil
+        }
+        return items[index]
+    }
+
+    /// Returns the value as compact JSON text.
+    pub fn toString() -> string => write(self)
+}
+
+/// Returns the JSON text for [value]. With an [indent], objects and lists
+/// are spread over lines indented by that many spaces.
+pub fn encode<T: Codable>(value: T, indent: int = 0) -> string => write(jsonOf(value), indent: indent)
+
+/// Returns the value of type `T` that the JSON [text] describes.
+pub fn decode<T: Codable>(text: string) throws(JsonError) -> T {
+    return try jsonAs(try parse(text))
+}
+
+/// Returns [value] as a [Json] value.
+pub fn toJson<T: Codable>(value: T) -> Json => jsonOf(value)
+
+/// Returns the value of type `T` that [json] describes.
+pub fn fromJson<T: Codable>(json: Json) throws(JsonError) -> T {
+    return try jsonAs(json)
+}
+
+/// Why JSON text couldn't be read.
+pub enum JsonError {
+    /// The text isn't valid JSON.
+    syntax(reason: string, line: int, column: int)
+
+    /// The JSON is valid but doesn't fit the type asked for. [path] names
+    /// where, such as `users[2].age`; it is empty for the whole value.
+    mismatch(path: string, reason: string)
+
+    /// Returns the error as a message.
+    pub fn toString() -> string => match self {
+        syntax(reason, line, column) => "invalid JSON at line {line}, column {column}: {reason}"
+        mismatch(path, reason) => if path == "" { reason } else { "{path}: {reason}" }
+    }
+}
+
+/// Returns the [Json] value of the JSON [text].
+pub fn parse(text: string) throws(JsonError) -> Json {
+    if cScan(text) < 0 {
+        throw JsonError.syntax(reason: cError(), line: cErrorLine(), column: cErrorColumn())
+    }
+    let r = Reader()
+    return r.value()
+}
+
+/// Walks the events of the last scan, building values.
+struct Reader {
+    pos = 0
+
+    fn value() -> Json {
+        let i = pos
+        pos += 1
+        return match cKind(i) {
+            0 => Json.null
+            1 => Json.boolean(value: true)
+            2 => Json.boolean(value: false)
+            3 => Json.integer(value: cInt(i))
+            4 => Json.number(value: cFloat(i))
+            5 => Json.text(value: cText(i))
+            6 => list()
+            _ => object()
+        }
+    }
+
+    fn list() -> Json {
+        var items: [Json] = []
+        while cKind(pos) != 8 {
+            items.push(value())
+        }
+        pos += 1
+        return Json.list(items: items)
+    }
+
+    fn object() -> Json {
+        var fields: [string: Json] = [:]
+        while cKind(pos) != 8 {
+            let key = cText(pos)
+            pos += 1
+            fields[key] = value()
+        }
+        pos += 1
+        return Json.object(fields: fields)
+    }
+}
+
+/// Returns [json] as JSON text, indented by [indent] spaces per level when
+/// it is more than 0.
+pub fn write(json: Json, indent: int = 0) -> string {
+    let out: [string] = []
+    writeTo(json, indent, 0, out)
+    return out.join("")
+}
+
+fn writeTo(json: Json, indent: int, depth: int, out: [string]) {
+    match json {
+        null => out.push("null")
+        boolean(v) => out.push(if v { "true" } else { "false" })
+        integer(v) => out.push(str(v))
+        number(v) => out.push(cNumber(v))
+        text(v) => out.push(cQuote(v))
+        list(items) => {
+            if items.len == 0 {
+                out.push("[]")
+                return
+            }
+            out.push("[")
+            for i, item in items {
+                if i > 0 {
+                    out.push(",")
+                }
+                newline(indent, depth + 1, out)
+                writeTo(item, indent, depth + 1, out)
+            }
+            newline(indent, depth, out)
+            out.push("]")
+        }
+        object(fields) => {
+            if fields.len == 0 {
+                out.push("\{\}")
+                return
+            }
+            out.push("\{")
+            var first = true
+            for key, value in fields {
+                if !first {
+                    out.push(",")
+                }
+                first = false
+                newline(indent, depth + 1, out)
+                out.push(cQuote(key))
+                out.push(if indent > 0 { ": " } else { ":" })
+                writeTo(value, indent, depth + 1, out)
+            }
+            newline(indent, depth, out)
+            out.push("\}")
+        }
+    }
+}
+
+fn newline(indent: int, depth: int, out: [string]) {
+    if indent <= 0 {
+        return
+    }
+    out.push("\n")
+    for _ in 0..indent * depth {
+        out.push(" ")
+    }
+}
