@@ -435,7 +435,7 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 		}
 		if hint := mapMethodHint(recv, name); hint != "" {
 			c.errorAt(m.Name, hint, "%s has no method '%s'", recv, name)
-		} else if name == "len" || name == "keys" || name == "values" || name == "first" || name == "last" || name == "isEmpty" {
+		} else if name == "len" || name == "keys" || name == "values" || name == "first" || name == "last" || name == "isEmpty" || name == "isCancelled" {
 			c.errorAt(m.Name, "write it without (): ."+name, "%s is a property, not a method", name)
 		} else {
 			c.errorAt(m.Name, didYouMean(name, builtinMemberNames(recv)), "%s has no method '%s'", recv, name)
@@ -872,6 +872,9 @@ func builtinMember(recv Type, name string) *memberSig {
 		}
 		return nil
 	}
+	if _, ok := recv.(*Future); ok && name == "cancel" {
+		return &memberSig{nil, Void}
+	}
 	if ch, ok := recv.(*Channel); ok {
 		switch name {
 		case "send":
@@ -935,6 +938,9 @@ func builtinMemberNames(recv Type) []string {
 	}
 	if _, ok := recv.(*Channel); ok {
 		return []string{"send", "receive", "receiveSync", "close"}
+	}
+	if _, ok := recv.(*Future); ok {
+		return []string{"cancel", "isCancelled"}
 	}
 	if recv == Float {
 		return []string{"isNaN", "isFinite", "toFixed"}

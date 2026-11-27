@@ -1,0 +1,23 @@
+import "vex:time"
+
+async fn load() -> int? => nil
+async fn count() -> int => 1
+
+async fn main() {
+    let a = await time.timeout(load(), 10)
+    let b = await time.timeout(5, 10)
+    let c = await time.timeout(count(), "soon")
+    let d = await time.timeout(count())
+    let f = count()
+    f.cancel(1)
+    let g = f.isCancelled()
+    let h = f.done
+}
+
+// error: 7:32: time.timeout gives nil when the time runs out, so the future's value can't be optional itself
+// error: 8:32: time.timeout needs a future, found int
+// error: 9:41: the milliseconds must be int, found string
+// error: 10:19: time.timeout takes a future and the milliseconds to wait
+// error: 12:14: too many arguments: cancel takes 0 arguments
+// error: 13:15: isCancelled is a property, not a method
+// error: 14:15: Future<int> has no member 'done'

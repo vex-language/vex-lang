@@ -460,6 +460,9 @@ func (c *checker) moduleCall(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 	if m.Path == "vex:isolate" && (name == "run" || name == "spawn") {
 		return c.isolateCall(e, name, want)
 	}
+	if m.Path == "vex:time" && name == "timeout" {
+		return c.timeoutCall(e, want)
+	}
 	if len(e.TypeArgs) > 0 && m.genFuncs[name] == nil && m.genStructs[name] == nil {
 		c.errorAt(e.TypeArgs[0], "remove the <...>", "'%s.%s' is not generic, so it takes no type arguments", id.Module, name)
 	}
