@@ -26,6 +26,10 @@ var (
 	Bool   = &Basic{"bool"}
 	String = &Basic{"string"}
 
+	// A range of ints such as `0..10`, which a struct, enum or interface
+	// called Range hides.
+	Range = &Basic{"Range"}
+
 	// The result type of a function that returns nothing.
 	Void = &Basic{"void"}
 

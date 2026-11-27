@@ -222,6 +222,8 @@ func (c *checker) constExpr(e ast.Expr) bool {
 		return c.constExpr(e.X)
 	case *ast.BinaryExpr:
 		return c.constExpr(e.X) && c.constExpr(e.Y)
+	case *ast.RangeExpr:
+		return c.constExpr(e.Lo) && c.constExpr(e.Hi)
 	case *ast.RecordLit:
 		for _, f := range e.Fields {
 			if !c.constExpr(f.Value) {

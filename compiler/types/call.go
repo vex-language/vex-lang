@@ -975,6 +975,19 @@ func builtinMember(recv Type, name string) *memberSig {
 	if recv == Float && name == "toFixed" {
 		return &memberSig{[]slot{{name: "digits", typ: Int}}, String}
 	}
+	if recv == Range {
+		switch name {
+		case "contains":
+			return &memberSig{[]slot{{name: "value", typ: Int}}, Bool}
+		case "step":
+			return &memberSig{[]slot{{name: "by", typ: Int}}, Range}
+		case "reversed":
+			return &memberSig{nil, Range}
+		case "toList":
+			return &memberSig{nil, &List{Elem: Int}}
+		}
+		return nil
+	}
 	if recv == String {
 		switch name {
 		case "upper", "lower":
@@ -1020,6 +1033,9 @@ func builtinMemberNames(recv Type) []string {
 	}
 	if recv == Float {
 		return []string{"isNaN", "isFinite", "toFixed"}
+	}
+	if recv == Range {
+		return []string{"start", "end", "len", "isEmpty", "contains", "step", "reversed", "toList"}
 	}
 	if recv == String {
 		return []string{"len", "upper", "lower", "contains", "split", "replace", "trim", "trimStart", "trimEnd",
