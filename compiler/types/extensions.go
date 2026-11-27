@@ -159,6 +159,9 @@ func (c *checker) declareRecvFunc(d *ast.ExtensionDecl, md *ast.FuncDecl, params
 		return
 	case c.reserved(md.Name, "a method"):
 		return
+	case name == "toString" && md.Accessor == ast.Method:
+		c.errorAt(md.Name, "wrap the value in a struct with its own toString, or give the method another name", "%s always prints in its built-in form, so an extension can't add toString", recv)
+		return
 	case slices.Contains(builtinMemberNames(recv), name) || recv == String && name == "len":
 		c.errorAt(md.Name, "choose another name", "%s already has a member '%s'", recv, name)
 		return
