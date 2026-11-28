@@ -210,12 +210,25 @@ Goal: the same Vex app running on Android with real Android views.
 
 ## Phase 6: Developer experience (v0.6)
 
+Goal: editor support and a debugger on par with Flutter's. Tools that inspect running UI apps, such as DevTools, belong to the UI framework in the `vex-ui` repo.
+
+### Language tools (this repo)
+
 - [ ] **V-500** Hot reload on the simulator: reload code as a dynamic library, keep state (XL)
-- [ ] **V-501** VS Code extension: syntax highlighting, then an LSP (errors, go-to-definition, autocomplete) (L)
+- [ ] **V-501** Language server, `vex lsp`: errors as you type, hover, go-to-definition, find references, rename, autocomplete, signature help and quick fixes from the compiler's hints, for every editor (L)
 - [ ] **V-502** `vex fmt` code formatter (M)
 - [ ] **V-503** `vex new myapp` project template (S)
 - [ ] **V-505** `vex repl`: type a line, see its result (compiled behind the scenes) (M)
 - [ ] **V-504** Debugging: line info in the generated C (`#line`) so lldb shows `.vx` lines (M)
+- [ ] **V-506** Debug adapter, `vex dap`: breakpoints, stepping, call stacks and variables shown as Vex values over lldb, for any editor that speaks the Debug Adapter Protocol (L)
+
+### Editor plugins
+
+- [ ] **V-510** VS Code extension: highlighting, snippets, the language server, formatting on save, run and debug buttons, tasks for `vex build`, `run` and `test`, and a test explorer (L)
+- [ ] **V-511** JetBrains plugin for IntelliJ IDEA, Android Studio, CLion and the other JetBrains IDEs: highlighting, live templates, the language server, run configurations, the debugger and a test runner (XL)
+- [ ] **V-512** Snippets shared by both plugins: `struct`, `enum`, `interface`, `match`, `test`, `async fn` and the like (S)
+- [ ] **V-513** Device picker in both plugins: choose the Mac, a simulator, an emulator or a phone, then run and hot reload from the editor (M)
+- [ ] **V-514** Publish the plugins to the VS Code Marketplace, Open VSX and the JetBrains Marketplace (S)
 
 ---
 
@@ -351,6 +364,7 @@ Goal: what Flutter apps do beyond standard widgets (animation, custom drawing, s
 | 2026-11-27 | Platform conditionals use the enums `os.Target` and `os.Arch` rather than strings, so typos are errors and a `match` must cover every system. Branches for other systems are type-checked but generate no C, unlike Swift's `#if`, so errors show on every machine while target-only C functions still link. Per-target C code lives in `[c.macos]`-style sections that add to `[c]` (V-159) |
 | 2026-11-27 | Tests are `test "name" { ... }` blocks, as in Zig and Swift Testing, in any file or in `_test.vx` files that only `vex test` reads. One `expect(cond)` built-in, like Swift's `#expect`, shows both sides of a failed comparison and lets the test go on. Each test runs in a forked process, so a crash fails only that test (V-176) |
 | 2026-11-27 | Build modes are flags on `build`, `run` and `test`: `--debug` (`-O0 -g`; `build` keeps the C as `<out>.c` for a debugger) and `--sanitize=address,undefined,thread`, as Go and Rust spell them; `thread` can't be combined with `address`. `$VEX_CFLAGS` still comes last, so it overrides them (V-177) |
+| 2026-11-28 | Editor support follows Flutter's: a language server and a debug adapter in `vex`, used by a VS Code extension and a JetBrains plugin (IntelliJ IDEA, Android Studio and the rest). DevTools for running apps is part of the UI framework and is planned in `vex-ui`, not here. |
 | 2026-11-27 | Graphics get their own phase, after the app essentials: animation, a `Canvas` like Flutter's `CustomPaint`, shaders and 3D. They use each platform's graphics APIs rather than a bundled engine like Skia or Impeller, keeping native widgets and small binaries; one shader language compiles to Metal and SPIR-V. |
 | 2026-11-27 | Iteration follows Swift and Kotlin: `Iterable<T>` gives a fresh `Iterator<T>` whose `next()` returns `T?`, so a value can be looped many times. Generators are plain functions returning `Iterable<T>` that use `yield`, as in Python and C#, matching `async fn ... -> Stream<T>` without a `sync*` marker. They run as coroutines on task stacks; a paused generator isn't a root, so the collector frees one that is abandoned. `map`, `filter`, `take`, `skip` and `enumerated` are lazy, Kotlin-sequence style, and are written in Vex as an extension of the generic interface in a core module every file sees. Optionals can't be elements, since Vex flattens `T??`. |
 | 2026-11-27 | Ranges are values of a built-in `Range` type of ints, as in Kotlin; `step(n)` and `reversed()` are methods rather than keywords or a `stride` function. `..` binds as in Swift, looser than arithmetic and tighter than comparisons. Slicing (`xs[1..3]`, `s[1..3]`) copies, with Swift's open ends `xs[2..]` and `xs[..2]` allowed only inside `[ ]`; views that share storage were left out as a source of surprises. A struct called Range hides the built-in one. |
