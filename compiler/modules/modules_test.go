@@ -382,7 +382,7 @@ func TestCryptoCOptions(t *testing.T) {
 			t.Errorf("%s: files %s", os, got)
 		}
 	}
-	for os, want := range map[string]string{"macos": "-framework Security -framework CoreFoundation", "linux": "-lcrypto", "windows": ""} {
+	for os, want := range map[string]string{"macos": "-framework Security -framework CoreFoundation", "linux": "-lcrypto", "windows": "-lbcrypt"} {
 		prog.Target.OS = os
 		if got := strings.Join(prog.CCOptions().LinkArgs, " "); got != want {
 			t.Errorf("%s: links %q, want %q", os, got, want)

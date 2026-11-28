@@ -1,9 +1,8 @@
 // The parts of vex:crypto that come from the operating system's own
 // cryptography library: CommonCrypto, CryptoKit (through cryptokit.swift)
-// and Security on Apple systems, and
-// OpenSSL 3's libcrypto elsewhere. Each function returns 0 on success,
-// -1 when it fails or the input is rejected, and -2 when the system has
-// no provider yet. Kept apart from the generated C so system headers
+// and Security on Apple systems, CNG on Windows, and OpenSSL 3's libcrypto
+// elsewhere. Each function returns 0 on success, -1 when it fails or the
+// input is rejected, and -2 when the system has no provider yet. Kept apart from the generated C so system headers
 // never meet program names.
 
 #include <stdbool.h>
@@ -13,7 +12,9 @@
 
 #if defined(__APPLE__) && !defined(VX_CRYPTO_OPENSSL)
 #define VXC_APPLE 1
-#elif !defined(_WIN32)
+#elif defined(_WIN32)
+#define VXC_WINDOWS 1
+#else
 #define VXC_OPENSSL 1
 #endif
 
@@ -23,6 +24,10 @@
 #include <errno.h>
 #include <sys/random.h>
 #include <unistd.h>
+#elif defined(_WIN32)
+#include <limits.h>
+#include <windows.h>
+#include <bcrypt.h>
 #endif
 
 // Fills [out] with [n] bytes from the operating system's secure random
@@ -40,6 +45,14 @@ int vxc_random(uint8_t *out, size_t n) {
         }
         out += got;
         n -= (size_t)got;
+    }
+    return 0;
+#elif defined(_WIN32)
+    while (n > 0) {
+        ULONG k = n > 0x40000000 ? 0x40000000 : (ULONG)n;
+        if (!BCRYPT_SUCCESS(BCryptGenRandom(NULL, out, k, BCRYPT_USE_SYSTEM_PREFERRED_RNG))) return -1;
+        out += k;
+        n -= k;
     }
     return 0;
 #else
@@ -397,24 +410,311 @@ int vxc_p256_sign(const uint8_t priv[97], const uint8_t *msg, size_t n, uint8_t 
     return ok ? 0 : -1;
 }
 
-#else
+#elif VXC_WINDOWS
 
-int vxc_sha256(const uint8_t *data, size_t n, uint8_t *out) { return -2; }
-int vxc_sha1(const uint8_t *data, size_t n, uint8_t *out) { return -2; }
-int vxc_md5(const uint8_t *data, size_t n, uint8_t *out) { return -2; }
-int vxc_hmac_sha256(const uint8_t *key, size_t keylen, const uint8_t *data, size_t n, uint8_t *out) { return -2; }
+#ifndef BCRYPT_HKDF_ALGORITHM
+#define BCRYPT_HKDF_ALGORITHM L"HKDF"
+#define BCRYPT_HKDF_HASH_ALGORITHM L"HkdfHashAlgorithm"
+#define BCRYPT_HKDF_SALT_AND_FINALIZE L"HkdfSaltAndFinalize"
+#define BCRYPT_HKDF_PRK_AND_FINALIZE L"HkdfPrkAndFinalize"
+#endif
+#ifndef KDF_HKDF_INFO
+#define KDF_HKDF_INFO 0x14
+#endif
+
+// The CNG algorithms used here, each opened once and kept.
+enum { VXC_SHA256, VXC_SHA1, VXC_MD5, VXC_HMAC, VXC_HKDF, VXC_GCM, VXC_ECDSA, VXC_ALGS };
+
+static BCRYPT_ALG_HANDLE vxc_algs[VXC_ALGS];
+
+// Returns the provider of the algorithm [which], opening it the first
+// time, or NULL when the system has none.
+static BCRYPT_ALG_HANDLE vxc_alg(int which) {
+    BCRYPT_ALG_HANDLE h = InterlockedCompareExchangePointer(&vxc_algs[which], NULL, NULL);
+    if (h) return h;
+    static const LPCWSTR names[] = {BCRYPT_SHA256_ALGORITHM, BCRYPT_SHA1_ALGORITHM, BCRYPT_MD5_ALGORITHM,
+                                    BCRYPT_SHA256_ALGORITHM, BCRYPT_HKDF_ALGORITHM, BCRYPT_AES_ALGORITHM,
+                                    BCRYPT_ECDSA_P256_ALGORITHM};
+    ULONG flags = which == VXC_HMAC ? BCRYPT_ALG_HANDLE_HMAC_FLAG : 0;
+    if (!BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&h, names[which], NULL, flags))) return NULL;
+    if (which == VXC_GCM &&
+        !BCRYPT_SUCCESS(BCryptSetProperty(h, BCRYPT_CHAINING_MODE, (PUCHAR)BCRYPT_CHAIN_MODE_GCM,
+                                          sizeof(BCRYPT_CHAIN_MODE_GCM), 0))) {
+        BCryptCloseAlgorithmProvider(h, 0);
+        return NULL;
+    }
+    // Another thread may have opened it first; keep that one.
+    BCRYPT_ALG_HANDLE was = InterlockedCompareExchangePointer(&vxc_algs[which], h, NULL);
+    if (was) {
+        BCryptCloseAlgorithmProvider(h, 0);
+        return was;
+    }
+    return h;
+}
+
+// CNG lengths are 32-bit, so longer input is fed in pieces.
+#define VXC_CHUNK ((ULONG)1 << 30)
+
+// Writes the digest, or the HMAC under [key] when [key] isn't NULL, of the
+// [n] bytes at [data] to the [outlen] bytes at [out].
+static int vxc_hash(int which, const uint8_t *key, size_t keylen, const uint8_t *data, size_t n, uint8_t *out,
+                    ULONG outlen) {
+    BCRYPT_ALG_HANDLE alg = vxc_alg(which);
+    if (!alg || keylen > ULONG_MAX) return -1;
+    // An empty HMAC key is the same as a zero byte, since keys are padded
+    // with zeros, and CNG refuses an empty one.
+    static const uint8_t zero[1];
+    if (key && keylen == 0) {
+        key = zero;
+        keylen = 1;
+    }
+    BCRYPT_HASH_HANDLE h;
+    if (!BCRYPT_SUCCESS(BCryptCreateHash(alg, &h, NULL, 0, (PUCHAR)key, (ULONG)keylen, 0))) return -1;
+    bool ok = true;
+    for (size_t done = 0; ok && done < n; done += VXC_CHUNK) {
+        ULONG k = n - done < VXC_CHUNK ? (ULONG)(n - done) : VXC_CHUNK;
+        ok = BCRYPT_SUCCESS(BCryptHashData(h, (PUCHAR)data + done, k, 0));
+    }
+    ok = ok && BCRYPT_SUCCESS(BCryptFinishHash(h, out, outlen, 0));
+    BCryptDestroyHash(h);
+    return ok ? 0 : -1;
+}
+
+int vxc_sha256(const uint8_t *data, size_t n, uint8_t out[32]) { return vxc_hash(VXC_SHA256, NULL, 0, data, n, out, 32); }
+int vxc_sha1(const uint8_t *data, size_t n, uint8_t out[20]) { return vxc_hash(VXC_SHA1, NULL, 0, data, n, out, 20); }
+int vxc_md5(const uint8_t *data, size_t n, uint8_t out[16]) { return vxc_hash(VXC_MD5, NULL, 0, data, n, out, 16); }
+
+int vxc_hmac_sha256(const uint8_t *key, size_t keylen, const uint8_t *data, size_t n, uint8_t out[32]) {
+    return vxc_hash(VXC_HMAC, VXC_PTR(key, keylen), keylen, data, n, out, 32);
+}
+
 int vxc_pbkdf2_sha256(const uint8_t *pw, size_t pwlen, const uint8_t *salt, size_t saltlen,
-                      uint32_t rounds, uint8_t *out, size_t outlen) { return -2; }
+                      uint32_t rounds, uint8_t *out, size_t outlen) {
+    BCRYPT_ALG_HANDLE alg = vxc_alg(VXC_HMAC);
+    if (!alg || pwlen > ULONG_MAX || saltlen > ULONG_MAX || outlen > ULONG_MAX) return -1;
+    // The password is the HMAC key, so an empty one is a zero byte too.
+    static const uint8_t zero[1];
+    if (pwlen == 0) {
+        pw = zero;
+        pwlen = 1;
+    }
+    NTSTATUS st = BCryptDeriveKeyPBKDF2(alg, (PUCHAR)pw, (ULONG)pwlen, (PUCHAR)VXC_PTR(salt, saltlen), (ULONG)saltlen,
+                                        rounds, out, (ULONG)outlen, 0);
+    return BCRYPT_SUCCESS(st) ? 0 : -1;
+}
+
 int vxc_hkdf_sha256(const uint8_t *ikm, size_t ikmlen, const uint8_t *salt, size_t saltlen,
-                    const uint8_t *info, size_t infolen, uint8_t *out, size_t n) { return -2; }
-int vxc_aes_gcm_seal(const uint8_t *key, const uint8_t *iv, size_t ivlen, const uint8_t *aad, size_t aadlen,
-                     const uint8_t *in, size_t n, uint8_t *out, uint8_t *tag) { return -2; }
-int vxc_aes_gcm_open(const uint8_t *key, const uint8_t *iv, size_t ivlen, const uint8_t *aad, size_t aadlen,
-                     const uint8_t *in, size_t n, const uint8_t *tag, uint8_t *out) { return -2; }
-int vxc_p256_check(const uint8_t *pub) { return -2; }
-int vxc_p256_verify(const uint8_t *pub, const uint8_t *msg, size_t n, const uint8_t *sig, size_t siglen) { return -2; }
-int vxc_p256_generate(uint8_t *out) { return -2; }
-int vxc_p256_check_private(const uint8_t *priv) { return -2; }
-int vxc_p256_sign(const uint8_t *priv, const uint8_t *msg, size_t n, uint8_t *sig, size_t *siglen) { return -2; }
+                    const uint8_t *info, size_t infolen, uint8_t *out, size_t n) {
+    BCRYPT_ALG_HANDLE alg = vxc_alg(VXC_HKDF);
+    if (!alg) return -2;
+    if (ikmlen > ULONG_MAX || saltlen > ULONG_MAX || infolen > ULONG_MAX || n > ULONG_MAX) return -1;
+    // RFC 5869 reads a missing salt as 32 zero bytes, which CNG needs
+    // spelled out.
+    static const uint8_t zeros[32];
+    if (saltlen == 0) {
+        salt = zeros;
+        saltlen = sizeof zeros;
+    }
+    // CNG refuses an empty input key, so then the extract step is done
+    // here with HMAC and CNG is handed the result.
+    uint8_t prk[32];
+    bool expand_only = ikmlen == 0;
+    if (expand_only) {
+        if (vxc_hmac_sha256(salt, saltlen, NULL, 0, prk) != 0) return -1;
+        ikm = prk;
+        ikmlen = sizeof prk;
+    }
+    BCRYPT_KEY_HANDLE key;
+    NTSTATUS st = BCryptGenerateSymmetricKey(alg, &key, NULL, 0, (PUCHAR)ikm, (ULONG)ikmlen, 0);
+    vxc_wipe(prk, sizeof prk);
+    if (!BCRYPT_SUCCESS(st)) return -1;
+    bool ok = BCRYPT_SUCCESS(BCryptSetProperty(key, BCRYPT_HKDF_HASH_ALGORITHM, (PUCHAR)BCRYPT_SHA256_ALGORITHM,
+                                               sizeof(BCRYPT_SHA256_ALGORITHM), 0));
+    if (ok && expand_only) {
+        ok = BCRYPT_SUCCESS(BCryptSetProperty(key, BCRYPT_HKDF_PRK_AND_FINALIZE, NULL, 0, 0));
+    } else if (ok) {
+        ok = BCRYPT_SUCCESS(BCryptSetProperty(key, BCRYPT_HKDF_SALT_AND_FINALIZE, (PUCHAR)salt, (ULONG)saltlen, 0));
+    }
+    BCryptBuffer param = {(ULONG)infolen, KDF_HKDF_INFO, (PVOID)info};
+    BCryptBufferDesc params = {BCRYPTBUFFER_VERSION, 1, &param};
+    ULONG got = 0;
+    ok = ok && BCRYPT_SUCCESS(BCryptKeyDerivation(key, infolen ? &params : NULL, out, (ULONG)n, &got, 0)) && got == n;
+    BCryptDestroyKey(key);
+    return ok ? 0 : -1;
+}
+
+static int vxc_gcm(bool seal, const uint8_t key[32], const uint8_t *iv, size_t ivlen, const uint8_t *aad, size_t aadlen,
+                   const uint8_t *in, size_t n, uint8_t *out, uint8_t tag[16]) {
+    BCRYPT_ALG_HANDLE alg = vxc_alg(VXC_GCM);
+    if (!alg) return -1;
+    // CNG takes only 96-bit nonces, the size NIST recommends.
+    if (ivlen != 12) return -2;
+    if (aadlen > ULONG_MAX) return -1;
+    BCRYPT_KEY_HANDLE k;
+    if (!BCRYPT_SUCCESS(BCryptGenerateSymmetricKey(alg, &k, NULL, 0, (PUCHAR)key, 32, 0))) return -1;
+    uint8_t mac[16] = {0}, counter[16] = {0}, spare[1];
+    BCRYPT_AUTHENTICATED_CIPHER_MODE_INFO info;
+    BCRYPT_INIT_AUTH_MODE_INFO(info);
+    info.pbNonce = (PUCHAR)iv;
+    info.cbNonce = 12;
+    info.pbAuthData = (PUCHAR)VXC_PTR(aad, aadlen);
+    info.cbAuthData = (ULONG)aadlen;
+    info.pbTag = tag;
+    info.cbTag = 16;
+    info.pbMacContext = mac;
+    info.cbMacContext = sizeof mac;
+    bool ok = true;
+    size_t done = 0;
+    do {
+        ULONG len = n - done < VXC_CHUNK ? (ULONG)(n - done) : VXC_CHUNK;
+        bool last = done + len == n;
+        if (last) {
+            info.dwFlags &= ~BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
+        } else {
+            info.dwFlags |= BCRYPT_AUTH_MODE_CHAIN_CALLS_FLAG;
+        }
+        ULONG wrote = 0;
+        PUCHAR src = (PUCHAR)VXC_PTR(in + done, len), dst = len ? out + done : spare;
+        NTSTATUS st = seal ? BCryptEncrypt(k, src, len, &info, counter, sizeof counter, dst, len, &wrote, 0)
+                           : BCryptDecrypt(k, src, len, &info, counter, sizeof counter, dst, len, &wrote, 0);
+        ok = BCRYPT_SUCCESS(st) && wrote == len;
+        done += len;
+    } while (ok && done < n);
+    BCryptDestroyKey(k);
+    vxc_wipe(mac, sizeof mac);
+    return ok ? 0 : -1;
+}
+
+int vxc_aes_gcm_seal(const uint8_t key[32], const uint8_t *iv, size_t ivlen, const uint8_t *aad, size_t aadlen,
+                     const uint8_t *in, size_t n, uint8_t *out, uint8_t tag[16]) {
+    return vxc_gcm(true, key, iv, ivlen, aad, aadlen, in, n, out, tag);
+}
+
+int vxc_aes_gcm_open(const uint8_t key[32], const uint8_t *iv, size_t ivlen, const uint8_t *aad, size_t aadlen,
+                     const uint8_t *in, size_t n, const uint8_t tag[16], uint8_t *out) {
+    uint8_t t[16];
+    memcpy(t, tag, 16);
+    return vxc_gcm(false, key, iv, ivlen, aad, aadlen, in, n, out, t);
+}
+
+// Returns the P-256 key made of the public point [pub] (04||X||Y) and,
+// when [priv] isn't NULL, the private scalar [priv], or NULL when CNG
+// refuses them.
+static BCRYPT_KEY_HANDLE vxc_p256_key(const uint8_t pub[65], const uint8_t *priv) {
+    BCRYPT_ALG_HANDLE alg = vxc_alg(VXC_ECDSA);
+    if (!alg || pub[0] != 4) return NULL;
+    struct {
+        BCRYPT_ECCKEY_BLOB head;
+        uint8_t key[96];
+    } blob = {{priv ? BCRYPT_ECDSA_PRIVATE_P256_MAGIC : BCRYPT_ECDSA_PUBLIC_P256_MAGIC, 32}, {0}};
+    memcpy(blob.key, pub + 1, 64);
+    if (priv) memcpy(blob.key + 64, priv, 32);
+    BCRYPT_KEY_HANDLE key = NULL;
+    NTSTATUS st = BCryptImportKeyPair(alg, NULL, priv ? BCRYPT_ECCPRIVATE_BLOB : BCRYPT_ECCPUBLIC_BLOB, &key,
+                                      (PUCHAR)&blob, sizeof blob.head + (priv ? 96 : 64), 0);
+    vxc_wipe(&blob, sizeof blob);
+    return BCRYPT_SUCCESS(st) ? key : NULL;
+}
+
+int vxc_p256_check(const uint8_t pub[65]) {
+    BCRYPT_KEY_HANDLE key = vxc_p256_key(pub, NULL);
+    if (!key) return -1;
+    BCryptDestroyKey(key);
+    return 0;
+}
+
+// Copies the DER INTEGER at [*p] to the 32 bytes at [out], right-aligned,
+// moving [*p] past it. Returns false when it doesn't fit in 32 bytes. The
+// encoding has been checked already.
+static bool vxc_der_scalar(const uint8_t **p, uint8_t out[32]) {
+    size_t n = (*p)[1];
+    const uint8_t *c = *p + 2;
+    *p = c + n;
+    while (n > 0 && *c == 0) {
+        c++;
+        n--;
+    }
+    if (n > 32) return false;
+    memset(out, 0, 32);
+    memcpy(out + 32 - n, c, n);
+    return true;
+}
+
+int vxc_p256_verify(const uint8_t pub[65], const uint8_t *msg, size_t n, const uint8_t *sig, size_t siglen) {
+    // CNG takes r||s; the DER form was checked before this is called.
+    uint8_t rs[64], digest[32];
+    const uint8_t *p = sig + 2;
+    if (siglen < 8 || !vxc_der_scalar(&p, rs) || !vxc_der_scalar(&p, rs + 32)) return -1;
+    if (vxc_sha256(msg, n, digest) != 0) return -1;
+    BCRYPT_KEY_HANDLE key = vxc_p256_key(pub, NULL);
+    if (!key) return -1;
+    NTSTATUS st = BCryptVerifySignature(key, NULL, digest, 32, rs, 64, 0);
+    BCryptDestroyKey(key);
+    return BCRYPT_SUCCESS(st) ? 0 : -1;
+}
+
+int vxc_p256_generate(uint8_t out[97]) {
+    BCRYPT_ALG_HANDLE alg = vxc_alg(VXC_ECDSA);
+    BCRYPT_KEY_HANDLE key;
+    if (!alg || !BCRYPT_SUCCESS(BCryptGenerateKeyPair(alg, &key, 256, 0))) return -1;
+    struct {
+        BCRYPT_ECCKEY_BLOB head;
+        uint8_t key[96];
+    } blob;
+    ULONG len = 0;
+    bool ok = BCRYPT_SUCCESS(BCryptFinalizeKeyPair(key, 0)) &&
+              BCRYPT_SUCCESS(BCryptExportKey(key, NULL, BCRYPT_ECCPRIVATE_BLOB, (PUCHAR)&blob, sizeof blob, &len, 0)) &&
+              len == sizeof blob && blob.head.cbKey == 32;
+    BCryptDestroyKey(key);
+    if (ok) {
+        out[0] = 4;
+        memcpy(out + 1, blob.key, 96);
+    }
+    vxc_wipe(&blob, sizeof blob);
+    return ok ? 0 : -1;
+}
+
+int vxc_p256_sign(const uint8_t priv[97], const uint8_t *msg, size_t n, uint8_t *sig, size_t *siglen);
+
+int vxc_p256_check_private(const uint8_t priv[97]) {
+    // The scalar must belong to the public point: a signature it makes
+    // must check out under that point.
+    static const uint8_t msg[] = "pairwise check";
+    uint8_t sig[72];
+    size_t len = 0;
+    if (vxc_p256_sign(priv, msg, sizeof msg, sig, &len) != 0) return -1;
+    return vxc_p256_verify(priv, msg, sizeof msg, sig, len);
+}
+
+// Appends the 32-byte big-endian [v] to [out] as a DER INTEGER, returning
+// the bytes written.
+static size_t vxc_der_put(uint8_t *out, const uint8_t v[32]) {
+    size_t skip = 0;
+    while (skip < 31 && v[skip] == 0) skip++;
+    size_t n = 32 - skip;
+    bool pad = v[skip] & 0x80;
+    out[0] = 0x02;
+    out[1] = (uint8_t)(n + pad);
+    if (pad) out[2] = 0;
+    memcpy(out + 2 + pad, v + skip, n);
+    return 2 + pad + n;
+}
+
+int vxc_p256_sign(const uint8_t priv[97], const uint8_t *msg, size_t n, uint8_t *sig, size_t *siglen) {
+    uint8_t digest[32], rs[64];
+    if (vxc_sha256(msg, n, digest) != 0) return -1;
+    BCRYPT_KEY_HANDLE key = vxc_p256_key(priv, priv + 65);
+    if (!key) return -1;
+    ULONG len = 0;
+    NTSTATUS st = BCryptSignHash(key, NULL, digest, 32, rs, 64, &len, 0);
+    BCryptDestroyKey(key);
+    if (!BCRYPT_SUCCESS(st) || len != 64) return -1;
+    size_t body = vxc_der_put(sig + 2, rs);
+    body += vxc_der_put(sig + 2 + body, rs + 32);
+    sig[0] = 0x30;
+    sig[1] = (uint8_t)body;
+    *siglen = body + 2;
+    return 0;
+}
 
 #endif
