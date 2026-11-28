@@ -44,6 +44,96 @@ func TestCCPathWithSpaces(t *testing.T) {
 	}
 }
 
+// Makes an SDK folder in a path with spaces, with vex and its clang, and
+// returns the paths of both.
+func fakeSDK(t *testing.T) (vex, clang string) {
+	tmp, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := filepath.Join(tmp, "My Tools", "vex-sdk")
+	vex = filepath.Join(root, "bin", Executable("vex"))
+	clang = filepath.Join(root, "toolchain", "bin", Executable("clang"))
+	for _, path := range []string{vex, clang} {
+		if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(path, nil, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	return vex, clang
+}
+
+// Makes [executable] return [path] until the test ends.
+func runningAs(t *testing.T, path string) {
+	saved := executable
+	executable = func() (string, error) { return path, nil }
+	t.Cleanup(func() { executable = saved })
+}
+
+func TestFindsBundledToolchain(t *testing.T) {
+	vex, clang := fakeSDK(t)
+	runningAs(t, vex)
+	t.Setenv("CC", "")
+	c, err := Find()
+	if err != nil || len(c.Command) != 1 || c.Command[0] != clang || c.Origin != FromSDK {
+		t.Errorf("Find() = %+v, %v; want %s from the SDK", c, err, clang)
+	}
+}
+
+func TestCCOverridesBundledToolchain(t *testing.T) {
+	vex, _ := fakeSDK(t)
+	runningAs(t, vex)
+	t.Setenv("CC", "gcc -m64")
+	c, err := Find()
+	if err != nil || strings.Join(c.Command, " ") != "gcc -m64" || c.Origin != FromEnv {
+		t.Errorf("Find() = %+v, %v", c, err)
+	}
+}
+
+func TestBundledFollowsSymlinks(t *testing.T) {
+	vex, clang := fakeSDK(t)
+	link := filepath.Join(t.TempDir(), "bin", Executable("vex"))
+	if err := os.MkdirAll(filepath.Dir(link), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(vex, link); err != nil {
+		t.Skipf("can't make symbolic links here: %v", err)
+	}
+	if got := Bundled(link); got != clang {
+		t.Errorf("Bundled(%s) = %q, want %q", link, got, clang)
+	}
+}
+
+func TestNoBundledToolchain(t *testing.T) {
+	vex, clang := fakeSDK(t)
+	if err := os.Remove(clang); err != nil {
+		t.Fatal(err)
+	}
+	if got := Bundled(vex); got != "" {
+		t.Errorf("Bundled(%s) = %q, want none", vex, got)
+	}
+	runningAs(t, vex)
+	t.Setenv("CC", "")
+	if c, err := Find(); err == nil && c.Origin == FromSDK {
+		t.Errorf("Find() = %+v, want a compiler outside the SDK", c)
+	}
+}
+
+func TestSanitizersNeedSystemClang(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("the SDK's toolchain builds static programs only on Linux")
+	}
+	vex, _ := fakeSDK(t)
+	runningAs(t, vex)
+	t.Setenv("CC", "")
+	err := CompileWith("int main(void) { return 0; }", filepath.Join(t.TempDir(), "out"), Options{Sanitize: []string{"address"}})
+	if err == nil || !strings.Contains(err.Error(), "set CC=clang") {
+		t.Errorf("got %v", err)
+	}
+}
+
 func TestExecutable(t *testing.T) {
 	want := map[string]string{"app": "app", "app.exe": "app.exe", "v1.2": "v1.2"}
 	if runtime.GOOS == "windows" {
