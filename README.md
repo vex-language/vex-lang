@@ -116,7 +116,7 @@ Memory is managed by a garbage collector built into the runtime, with Go-like sp
 
 **Requirements**
 - Go 1.23 or newer, to build the compiler
-- A C compiler (`clang` or `gcc`), to build Vex programs
+- A C compiler (`clang` or `gcc`), to build Vex programs; on Windows, clang from [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw) (`winget install MartinStorsjo.LLVM-MinGW.UCRT`), so no Visual Studio is needed
 
 **Build from source**
 
@@ -132,6 +132,14 @@ This builds `bin/vex`. To run `vex` from anywhere, add the folder to your `PATH`
 echo 'export PATH="'"$PWD"'/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
+
+On Windows, run `./build.sh` from Git Bash, or build from PowerShell or `cmd`:
+
+```bat
+go build -o bin\vex.exe .\cmd\vex
+```
+
+Programs built there are `.exe` files: `vex build hello.vx` writes `hello.exe`. `vex` finds `clang` on the `PATH`, or the compiler named by `CC`, which may be a full path with spaces such as `C:\Program Files\LLVM\bin\clang.exe`. Source files may use Windows (CRLF) line endings.
 
 Then run `vex doctor` to check the tools Vex builds with: the C compiler, git for `vex get`, and, for phone apps, Xcode and the Android SDK, NDK and JDK. It says what is missing and how to install it, and never installs anything itself; `vex doctor -v` shows where each tool was found.
 

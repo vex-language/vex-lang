@@ -10,6 +10,7 @@ if [ -n "$(git status --porcelain 2>/dev/null)" ]; then
 	rev="$rev-dirty"
 fi
 
+exe=bin/vex$(go env GOEXE)
 mkdir -p bin
-go build -trimpath -ldflags "-s -w -X main.version=$base+$rev" -o bin/vex ./cmd/vex
-echo "Built bin/vex ($(bin/vex version))"
+go build -trimpath -ldflags "-s -w -X main.version=$base+$rev" -o "$exe" ./cmd/vex
+echo "Built $exe ($("$exe" version))"
