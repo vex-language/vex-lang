@@ -1055,6 +1055,8 @@ fn helper() { }                         // private to models
 
 - `pub` goes on functions, structs, enums, interfaces, fields and methods. Enum cases and interface methods are public whenever their enum or interface is, and so is a method a struct writes for one of its interfaces.
 - Another module can only create a struct whose private fields all have defaults. Otherwise give it a `pub static fn` that creates it.
+- A `pub` declaration can't name a private type of its own module, since other modules could reach it but never write the type: `pub fn make() -> Secret` with a private `struct Secret` is an error, and so are a `pub` field, method, enum case payload, interface method, `pub typedef` or constraint that names one. Mark the type `pub`, or drop `pub` from the declaration.
+- An import that the file never uses is a warning; remove the line. Using a module only for the extension methods it adds counts as using it.
 - `vex:` modules come with the compiler:
   - `vex:math`: `abs`, `min`, `max`, `clamp`, `pow` and `gcd` for integers and comparable values; `sqrt`, `cbrt`, `powf`, `exp`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `hypot`, `floor`, `ceil`, `round`, `trunc`, `absf` and `pi()` for floats
   - `vex:strings`: `repeat`, `join`, `padLeft`, `padRight`, which are also the methods `s.repeat(n)`, `parts.join(sep)`, `s.padStart(width, with: fill)` and `s.padEnd(width, with: fill)`
@@ -1078,6 +1080,7 @@ fn main() throws {
 
 `vex run app.vx a b` passes `a` and `b` to the program; write `vex run -- a b` to run the project in the current folder with arguments.
 - Modules may import each other. A name that is already an import, such as a variable called `math`, is an error, so `math.max` always means the module.
+- Errors in a program of several modules are listed with the root module's first, then module by module in the order they are imported, and by position within each file.
 - `vex run` with no file runs the project in the current folder, and `vex run store` runs the one in `store/`. A single file can import too: `vex run hello.vx`.
 - `package:` imports come with the package manager (V-121).
 
@@ -2037,5 +2040,6 @@ warning: 'total' is never used
 
 - A local variable that is never used. Starting its name with `_` says it is meant to be unused; a `catch` can leave its name out.
 - Code after a `return`, `throw`, `break`, `continue`, `panic` or endless loop, which can never run.
+- An import that the file never uses (see [Modules](#modules)).
 
 Features from other languages that Vex lacks get an error that names them and shows what to write instead: `x!` (use `??`, `if let` or `guard let`), `x++` (`x += 1`), `do`/`while` (`repeat { } while`), `switch` (`match`) and `class` (`struct`).

@@ -144,7 +144,7 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-122** `vex doc`: API docs from `///` comments (M)
 - [ ] **V-124** Benchmark suite in the repo (`bench/`): Vex programs with Go equivalents and a script that compares them (M)
 - [ ] **V-123** Stack traces: runtime errors list the chain of calls with their lines (M)
-- [ ] **V-128** Modules, next steps: warn about unused imports, `pub` names whose types are private, and errors sorted with the root module first (S)
+- [x] **V-128** Modules, next steps: warn about unused imports, `pub` names whose types are private, and errors sorted with the root module first (S)
 - [x] **V-176** `vex test`: test blocks or `_test.vx` files, filtering by name, and failures that show both values (M)
 - [x] **V-177** Build modes: `--debug` (`-O0 -g`, keeps the C) and `--sanitize=address,undefined` alongside today's `-O3`, and `$VEX_CFLAGS` documented in `vex help build` (S)
 - [x] **V-178** Warnings for unused local variables and unreachable code, and diagnostics that name unsupported features (`is`, labels, `defer`, `x!`) (S)

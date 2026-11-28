@@ -76,6 +76,7 @@ type checker struct {
 	// The declarations of every module, and where each one lives.
 	decls    []ast.Decl
 	units    map[ast.Node]*unit
+	files    []*unit
 	root     *Module
 	rootUnit *unit
 
@@ -188,11 +189,12 @@ func (c *checker) run() (*Info, error) {
 		}()
 		c.declareError()
 		c.collect()
-		c.bodies()
 		c.exposures()
+		c.bodies()
 	}()
 	c.fileTable()
 	c.warnUnused(0)
+	c.warnUnusedImports()
 	if len(c.errs) > 0 {
 		c.errs = dedupe(c.errs)
 		c.errs.Sort()

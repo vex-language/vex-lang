@@ -199,6 +199,26 @@ func (c *checker) declareRecvFunc(d *ast.ExtensionDecl, md *ast.FuncDecl, params
 	c.recvs[name] = append(c.recvs[name], r)
 }
 
+// Records that this file uses the module of extension member [r].
+func (c *checker) useRecv(r *recvFunc) {
+	if u := c.units[r.decl]; u != nil {
+		c.useModule(u.mod)
+	}
+}
+
+// Records that this file uses module [m] through one of its extensions,
+// and reports whether the file imports it.
+func (c *checker) useModule(m *Module) bool {
+	found := false
+	for name, imp := range c.imports {
+		if imp == m {
+			c.unit.used[name] = true
+			found = true
+		}
+	}
+	return found
+}
+
 // Returns the members called [name] of extensions of built-in types that
 // can be used here: those of this module, and the public ones of the
 // modules this file imports.
@@ -229,6 +249,7 @@ func (c *checker) findRecv(recv Type, name string, kind ast.Accessor, at ast.Nod
 		if r.plain != nil {
 			if r.plain.Recv != nil && Identical(r.plain.Recv, recv) {
 				// A plain extension is more specific than a generic one.
+				c.useRecv(r)
 				return r, nil
 			}
 			continue
@@ -251,6 +272,7 @@ func (c *checker) findRecv(recv Type, name string, kind ast.Accessor, at ast.Nod
 	case 0:
 		return nil, nil
 	case 1:
+		c.useRecv(found[0])
 		return found[0], binds[0]
 	}
 	c.errorAt(at, "", "'%s' of %s is declared by more than one extension, on lines %d and %d", name, recv, found[0].decl.Pos().Line, found[1].decl.Pos().Line)
@@ -339,10 +361,8 @@ func (c *checker) extensionHidden(at ast.Node, m *Func) bool {
 	if m.Ext == nil || m.Ext == c.mod {
 		return false
 	}
-	for _, imp := range c.imports {
-		if imp == m.Ext {
-			return false
-		}
+	if c.useModule(m.Ext) {
+		return false
 	}
 	c.errorAt(at, "import that module to use it", "'%s' comes from an extension in module %s", m.Name, m.Ext.Name)
 	return true
