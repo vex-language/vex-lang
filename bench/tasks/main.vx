@@ -1,0 +1,18 @@
+/// Starts a binary tree of async tasks, each awaiting the one it started.
+import "vex:os"
+
+/// Returns the number of tasks in a tree of the given [depth].
+async fn tree(depth: int) -> int {
+    if depth == 0 {
+        return 1
+    }
+    let left = tree(depth - 1)
+    let right = await tree(depth - 1)
+    return await left + right + 1
+}
+
+fn main() {
+    let args = os.args()
+    let depth = if args.isEmpty { 20 } else { int(args[0]) }
+    println("tasks({depth}) = {run(tree(depth))}")
+}

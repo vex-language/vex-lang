@@ -1,0 +1,30 @@
+/// Counts the points of a grid inside the Mandelbrot set: tight float loops.
+import "vex:os"
+
+fn main() {
+    let args = os.args()
+    let n = if args.isEmpty { 3000 } else { int(args[0]) }
+    let maxIter = 50
+    var inside = 0
+    var hash = 0
+    for y in 0..n {
+        let ci = 2.0 * float(y) / float(n) - 1.0
+        for x in 0..n {
+            let cr = 2.0 * float(x) / float(n) - 1.5
+            var zr = 0.0
+            var zi = 0.0
+            var i = 0
+            while i < maxIter && zr * zr + zi * zi <= 4.0 {
+                let t = zr * zr - zi * zi + cr
+                zi = 2.0 * zr * zi + ci
+                zr = t
+                i += 1
+            }
+            if i == maxIter {
+                inside += 1
+            }
+            hash = hash &* 31 &+ i
+        }
+    }
+    println("mandelbrot({n}) = {inside} {hash}")
+}

@@ -1,0 +1,52 @@
+/// Builds and walks many binary trees: allocation and garbage collection.
+import "vex:os"
+
+/// A tree node; leaves have no children.
+struct Node {
+    left: Node?
+    right: Node?
+}
+
+/// Returns a full tree of the given [depth].
+fn build(depth: int) -> Node {
+    if depth == 0 {
+        return Node(left: nil, right: nil)
+    }
+    return Node(left: build(depth - 1), right: build(depth - 1))
+}
+
+/// Returns the number of nodes in the tree under [node].
+fn check(node: Node) -> int {
+    var count = 1
+    if let l = node.left {
+        count += check(l)
+    }
+    if let r = node.right {
+        count += check(r)
+    }
+    return count
+}
+
+fn main() {
+    let args = os.args()
+    let n = if args.isEmpty { 17 } else { int(args[0]) }
+    let minDepth = 4
+    let maxDepth = if n < minDepth + 2 { minDepth + 2 } else { n }
+
+    let stretch = maxDepth + 1
+    println("stretch tree of depth {stretch}\t check: {check(build(stretch))}")
+
+    let longLived = build(maxDepth)
+    var total = 0
+    for depth in (minDepth..=maxDepth).step(2) {
+        let iterations = 1 << (maxDepth - depth + minDepth)
+        var sum = 0
+        for _ in 0..iterations {
+            sum += check(build(depth))
+        }
+        total += sum
+        println("{iterations}\t trees of depth {depth}\t check: {sum}")
+    }
+    println("long lived tree of depth {maxDepth}\t check: {check(longLived)}")
+    println("binary-trees({n}) = {total}")
+}

@@ -1,0 +1,42 @@
+/// Reads values from generators through lazy filter, map and take.
+import "vex:os"
+
+/// Yields 0, 1, 2 and so on without end.
+fn naturals() -> Iterable<int> {
+    var n = 0
+    while true {
+        yield n
+        n += 1
+    }
+}
+
+/// Yields the values of [source] in runs of [size], as their sums.
+fn chunkSums(source: Iterable<int>, size: int) -> Iterable<int> {
+    var sum = 0
+    var count = 0
+    for x in source {
+        sum = sum &+ x
+        count += 1
+        if count == size {
+            yield sum
+            sum = 0
+            count = 0
+        }
+    }
+}
+
+fn main() {
+    let args = os.args()
+    let n = if args.isEmpty { 10_000_000 } else { int(args[0]) }
+    let values = naturals()
+        .filter { it % 3 != 0 }
+        .map { it &* it }
+        .take(n)
+    var total = 0
+    var count = 0
+    for s in chunkSums(values, 10) {
+        total = total &* 31 &+ s
+        count += 1
+    }
+    println("generators({n}) = {count} {total}")
+}
