@@ -189,6 +189,7 @@ func (c *checker) run() (*Info, error) {
 		c.declareError()
 		c.collect()
 		c.bodies()
+		c.exposures()
 	}()
 	c.fileTable()
 	c.warnUnused(0)
