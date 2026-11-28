@@ -14,9 +14,9 @@ fetch "https://musl.libc.org/releases/musl-$MUSL_VERSION.tar.gz" "$MUSL_SHA256"
 fetch "https://github.com/openssl/openssl/releases/download/openssl-$OPENSSL_VERSION/openssl-$OPENSSL_VERSION.tar.gz" "$OPENSSL_SHA256"
 
 echo "Unpacking $llvm"
-top=$(tar --zstd -tf "$cache/$llvm.tar.zst" | head -n1 | cut -d/ -f1)
+top=$(tar -I "zstd -d --long=31" -tf "$cache/$llvm.tar.zst" | head -n1 | cut -d/ -f1)
 # LLVM's own headers, documentation and static libraries are most of it.
-tar --zstd -xf "$cache/$llvm.tar.zst" -C "$work" --no-wildcards-match-slash \
+tar -I "zstd -d --long=31" -xf "$cache/$llvm.tar.zst" -C "$work" --no-wildcards-match-slash \
 	--exclude="$top/include" --exclude="$top/share" --exclude="$top/lib/*.a"
 src=$work/$top
 tc=$sdk/toolchain
