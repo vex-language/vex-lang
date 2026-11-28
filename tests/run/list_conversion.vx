@@ -1,0 +1,102 @@
+// Lists and maps used where other element types are expected are copied
+// with each element converted.
+
+interface Shape {
+    fn area() -> float
+}
+
+interface Named {
+    fn name() -> string
+}
+
+struct Circle: Shape, Named {
+    r: float
+    fn area() -> float => 3.0 * r * r
+    fn name() -> string => "circle"
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+}
+
+enum Suit: Named {
+    hearts
+    spades
+    fn name() -> string => match self {
+        hearts => "hearts"
+        spades => "spades"
+    }
+}
+
+struct Scene {
+    shapes: [Shape]
+}
+
+fn total(xs: [Shape]) -> float {
+    var t = 0.0
+    for s in xs { t += s.area() }
+    return t
+}
+
+fn names(xs: [Named]) -> string => xs.map(fn(n) => n.name()).join(", ")
+
+fn circles() -> [Shape] {
+    let cs = [Circle(r: 1), Circle(r: 2)]
+    return cs
+}
+
+fn sizes<T: Shape>(xs: [T]) -> float => total(xs)
+
+fn main() {
+    let cs = [Circle(r: 1), Circle(r: 2)]
+    println(total(cs))
+    println(names(cs))
+    let suits = [Suit.hearts, Suit.spades]
+    println(names(suits))
+    println(total(circles()))
+    println(sizes(cs))
+    println(Scene(shapes: cs).shapes.len)
+
+    // The converted list is a copy: changing it leaves the original alone.
+    var shapes: [Shape] = cs
+    shapes.push(Square(side: 3))
+    println(shapes.len, cs.len)
+    shapes = cs
+    shapes[0] = Square(side: 1)
+    println(cs[0].r, shapes[0].area())
+
+    let ints = [1, 2, 3]
+    var maybe: [int?] = ints
+    maybe.push(nil)
+    maybe[0] = nil
+    println(maybe, ints)
+
+    let grid = [[Circle(r: 1)], [Circle(r: 2), Circle(r: 3)]]
+    var rows: [[Shape]] = grid
+    rows[0].push(Square(side: 2))
+    println(rows[0].len, grid[0].len)
+
+    let some: [Circle]? = cs
+    let optional: [Shape]? = some
+    println(optional?.len ?? 0)
+    let holes: [Shape?] = cs
+    println(holes.len)
+
+    let byName = ["a": Circle(r: 1), "b": Circle(r: 2)]
+    var areas: [string: Shape] = byName
+    areas["c"] = Square(side: 2)
+    println(areas.len, byName.len)
+    for k, v in areas { println(k, v.area()) }
+
+    let nested: [int: [Shape]] = [1: cs]
+    println(nested[1]?.len ?? 0)
+
+    // cast<T>() converts where no type is written.
+    var cast = cs.cast<Shape>()
+    cast.push(Square(side: 2))
+    println(cast.len, cs.len, total(cast))
+    println([1, 2].cast<int?>())
+    let same = cs.cast<Circle>()
+    println(same.len, same === cs)
+}

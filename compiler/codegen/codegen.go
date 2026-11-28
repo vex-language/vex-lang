@@ -138,6 +138,9 @@ func Generate(info *types.Info, srcName string) string {
 	for _, o := range info.Wraps {
 		g.needRepr(o)
 	}
+	for _, t := range info.Converts {
+		g.needRepr(t)
+	}
 
 	// Function bodies come first, since they discover the closures and
 	// function values whose declarations must precede them.
@@ -1677,12 +1680,15 @@ func (g *gen) expr(e ast.Expr) string {
 		return s
 	}
 	if o := g.info.Wraps[e]; o != nil {
-		return wrapOpt(o, g.value(e))
+		return wrapOpt(o, g.converted(e, g.value(e)))
 	}
-	if wrap, ok := g.info.Chains[e]; ok && !g.chaining[e] {
-		return g.chain(e, wrap)
+	if wrap, ok := g.info.Chains[e]; ok {
+		if g.chaining[e] {
+			return g.value(e)
+		}
+		return g.converted(e, g.chain(e, wrap))
 	}
-	return g.value(e)
+	return g.converted(e, g.value(e))
 }
 
 // Returns the C code of [e] itself, before any conversion to an optional.
@@ -2255,6 +2261,11 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 			case "pop":
 				return fmt.Sprintf("(*(%s*)vx_list_pop(vx_list_mut(%s, %d), %d))", elem, cs[0], line, line)
 			case "copy":
+				return "vx_list_copy(" + cs[0] + ")"
+			case "cast":
+				if to := g.info.Types[e]; !types.Identical(to, l) {
+					return g.convert(to, l, cs[0])
+				}
 				return "vx_list_copy(" + cs[0] + ")"
 			case "filter", "map":
 				list, f, i, x, out := g.temp(), g.temp(), g.temp(), g.temp(), g.temp()

@@ -153,6 +153,7 @@ func newChecker() *checker {
 			Captures:       map[*ast.FuncLit][]*Var{},
 			CaseValues:     map[ast.Expr]*Case{},
 			Wraps:          map[ast.Expr]*Optional{},
+			Converts:       map[ast.Expr]Type{},
 			ThrowingRefs:   map[ast.Expr]bool{},
 			Elements:       map[*ast.ExprStmt]ast.Expr{},
 			IfValues:       map[*ast.ExprStmt]*ast.IfExpr{},
@@ -252,6 +253,38 @@ func conversionHint(want, got Type) string {
 	if i, ok := want.(*Interface); ok {
 		if s, ok := got.(*Struct); ok {
 			return fmt.Sprintf("declare it: struct %s: %s", s.Name, i.Name)
+		}
+	}
+	if w, ok := want.(*List); ok {
+		if g, ok := got.(*List); ok {
+			return elementHint(w.Elem, g.Elem, "list")
+		}
+	}
+	if w, ok := want.(*Map); ok {
+		if g, ok := got.(*Map); ok && Identical(w.Key, g.Key) {
+			return elementHint(w.Value, g.Value, "map")
+		}
+	}
+	return ""
+}
+
+// Suggests how to turn a [kind] of [got] elements into one of [want]
+// elements, which happens implicitly only when each element converts.
+func elementHint(want, got Type, kind string) string {
+	if i, ok := got.(*Interface); ok && assignableType(i, want) {
+		return fmt.Sprintf("a %s of %s may hold other types; test each element with as? %s", kind, i.Name, want)
+	}
+	if i, ok := want.(*Interface); ok {
+		if s, ok := got.(*Struct); ok {
+			return fmt.Sprintf("declare struct %s: %s, and the %s converts", s.Name, i.Name, kind)
+		}
+	}
+	if kind == "list" {
+		switch {
+		case want == Float && got == Int:
+			return "convert each element with .map(fn(x) => float(x))"
+		case want == String && (got == Int || got == Float || got == Bool):
+			return "convert each element with .map(fn(x) => str(x))"
 		}
 	}
 	return ""

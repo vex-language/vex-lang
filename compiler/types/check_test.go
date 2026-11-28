@@ -547,6 +547,9 @@ func TestErrors(t *testing.T) {
 		{"mixed list", "", `let xs = [1, "two"]`, "2:14", "list item 2: expected int, found string", "parse it with int(...)"},
 		{"annotation mismatch", "", "let x: int = 2.5", "2:14", "expected int, found float", "convert it with int(...), which drops the fraction"},
 		{"void value", "fn f() {}", "let x = f()", "3:9", "this expression has no value to store", ""},
+		{"list elements don't convert", "", "let xs = [1]\nlet ys: [float] = xs", "3:19", "expected [float], found [int]", "convert each element with .map(fn(x) => float(x))"},
+		{"list of interface to struct", "interface I {}\nstruct S: I {}", "let xs: [I] = [S()]\nlet ys: [S] = xs", "5:15", "expected [S], found [I]", "a list of I may hold other types; test each element with as? S"},
+		{"map of struct not implementing", "interface I {}\nstruct S {}", "let m: [string: I] = [\"a\": S()].copy()", "4:22", "expected [string: I], found [string: S]", "declare struct S: I, and the map converts"},
 
 		// Operators.
 		{"int plus string", "", "let n = 3\nlet s = n + \" items\"", "3:9", "can't use '+' with int and string", `put the value inside the string instead: "{n} items"`},

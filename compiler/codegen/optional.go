@@ -99,6 +99,9 @@ func (g *gen) collectOptionals() {
 	for _, o := range g.info.Wraps {
 		visit(o)
 	}
+	for _, t := range g.info.Converts {
+		visit(t)
+	}
 	for _, v := range g.info.Defs {
 		visit(v.Type)
 	}
@@ -227,6 +230,9 @@ func (g *gen) chain(e ast.Expr, wrap bool) string {
 func (g *gen) typeOf(e ast.Expr) types.Type {
 	if o := g.info.Wraps[e]; o != nil {
 		return o
+	}
+	if t := g.info.Converts[e]; t != nil {
+		return t
 	}
 	return g.info.Types[e]
 }

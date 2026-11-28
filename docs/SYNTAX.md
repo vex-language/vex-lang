@@ -269,7 +269,7 @@ let letters = words.reduce(0, fn(n, w) => n + w.len)
 | `.len`, `.isEmpty`, `.first`, `.last` | Properties; `first` and `last` are `nil` for an empty list |
 | `.push(x)`, `.pop()`, `.insert(x, at: i)`, `.remove(at: i)`, `.removeWhere(f)`, `.clear()` | Change the list in place; `remove` and `pop` give the element removed |
 | `.sort()`, `.sort(by: f)` | Sort in place. `sort()` needs elements that `<` orders: numbers, strings, enums whose cases carry no values, and structs that define `operator <`. `by:` takes whether `a` goes before `b`. Sorting is stable: equal elements keep their order |
-| `.sorted()`, `.sorted(by: f)`, `.reversed()`, `.slice(from, to)`, `.copy()` | New lists; the original is unchanged. `slice` takes the elements from `from` up to `to`, as `xs[from..to]` does (see [Slicing](#ranges)) |
+| `.sorted()`, `.sorted(by: f)`, `.reversed()`, `.slice(from, to)`, `.copy()`, `.cast<T>()` | New lists; the original is unchanged. `slice` takes the elements from `from` up to `to`, as `xs[from..to]` does (see [Slicing](#ranges)); `cast` converts each element to `T` (see below) |
 | `.contains(x)`, `.indexOf(x)` | Whether `x` is in the list, and the index of the first match as an `int?`; elements need `==` |
 | `.find(f)`, `.any(f)`, `.all(f)` | The first element `f` accepts, as an optional; whether any or every element passes |
 | `.filter(f)`, `.map(f)`, `.flatMap(f)` | New lists: the elements `f` accepts; what `f` returns for each; the lists `f` returns, joined |
@@ -279,6 +279,21 @@ let letters = words.reduce(0, fn(n, w) => n + w.len)
 
 - An index out of range stops the program, for `insert`, `remove` and `slice` as for `xs[i]`.
 - Changing the list from inside the function passed to `sort(by:)` or `removeWhere` stops the program. `filter`, `map`, `find` and the others visit the elements there were at the start, as a `for` loop does.
+
+**Converting lists.** A list can be used where a list of another element type is expected when every element converts on its own: a `[Circle]` as a `[Shape]` when `Circle` implements `Shape`, or an `[int]` as an `[int?]`. The list is copied with each element converted, so the copy and the original change separately; otherwise a `Square` pushed onto the `[Shape]` would land in the `[Circle]`. `cast<T>()` makes the same copy where no type is written:
+
+```swift
+fn total(shapes: [Shape]) -> float { ... }
+
+let circles = [Circle(radius: 1), Circle(radius: 2)]
+println(total(circles))              // a [Shape] copy of circles
+var shapes = circles.cast<Shape>()   // [Shape]
+shapes.push(Square(side: 2))         // circles still has 2 elements
+let maybe: [int?] = counts           // counts is an [int]
+```
+
+- Nested lists convert the same way, as `[[Circle]]` to `[[Shape]]`, and so do the values of maps: a `[string: Circle]` is copied as a `[string: Shape]`. Keys must have the same type.
+- `cast<T>()` only goes where the elements convert on their own. A `[Shape]` can't become a `[Circle]`, since it may hold other shapes: test each element with `as?` (see [Type tests](#interfaces)).
 
 **Collection `if`, `for` and spread.** Inside a list or map literal, `if` and `for` produce elements and `...` adds every element of another collection, as in Dart:
 
