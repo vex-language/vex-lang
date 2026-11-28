@@ -114,7 +114,26 @@ Memory is managed by a garbage collector built into the runtime, with Go-like sp
 
 > Vex is pre-release. Programs compile and run on macOS, Linux and Windows (x86-64); the language is still growing.
 
-**Requirements**
+**Install the SDK**
+
+Download the archive for your system from the [releases](https://github.com/vex-language/vex-lang/releases) page. It holds `vex`, the standard library, the documentation and, on Windows and Linux, the C toolchain, so nothing else is needed to build programs. Unpack it anywhere and add its `bin` folder to your `PATH`:
+
+| System | Archive | Notes |
+|---|---|---|
+| Windows (x64) | `vex-sdk-<version>-windows-x64.zip` | Includes [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw); no Visual Studio is needed. Releases are also offered to winget as `VexLanguage.Vex` |
+| Linux (x64) | `vex-sdk-<version>-linux-x64.tar.xz` | Includes clang with a musl sysroot and OpenSSL: programs are static executables that run on any x86-64 Linux |
+| macOS (Apple silicon) | `vex-sdk-<version>-macos-arm64.tar.xz` | Needs the Xcode Command Line Tools: `xcode-select --install` |
+| macOS (Intel) | `vex-sdk-<version>-macos-x64.tar.xz` | The same |
+
+```sh
+mkdir -p ~/sdk && tar -xJf vex-sdk-*-linux-x64.tar.xz -C ~/sdk   # or macOS; on Windows, unzip
+echo 'export PATH="$HOME/sdk/vex-sdk/bin:$PATH"' >> ~/.zshrc
+vex doctor
+```
+
+The folder can live anywhere, even in a path with spaces or on another drive: `vex` finds its toolchain next to itself, and `$CC` still overrides it. Each release lists the archives' SHA-256 sums in `SHA256SUMS`. See [docs/design/sdk.md](docs/design/sdk.md) for the layout.
+
+**Requirements to build from source**
 - Go 1.23 or newer, to build the compiler
 - A C compiler (`clang` or `gcc`), to build Vex programs; on Windows, clang from [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw) (`winget install MartinStorsjo.LLVM-MinGW.UCRT`), so no Visual Studio is needed
 
@@ -139,7 +158,7 @@ On Windows, run `./build.sh` from Git Bash, or build from PowerShell or `cmd`:
 go build -o bin\vex.exe .\cmd\vex
 ```
 
-Programs built there are `.exe` files: `vex build hello.vx` writes `hello.exe`. `vex` finds `clang` on the `PATH`, or the compiler named by `CC`, which may be a full path with spaces such as `C:\Program Files\LLVM\bin\clang.exe`. Source files may use Windows (CRLF) line endings.
+Programs built there are `.exe` files: `vex build hello.vx` writes `hello.exe`. `vex` finds the SDK's clang, then `clang` on the `PATH`, or the compiler named by `CC`, which may be a full path with spaces such as `C:\Program Files\LLVM\bin\clang.exe`. Source files may use Windows (CRLF) line endings.
 
 Then run `vex doctor` to check the tools Vex builds with: the C compiler, git for `vex get`, and, for phone apps, Xcode and the Android SDK, NDK and JDK. It says what is missing and how to install it, and never installs anything itself; `vex doctor -v` shows where each tool was found.
 
@@ -582,7 +601,7 @@ To compare speed with Go, `bench/run.sh` builds the programs in [bench](bench) i
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await and streams, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 88 of 89 tasks; next are the P1 items |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await and streams, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 89 of 89 tasks; next are the P1 items |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |
@@ -601,6 +620,7 @@ examples/      sample programs with expected output
 tests/         compiler tests, including programs that must fail
 bench/         benchmarks in Vex and Go, and a script that compares them
 docs/          language documentation
+tools/sdk/     scripts that build and test the SDK archives
 assets/brand/  logo files
 bin/           built binaries (not tracked)
 BACKLOG.md     roadmap and tasks

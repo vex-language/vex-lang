@@ -44,7 +44,8 @@ const modeHelp = `  --debug           compile without optimizations and with deb
                     --sanitize=address,undefined
 
 Environment:
-  CC                the C compiler (default: clang, then cc, then gcc)
+  CC                the C compiler (default: the clang of the Vex SDK, found
+                    next to vex in toolchain/bin, then clang, cc or gcc)
   VEX_CFLAGS        more flags for the C compiler, after the others, so they
                     can override them, e.g. VEX_CFLAGS="-march=native"
 `

@@ -1,0 +1,224 @@
+name: Release
+
+# Builds the SDK archives, signs and checksums them, tests each on a fresh
+# machine, and attaches them to the GitHub release of the tag. Signing
+# and publishing steps run only when their secrets are set.
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version to stamp, such as 0.2.0 (default a dev version); nothing is published
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    name: build (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: windows-x64
+            os: ubuntu-22.04
+          # The oldest supported Ubuntu, so libraries copied next to clang
+          # don't need a newer glibc than clang itself.
+          - target: linux-x64
+            os: ubuntu-22.04
+          - target: macos-arm64
+            os: macos-latest
+          - target: macos-x64
+            os: macos-latest
+    runs-on: ${{ matrix.os }}
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_ID: ${{ secrets.APPLE_ID }}
+      APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
+      APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+      WINDOWS_CERTIFICATE: ${{ secrets.WINDOWS_CERTIFICATE }}
+      WINDOWS_CERTIFICATE_PASSWORD: ${{ secrets.WINDOWS_CERTIFICATE_PASSWORD }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+      - name: Choose the version
+        shell: bash
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          if [ "$GITHUB_REF_TYPE" = tag ]; then
+            echo "VEX_VERSION=${GITHUB_REF_NAME#v}" >> "$GITHUB_ENV"
+          elif [ -n "$INPUT_VERSION" ]; then
+            case $INPUT_VERSION in *[!0-9A-Za-z.+-]*) echo "bad version: $INPUT_VERSION" >&2; exit 1 ;; esac
+            echo "VEX_VERSION=$INPUT_VERSION" >> "$GITHUB_ENV"
+          fi
+      - name: Cache downloads
+        uses: actions/cache@v4
+        with:
+          path: dist/cache
+          key: sdk-${{ matrix.target }}-${{ hashFiles('tools/sdk/build.sh') }}
+      - name: Install build tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y zip zstd patchelf osslsigncode
+      - name: Import the macOS signing certificate
+        if: runner.os == 'macOS'
+        run: |
+          if [ -z "$MACOS_CERTIFICATE" ]; then
+            echo "::notice::MACOS_CERTIFICATE isn't set; vex won't be codesigned"
+            exit 0
+          fi
+          keychain="$RUNNER_TEMP/sign.keychain-db"
+          password=$(openssl rand -hex 16)
+          echo "$MACOS_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/cert.p12"
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 21600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          security import "$RUNNER_TEMP/cert.p12" -k "$keychain" -P "$MACOS_CERTIFICATE_PASSWORD" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$password" "$keychain" > /dev/null
+          # shellcheck disable=SC2046 # one keychain path per word
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          rm "$RUNNER_TEMP/cert.p12"
+          identity=$(security find-identity -v -p codesigning "$keychain" | awk -F'"' '/Developer ID Application/ { print $2; exit }')
+          echo "MACOS_SIGN_IDENTITY=$identity" >> "$GITHUB_ENV"
+      - name: Build the archive
+        env:
+          VEX_SDK_SIGN: '1'
+        run: tools/sdk/build.sh ${{ matrix.target }} dist
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-${{ matrix.target }}
+          path: |
+            dist/*.zip
+            dist/*.tar.xz
+          if-no-files-found: error
+
+  test:
+    name: test (${{ matrix.target }}, ${{ matrix.os }}${{ matrix.container && format(', {0}', matrix.container) || '' }})
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # windows-latest has LLVM and MinGW installed; test.sh leaves them
+          # off PATH and checks that the SDK's own clang is chosen.
+          - target: windows-x64
+            os: windows-latest
+          # Containers without a compiler, OpenSSL or Go.
+          - target: linux-x64
+            os: ubuntu-latest
+            container: debian:12-slim
+          - target: linux-x64
+            os: ubuntu-latest
+            container: ubuntu:22.04
+          - target: macos-arm64
+            os: macos-latest
+          - target: macos-x64
+            os: macos-15-intel
+    runs-on: ${{ matrix.os }}
+    container: ${{ matrix.container }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Install unpacking tools
+        if: matrix.container
+        run: apt-get update && apt-get install -y --no-install-recommends xz-utils ca-certificates
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/sdk
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk-${{ matrix.target }}
+          path: dist
+      - name: Test the archive
+        run: |
+          archive=$(ls dist/vex-sdk-*)
+          tools/sdk/test.sh "$archive" "$RUNNER_TEMP/sdk test"
+
+  release:
+    name: release
+    needs: test
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    env:
+      MINISIGN_KEY: ${{ secrets.MINISIGN_KEY }}
+      MINISIGN_PASSWORD: ${{ secrets.MINISIGN_PASSWORD }}
+      GH_TOKEN: ${{ github.token }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: sdk-*
+          path: dist
+          merge-multiple: true
+      - name: Write checksums
+        working-directory: dist
+        run: |
+          sha256sum vex-sdk-* > SHA256SUMS
+          cat SHA256SUMS
+      - name: Sign the checksums
+        working-directory: dist
+        run: |
+          if [ -z "$MINISIGN_KEY" ]; then
+            echo "::notice::MINISIGN_KEY isn't set; SHA256SUMS isn't signed"
+            exit 0
+          fi
+          sudo apt-get update && sudo apt-get install -y minisign
+          echo "$MINISIGN_KEY" > "$RUNNER_TEMP/minisign.key"
+          echo "$MINISIGN_PASSWORD" | minisign -S -s "$RUNNER_TEMP/minisign.key" -m SHA256SUMS
+          rm "$RUNNER_TEMP/minisign.key"
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sdk-release
+          path: dist/*
+      - name: Attach to the GitHub release
+        if: github.ref_type == 'tag'
+        run: |
+          gh release create "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --verify-tag \
+            --title "Vex ${GITHUB_REF_NAME#v}" --generate-notes dist/* \
+          || gh release upload "$GITHUB_REF_NAME" --repo "$GITHUB_REPOSITORY" --clobber dist/*
+
+  winget:
+    name: winget
+    needs: release
+    if: github.ref_type == 'tag'
+    runs-on: windows-latest
+    env:
+      WINGET_TOKEN: ${{ secrets.WINGET_TOKEN }}
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: tools/sdk
+      - uses: actions/download-artifact@v4
+        with:
+          name: sdk-release
+          path: dist
+      - name: Fill in the manifest
+        run: |
+          version=${GITHUB_REF_NAME#v}
+          sum=$(awk '/windows-x64.zip$/ { print toupper($1) }' dist/SHA256SUMS)
+          out="winget/manifests/v/VexLanguage/Vex/$version"
+          mkdir -p "$out"
+          for f in tools/sdk/winget/*.yaml; do
+            sed -e "s/{{VERSION}}/$version/g" -e "s/{{SHA256}}/$sum/g" "$f" > "$out/$(basename "$f")"
+          done
+          cat "$out"/*.yaml
+          echo "MANIFEST_DIR=$out" >> "$GITHUB_ENV"
+      - name: Open a pull request to winget-pkgs
+        shell: pwsh
+        run: |
+          if (-not $env:WINGET_TOKEN) {
+            Write-Output "::notice::WINGET_TOKEN isn't set; no winget pull request was opened"
+            exit 0
+          }
+          Invoke-WebRequest https://aka.ms/wingetcreate/latest -OutFile wingetcreate.exe
+          .\wingetcreate.exe submit --token $env:WINGET_TOKEN $env:MANIFEST_DIR

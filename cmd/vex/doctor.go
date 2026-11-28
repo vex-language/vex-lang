@@ -77,8 +77,8 @@ type system interface {
 	readFile(path string) ([]byte, error)
 	readDir(path string) ([]string, error)
 
-	// Returns the C compiler command the build would use.
-	ccCommand() ([]string, error)
+	// Returns the C compiler the build would use.
+	ccCommand() (cc.Compiler, error)
 
 	// Compiles and links the C source [src] with [command] in a temporary
 	// folder, adding [args] after the source file, and returns the
@@ -94,7 +94,7 @@ func (hostSystem) getenv(key string) string              { return os.Getenv(key)
 func (hostSystem) executable() (string, error)           { return os.Executable() }
 func (hostSystem) lookPath(name string) (string, error)  { return exec.LookPath(name) }
 func (hostSystem) readFile(path string) ([]byte, error)  { return os.ReadFile(path) }
-func (hostSystem) ccCommand() ([]string, error)          { return cc.Command() }
+func (hostSystem) ccCommand() (cc.Compiler, error)       { return cc.Find() }
 func (hostSystem) exists(path string) bool               { _, err := os.Stat(path); return err == nil }
 func (hostSystem) home() string                          { dir, _ := os.UserHomeDir(); return dir }
 func (hostSystem) readDir(path string) ([]string, error) { return readDirNames(path) }
@@ -310,7 +310,8 @@ int main(void) { return EVP_MD_fetch(NULL, "SHA256", NULL) == NULL; }
 func (d *doctor) toolchain() *section {
 	s := &section{title: "C toolchain - builds Vex programs", required: true}
 	goos := d.sys.goos()
-	command, err := d.sys.ccCommand()
+	compiler, err := d.sys.ccCommand()
+	command, bundled := compiler.Command, compiler.Origin == cc.FromSDK
 	working := false
 	switch {
 	case err != nil:
@@ -319,20 +320,21 @@ func (d *doctor) toolchain() *section {
 	case d.stub(command[0]):
 		s.summary = "no C compiler"
 	default:
-		from := "found on PATH"
-		if d.sys.getenv("CC") != "" {
-			from = "from $CC"
-		}
+		from := [...]string{cc.FromPath: "found on PATH", cc.FromEnv: "from $CC", cc.FromSDK: "bundled with the Vex SDK"}[compiler.Origin]
 		out, err := d.sys.run(probeTimeout, command[0], append(command[1:len(command):len(command)], "--version")...)
 		if err != nil {
 			s.summary = "not working"
-			s.fail(fmt.Sprintf("Couldn't run the C compiler %s: %v", strings.Join(command, " "), err), installCC(goos))
+			s.fail(fmt.Sprintf("Couldn't run the C compiler %s: %v", strings.Join(command, " "), err), fixCC(goos, bundled))
 			break
 		}
 		s.summary = compilerVersion(out)
 		s.ok("%s at %s (%s)", s.summary, strings.Join(command, " "), from)
 		if out, err := d.sys.compile(command, testC, "-pthread", "-lm"); err != nil {
-			s.fail("A test program didn't compile and link:\n"+trimOutput(out, err), fixCompile(goos, out))
+			fix := fixCompile(goos, out)
+			if bundled {
+				fix = fixSDK
+			}
+			s.fail("A test program didn't compile and link:\n"+trimOutput(out, err), fix)
 			break
 		}
 		s.ok("A test program compiles and links")
@@ -359,13 +361,27 @@ func (d *doctor) toolchain() *section {
 		if !working {
 			break
 		}
-		if _, err := d.sys.compile(command, cryptoC, "-lcrypto"); err != nil {
+		if _, err := d.sys.compile(command, cryptoC, "-lcrypto"); err != nil && bundled {
+			s.warn("The SDK's toolchain is missing OpenSSL 3's libcrypto, which vex:crypto needs", fixSDK)
+		} else if err != nil {
 			s.warn("OpenSSL 3's libcrypto wasn't found; vex:crypto needs it", "Install it, such as with: sudo apt install libssl-dev (Debian, Ubuntu) or sudo dnf install openssl-devel (Fedora)")
 		} else {
 			s.ok("OpenSSL 3's libcrypto, for vex:crypto")
 		}
 	}
 	return s
+}
+
+// How to fix the toolchain bundled with the Vex SDK.
+const fixSDK = "Download and unpack the Vex SDK again, or set $CC to another C compiler"
+
+// Returns how to fix a C compiler on [goos] that doesn't run; [bundled]
+// is set when it came with the Vex SDK.
+func fixCC(goos string, bundled bool) string {
+	if bundled {
+		return fixSDK
+	}
+	return installCC(goos)
 }
 
 // Returns how to install a C compiler on [goos].

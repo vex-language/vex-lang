@@ -7,6 +7,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/vex-language/vex-lang/compiler/cc"
 )
 
 // A [system] made of canned files and program outputs.
@@ -22,8 +24,9 @@ type fakeSystem struct {
 	// Command lines that fail, with what they print.
 	failing map[string]string
 
-	cc    []string
-	ccErr error
+	cc       []string
+	ccOrigin cc.Origin
+	ccErr    error
 
 	// Compiler output for the C sources that don't compile.
 	badC map[string]string
@@ -87,7 +90,9 @@ func (f *fakeSystem) readDir(path string) ([]string, error) {
 	return names, nil
 }
 
-func (f *fakeSystem) ccCommand() ([]string, error) { return f.cc, f.ccErr }
+func (f *fakeSystem) ccCommand() (cc.Compiler, error) {
+	return cc.Compiler{Command: f.cc, Origin: f.ccOrigin}, f.ccErr
+}
 
 func (f *fakeSystem) compile(_ []string, src string, _ ...string) (string, error) {
 	if out, ok := f.badC[src]; ok {
@@ -214,7 +219,7 @@ func TestDoctorMacCompilerFromCC(t *testing.T) {
 	sys := healthyMac()
 	delete(sys.out, "xcode-select -p")
 	sys.env["CC"] = "/opt/llvm/bin/clang"
-	sys.cc = []string{"/opt/llvm/bin/clang"}
+	sys.cc, sys.ccOrigin = []string{"/opt/llvm/bin/clang"}, cc.FromEnv
 	sys.out["/opt/llvm/bin/clang --version"] = "clang version 19.1.7\n"
 	out, ok := diagnose(sys, true)
 	for _, want := range []string{
@@ -289,6 +294,32 @@ func TestDoctorLinux(t *testing.T) {
 	out, ok = diagnose(sys, false)
 	want := "[!] C toolchain - builds Vex programs (cc (Debian 12.2.0-14) 12.2.0)\n    ! OpenSSL 3's libcrypto wasn't found; vex:crypto needs it\n      Install it, such as with: sudo apt install libssl-dev (Debian, Ubuntu) or sudo dnf install openssl-devel (Fedora)\n"
 	if !ok || !strings.Contains(out, want) {
+		t.Errorf("ok %v, missing %q in\n%s", ok, want, out)
+	}
+}
+
+func TestDoctorBundledToolchain(t *testing.T) {
+	sys := healthyLinux()
+	clang := "/opt/vex sdk/toolchain/bin/clang"
+	sys.cc, sys.ccOrigin = []string{clang}, cc.FromSDK
+	sys.out[clang+" --version"] = "clang version 23.1.6\n"
+	out, ok := diagnose(sys, true)
+	want := "    • clang 23.1.6 at " + clang + " (bundled with the Vex SDK)\n    • A test program compiles and links\n    • OpenSSL 3's libcrypto, for vex:crypto\n"
+	if !ok || !strings.Contains(out, want) {
+		t.Errorf("ok %v, missing %q in\n%s", ok, want, out)
+	}
+
+	sys.badC = map[string]string{cryptoC: "ld.lld: error: unable to find library -lcrypto\n"}
+	out, _ = diagnose(sys, false)
+	want = "    ! The SDK's toolchain is missing OpenSSL 3's libcrypto, which vex:crypto needs\n      " + fixSDK + "\n"
+	if !strings.Contains(out, want) {
+		t.Errorf("missing %q in\n%s", want, out)
+	}
+
+	sys.badC = map[string]string{testC: "ld.lld: error: cannot open crt1.o\n"}
+	out, ok = diagnose(sys, false)
+	want = "    ✗ A test program didn't compile and link:\n      ld.lld: error: cannot open crt1.o\n      " + fixSDK + "\n"
+	if ok || !strings.Contains(out, want) {
 		t.Errorf("ok %v, missing %q in\n%s", ok, want, out)
 	}
 }

@@ -1,0 +1,22 @@
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.6.0.schema.json
+PackageIdentifier: VexLanguage.Vex
+PackageVersion: {{VERSION}}
+PackageLocale: en-US
+Publisher: Vex Language
+PublisherUrl: https://github.com/vex-language
+PackageName: Vex
+PackageUrl: https://github.com/vex-language/vex-lang
+License: Apache-2.0 OR MIT
+LicenseUrl: https://github.com/vex-language/vex-lang/blob/main/LICENSE-APACHE
+ShortDescription: The Vex programming language SDK, with its C toolchain (LLVM-MinGW).
+Description: |-
+  The vex command, the standard library and runtime, documentation, and the
+  LLVM-MinGW C toolchain Vex programs are built with. No Visual Studio is needed.
+Moniker: vex
+Tags:
+  - compiler
+  - programming-language
+  - vex
+ReleaseNotesUrl: https://github.com/vex-language/vex-lang/releases/tag/v{{VERSION}}
+ManifestType: defaultLocale
+ManifestVersion: 1.6.0

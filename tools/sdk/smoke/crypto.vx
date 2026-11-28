@@ -1,0 +1,10 @@
+// Reaches both halves of vex:crypto: SHA-256 from the system's provider
+// and BLAKE2b from Monocypher.
+import "vex:crypto"
+
+fn main() {
+    let abc = "abc".toBytes()
+    println(crypto.sha256(abc).toHex())
+    println(crypto.blake2b(abc, size: 16).toHex())
+    println(crypto.randomBytes(16).len)
+}

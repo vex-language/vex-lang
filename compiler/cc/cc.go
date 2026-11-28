@@ -39,27 +39,76 @@ func ParseSanitizers(list string) ([]string, error) {
 	return out, nil
 }
 
+// Where the C compiler [Find] returns came from.
+type Origin int
+
+const (
+	// Found on PATH.
+	FromPath Origin = iota
+	// Named by `$CC`.
+	FromEnv
+	// The toolchain of the Vex SDK the running vex belongs to.
+	FromSDK
+)
+
+// A C compiler command, which may include arguments, and where it came
+// from.
+type Compiler struct {
+	Command []string
+	Origin  Origin
+}
+
+// Returns the path of the running program, replaced in tests.
+var executable = os.Executable
+
 // Returns the C compiler command: `$CC` if set (it may include arguments),
-// otherwise clang, otherwise cc.
+// otherwise the clang of the SDK vex belongs to, otherwise clang, cc or
+// gcc on PATH.
 func Command() ([]string, error) {
+	c, err := Find()
+	return c.Command, err
+}
+
+// Returns the C compiler like [Command], with where it came from.
+func Find() (Compiler, error) {
 	env := os.Getenv("CC")
 	// A path with spaces, such as C:\Program Files\LLVM\bin\clang.exe,
 	// names the compiler alone.
 	if info, err := os.Stat(env); env != "" && err == nil && !info.IsDir() {
-		return []string{env}, nil
+		return Compiler{[]string{env}, FromEnv}, nil
 	}
 	if fields := strings.Fields(env); len(fields) > 0 {
-		return fields, nil
+		return Compiler{fields, FromEnv}, nil
+	}
+	if exe, err := executable(); err == nil {
+		if clang := Bundled(exe); clang != "" {
+			return Compiler{[]string{clang}, FromSDK}, nil
+		}
 	}
 	for _, name := range []string{"clang", "cc", "gcc"} {
 		if path, err := exec.LookPath(name); err == nil {
-			return []string{path}, nil
+			return Compiler{[]string{path}, FromPath}, nil
 		}
 	}
 	if runtime.GOOS == "windows" {
-		return nil, errors.New("no C compiler found; install LLVM-MinGW (winget install MartinStorsjo.LLVM-MinGW.UCRT) or set $CC")
+		return Compiler{}, errors.New("no C compiler found; install LLVM-MinGW (winget install MartinStorsjo.LLVM-MinGW.UCRT) or set $CC")
 	}
-	return nil, errors.New("no C compiler found; install clang (on macOS: xcode-select --install) or set $CC")
+	return Compiler{}, errors.New("no C compiler found; install clang (on macOS: xcode-select --install) or set $CC")
+}
+
+// Returns the clang of the SDK that the vex binary at [exe] belongs to,
+// `<sdk>/toolchain/bin/clang` for `<sdk>/bin/vex`, or "" when there is
+// none. Symbolic links to vex are followed, so a link on PATH still finds
+// the SDK.
+func Bundled(exe string) string {
+	if real, err := filepath.EvalSymlinks(exe); err == nil {
+		exe = real
+	}
+	clang := filepath.Join(filepath.Dir(filepath.Dir(exe)), "toolchain", "bin", Executable("clang"))
+	if info, err := os.Stat(clang); err == nil && !info.IsDir() {
+		return clang
+	}
+	return ""
 }
 
 // Returns the file name of the program [name]: on Windows it ends in
@@ -127,9 +176,13 @@ func Compile(src, out string) error { return CompileWith(src, out, Options{}) }
 
 // Like [Compile], also building in the C code of [opts].
 func CompileWith(src, out string, opts Options) error {
-	command, err := Command()
+	compiler, err := Find()
 	if err != nil {
 		return err
+	}
+	command := compiler.Command
+	if len(opts.Sanitize) > 0 && compiler.Origin == FromSDK && runtime.GOOS == "linux" {
+		return errors.New("sanitizers can't be built into the static programs of the SDK's toolchain; install clang and set CC=clang to use them")
 	}
 	dir, err := os.MkdirTemp("", "vex-build-")
 	if err != nil {
