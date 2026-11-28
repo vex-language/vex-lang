@@ -971,9 +971,43 @@ fn render(view: View) -> string {
 
 - After `x is T`, `x` has type `T` in the `if` block, the rest of an `&&` chain, an `if` value's branch and a `while` body. This needs a name that can't change: a `let`, a parameter, a loop variable or a pattern name. A `var` keeps its type; bind it with `if let t = x as? T`.
 - The value tested must be an interface (unwrap an optional first), and the type must be able to hold it: a struct or enum that implements the interface, or another interface.
-- Interfaces are open, so a `match` on one needs a `_` arm.
+- Interfaces are open, so a `match` on one needs a `_` arm, unless it is sealed.
 - Vex has no `as` without `?`, as it has no force unwrap.
 - A test is one comparison: each struct and enum value carries a pointer to its type's method tables.
+
+**Sealed interfaces.** `sealed interface` closes an interface: only structs and enums of the same module can implement it, so the compiler knows every type a value can be, as with Kotlin's and Dart's sealed types. A `match` on it needs no `_` once every type has an arm:
+
+```swift
+sealed interface Result {}
+struct Ok: Result { value: int }
+struct Failed: Result { message: string }
+struct Loading: Result {}
+
+fn show(r: Result) -> string => match r {
+    Ok(:value) => "got {value}"
+    f: Failed => f.message
+    Loading() => "..."
+}   // leaving out Loading is an error: match doesn't handle 'Loading'
+```
+
+- A type is covered by a typed pattern `f: Failed`, a struct pattern that only binds fields, such as `Loading()` or `Ok(:value)`, or `_`. Struct patterns that test values, such as `Ok(value: 0)`, and arms with `when` cover only some values, as for enums.
+- A sealed interface can have members and defaults, and extend other interfaces. The types of an interface that extends it are among its own, and a typed pattern for that interface covers them all:
+
+  ```swift
+  sealed interface Shape { fn area() -> float }
+  sealed interface Round: Shape { fn radius() -> float }
+  struct Circle: Round { ... }
+  struct Square: Shape { ... }
+
+  match shape {
+      r: Round => "round, radius {r.radius()}"
+      Square(:side) => "square {side}"
+  }
+  ```
+
+- In other modules, a struct, enum or interface can't list a sealed interface, or one that extends it, after `:`. A match there must still name each type; one that is private to its module needs a `_` arm.
+- A generic sealed interface works the same for types that name an instance, `struct Word: Token<string>`. When a generic struct or enum implements a sealed interface, a match on it needs `_`, since it can't list every instance.
+- `sealed` is only a keyword before `interface`, so it can still name a variable.
 
 ## Extensions
 
@@ -1575,7 +1609,7 @@ let message = match code {             // a match can be a value
 }
 ```
 
-- A match must handle every case, or end with `_`. On `int`, `float` and `string` it always needs `_`.
+- A match must handle every case, or end with `_`. On `int`, `float` and `string` it always needs `_`, and on an interface too unless it is [sealed](#interfaces).
 - Bindings follow the order of the case's values, `rect(w, h)`, or name them: `rect(height: h)`.
 - Used as a value, every arm needs an expression of the same type; an arm that calls `panic(...)` is allowed too.
 - Used as a statement, an arm can be a block or a single statement like `return`, `break` or `count += 1`.

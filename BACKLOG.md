@@ -124,7 +124,7 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-141** Multi-line and raw strings (S)
 - [x] **V-142** Operator overloading for structs: arithmetic, `==`, ordering and indexing (M)
 - [x] **V-143** Tear-offs: methods and constructors as values, as in `names.map(user.greet)` (S)
-- [ ] **V-144** Sealed interfaces: a closed set of structs that `match` checks exhaustively, with type patterns (M)
+- [x] **V-144** Sealed interfaces: a closed set of structs that `match` checks exhaustively, with type patterns (M)
 - [ ] **V-145** Null-aware elements in collections and `?[ ]` indexing (S)
 - [ ] **V-146** Extension types: zero-cost wrappers that make `UserId` and `int` different types (M)
 - [x] **V-160** Trailing blocks with parameters: `xs.map { x in x * 2 }`, and an implicit name for a single parameter (M)
