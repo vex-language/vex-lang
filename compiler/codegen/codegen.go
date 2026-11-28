@@ -836,7 +836,7 @@ func repr(t types.Type, x string) string {
 // Returns a C statement that writes [x] as in [repr] to the buffer [b].
 func write(t types.Type, b, x string) string {
 	switch t.(type) {
-	case *types.List, *types.Map, *types.Struct, *types.Enum, *types.Optional, *types.Interface, *types.Record:
+	case *types.List, *types.Map, *types.Set, *types.Struct, *types.Enum, *types.Optional, *types.Interface, *types.Record:
 		return fmt.Sprintf("wr_%s(%s, %s);", mangle(t), b, x)
 	}
 	switch t {
