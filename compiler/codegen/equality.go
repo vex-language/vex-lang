@@ -16,6 +16,9 @@ import (
 func (g *gen) eq(t types.Type, a, b string) string {
 	switch t := t.(type) {
 	case *types.Enum:
+		if f := t.Operator("=="); f != nil {
+			return fmt.Sprintf("%s(%s, %s)", funcName(f), a, b)
+		}
 		if t.Simple() {
 			return fmt.Sprintf("((%s)->tag == (%s)->tag)", a, b)
 		}

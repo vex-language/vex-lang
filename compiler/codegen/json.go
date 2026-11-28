@@ -101,6 +101,10 @@ func (g *gen) toJSONFunc(t types.Type) string {
 		}
 		fmt.Fprintf(&b, "return %s;", g.jsonCase("object", "m"))
 	case *types.Enum:
+		if t.Raw != nil {
+			fmt.Fprintf(&b, "return %s;", g.toJSON(t.Raw, g.rawValueFunc(t)+"(v)"))
+			break
+		}
 		b.WriteString("switch (v->tag) { ")
 		for _, cs := range t.Cases {
 			if len(cs.Fields) == 0 {
@@ -337,6 +341,10 @@ func (g *gen) jsonEnum(t *types.Enum) {
 		g.line("*vx_err = vx_jfail(p, vx_json_unknown_case(%s, %s));", s, cQuote(t.Name))
 		g.line("return NULL;")
 	}
+	if t.Raw != nil {
+		g.jsonRawEnum(t)
+		return
+	}
 	g.line("if (j->tag == %d) {", text)
 	g.ind++
 	g.line("vx_str s = j->u.c_text.f_value;")
@@ -388,6 +396,30 @@ func (g *gen) jsonEnum(t *types.Enum) {
 	g.ind--
 	g.line("}")
 	g.line("*vx_err = vx_jwant(p, %s, j);", cQuote("a case of "+t.Name))
+	g.line("return NULL;")
+}
+
+// Writes the body reading the enum [t] with raw values, each case written
+// as its raw value.
+func (g *gen) jsonRawEnum(t *types.Enum) {
+	from := g.fromRawFunc(t)
+	if t.Raw == types.Int {
+		g.line("if (j->tag == %d) {", g.jsonTag("integer"))
+		g.ind++
+		g.line("%s *c = %s(j->u.c_integer.f_value);", enumName(t), from)
+		g.line("if (c) return c;")
+		g.line("*vx_err = vx_jfail(p, vx_str_concat(VX_LIT(%s), vx_int_str(j->u.c_integer.f_value)));", cQuote("no case of "+t.Name+" has raw value "))
+	} else {
+		g.line("if (j->tag == %d) {", g.jsonTag("text"))
+		g.ind++
+		g.line("%s *c = %s(j->u.c_text.f_value);", enumName(t), from)
+		g.line("if (c) return c;")
+		g.line("*vx_err = vx_jfail(p, vx_str_concat(VX_LIT(%s), vx_str_quote(j->u.c_text.f_value)));", cQuote("no case of "+t.Name+" has raw value "))
+	}
+	g.line("return NULL;")
+	g.ind--
+	g.line("}")
+	g.line("*vx_err = vx_jwant(p, %s, j);", cQuote("a raw value of "+t.Name))
 	g.line("return NULL;")
 }
 
