@@ -1,5 +1,10 @@
 // Runtime library compiled into every Vex program.
 
+#ifdef _WIN32
+// Windows 10 and later.
+#define _WIN32_WINNT 0x0A00
+#endif
+
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -998,6 +1003,13 @@ static void vx_gc_report(void) {
 // Starts the collector of the running thread; [base] is the top of the
 // stack to scan.
 static void vx_gc_thread_init(void *base) {
+#ifdef _WIN32
+    // A frame address on Windows can point into the middle of the frame's
+    // locals, so the scan starts at the top of the thread's stack.
+    ULONG_PTR lo, hi;
+    GetCurrentThreadStackLimits(&lo, &hi);
+    base = (void *)hi;
+#endif
     vx_stack_base = base;
     vx_main_task.top = base;
     vx_cur = &vx_main_task;
