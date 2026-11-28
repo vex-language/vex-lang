@@ -1013,6 +1013,25 @@ static int64_t vx_time_ns(void) {
 // Seconds since 1970-01-01 UTC.
 static int64_t vx_time_unix(void) { return (int64_t)time(NULL); }
 
+// Returns 64 bits from the operating system's random source, to seed an
+// isolate's generator in vex:random.
+static int64_t vx_random_seed(void) {
+    uint64_t seed = 0;
+#if defined(__APPLE__)
+    arc4random_buf(&seed, sizeof seed);
+#else
+    FILE *f = fopen("/dev/urandom", "rb");
+    bool ok = f && fread(&seed, sizeof seed, 1, f) == 1;
+    if (f) fclose(f);
+    if (!ok) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        seed = (uint64_t)ts.tv_sec * 1000000007u ^ (uint64_t)ts.tv_nsec ^ (uint64_t)(uintptr_t)&seed;
+    }
+#endif
+    return (int64_t)seed;
+}
+
 static vx_str vx_str_concat(vx_str a, vx_str b) {
     if (a.len == 0) return b;
     if (b.len == 0) return a;

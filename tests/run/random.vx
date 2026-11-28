@@ -1,0 +1,96 @@
+// Random numbers: seeded generators give the same values on every run, and
+// the shared generator is checked through properties only.
+import "vex:random"
+
+fn main() {
+    // The values follow SplitMix64 for the seed.
+    let r = random.Random(seed: 42)
+    println(r.seed, [r.nextInt(0..10), r.nextInt(0..10), r.nextInt(0..10), r.nextInt(0..10), r.nextInt(0..10)])
+    println(random.Random(seed: 42).nextFloat())
+    let neg = random.Random(seed: -1)
+    println([neg.nextInt(1..=100), neg.nextInt(1..=100), neg.nextInt(1..=100), neg.nextInt(1..=100), neg.nextInt(1..=100)])
+
+    // The same seed gives the same values.
+    let a = random.Random(seed: 7)
+    let b = random.Random(seed: 7)
+    var same = true
+    for _ in 0..1000 {
+        if a.nextInt(0..1000000) != b.nextInt(0..1000000) || a.nextBool() != b.nextBool() {
+            same = false
+        }
+    }
+    println("same seed, same values:", same)
+
+    // Every value of a range comes up, and nothing outside it.
+    let die = random.Random(seed: 1)
+    var counts = [0, 0, 0, 0, 0, 0]
+    var outside = 0
+    for _ in 0..6000 {
+        let n = die.nextInt(1..=6)
+        if n < 1 || n > 6 {
+            outside += 1
+        } else {
+            counts[n - 1] += 1
+        }
+    }
+    println("outside:", outside, "each side at least 900:", counts.all(fn(c) => c >= 900))
+
+    // Stepped, reversed, one-value and negative ranges.
+    var stepped: [int] = []
+    var down: [int] = []
+    for _ in 0..200 {
+        let s = die.nextInt((0..10).step(3))
+        if !stepped.contains(s) { stepped.push(s) }
+        let d = die.nextInt((-3..=-1).reversed())
+        if !down.contains(d) { down.push(d) }
+    }
+    println(stepped.sorted(), down.sorted(), die.nextInt(5..=5), die.nextInt(int.max..=int.max))
+
+    // Floats stay in [0, 1) and bools come out both ways.
+    var low = 1.0
+    var high = 0.0
+    var trues = 0
+    for _ in 0..10000 {
+        let f = die.nextFloat()
+        low = if f < low { f } else { low }
+        high = if f > high { f } else { high }
+        if die.nextBool() { trues += 1 }
+    }
+    println(low >= 0.0, low < 0.01, high < 1.0, high > 0.99, trues > 4500 && trues < 5500)
+
+    // Choices and shuffles.
+    let empty: [string] = []
+    println(die.pick(empty), die.pick(["only"]))
+    var picked: [string] = []
+    for _ in 0..100 {
+        if let p = die.pick(["a", "b", "c"]), !picked.contains(p) { picked.push(p) }
+    }
+    println(picked.sorted())
+    let deck = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+    let mixed = random.Random(seed: 3).shuffled(deck)
+    println(deck, mixed == random.Random(seed: 3).shuffled(deck), mixed.sorted() == deck, mixed != deck)
+    var inPlace = deck.copy()
+    random.Random(seed: 3).shuffle(inPlace)
+    println(inPlace == mixed)
+    var one = ["x"]
+    die.shuffle(one)
+    println(one, die.shuffled(empty))
+
+    // The shared generator, seeded by the system.
+    var fine = true
+    for _ in 0..1000 {
+        let n = random.nextInt(10..20)
+        let f = random.nextFloat()
+        if n < 10 || n >= 20 || f < 0.0 || f >= 1.0 { fine = false }
+    }
+    println("shared generator in range:", fine)
+    let names = ["ann", "bo", "cy"]
+    println(names.contains(random.pick(names) ?? ""), random.pick(empty))
+    println(random.shuffled(deck).sorted() == deck, deck.shuffled().sorted() == deck)
+    var cards = deck.copy()
+    cards.shuffle()
+    random.shuffle(cards)
+    println(cards.len, cards.sorted() == deck)
+    let flips = [for _ in 0..200 random.nextBool()]
+    println(flips.contains(true) && flips.contains(false))
+}

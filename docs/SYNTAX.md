@@ -1244,6 +1244,7 @@ fn helper() { }                         // private to models
   - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, or [`Bytes`](#bytes) with `readBytes`, `writeBytes` and `appendBytes`, and failures throw an `Error` naming the path and the reason
   - `vex:json`: `encode`, `decode`, `parse` and `write`, and the `Json` and `JsonError` enums (see [JSON](#json))
   - `vex:isolate`: `run` and `spawn`, which start work on other cores (see Isolates), and `cores()`
+  - `vex:random`: `nextInt(range)` (`random.nextInt(1..=6)` rolls a die; stepped and reversed ranges work), `nextFloat()` from 0.0 up to 1.0, `nextBool()`, `pick(items)`, a `T?` that is `nil` for an empty list, and `shuffle(items)` in place and `shuffled(items)`, also written `xs.shuffle()` and `xs.shuffled()`. These use a generator seeded by the system, one per isolate. `random.Random(seed: 42)` has the same methods and gives the same values on every run, for tests. Neither is for passwords or keys
   - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status), `stdout` and `stderr`, writers with `write(text)`, `writeln(text)` and `flush()`, and `target` and `arch`, the system the program is built for (see [Platform conditionals](#platform-conditionals))
 
 ```swift
