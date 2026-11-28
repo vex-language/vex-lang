@@ -56,7 +56,11 @@ func (g *gen) throwingCall(e ast.Expr, code string, thrown types.Type) string {
 	tr := g.tries[len(g.tries)-1]
 	fail := fmt.Sprintf("if (__builtin_expect(%s != NULL, 0)) { ", tr.err)
 	if en, ok := thrown.(*types.Enum); ok && tr.target == types.Type(g.info.Error) {
-		fail += fmt.Sprintf("%s = new_%s(%s); ", tr.err, structName(g.info.Error), errorMessage(g.info, en, tr.err))
+		conv := fmt.Sprintf("new_%s(%s)", structName(g.info.Error), errorMessage(g.info, en, tr.err))
+		if g.traces {
+			conv = fmt.Sprintf("vx_rethrow(%s, %s)", tr.err, conv)
+		}
+		fail += fmt.Sprintf("%s = %s; ", tr.err, conv)
 	}
 	fail += "goto " + tr.label + "; }"
 	t := g.info.Types[e]
