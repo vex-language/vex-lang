@@ -1,10 +1,12 @@
 // Calling C functions with extern fn.
 import "vex:math"
+import "vex:os"
 import "vex:time"
 
 extern fn strlen(s: string) -> int
 extern fn getenv(name: string) -> string?
 extern fn setenv(name: string, value: string, overwrite: int)
+extern fn _putenv_s(name: string, value: string)
 extern fn labs(x: int) -> int
 extern fn atof(s: string) -> float
 extern fn strstr(haystack: string, needle: string) -> string?
@@ -13,7 +15,11 @@ fn main() {
     // Strings cross as NUL-terminated copies; nil results come back as nil.
     println(strlen(""), strlen("héllo"), strlen("tab\there"))
     println(getenv("VEX_SURELY_UNSET_123"))
-    setenv("VEX_TEST_VAR", "set from vex", 1)
+    if os.target == .windows {
+        _putenv_s("VEX_TEST_VAR", "set from vex")
+    } else {
+        setenv("VEX_TEST_VAR", "set from vex", 1)
+    }
     println(getenv("VEX_TEST_VAR") ?? "missing")
     println(labs(-42), atof("2.5") * 2.0)
     println(strstr("hello world", "wor") ?? "none", strstr("hello", "xyz") ?? "none")

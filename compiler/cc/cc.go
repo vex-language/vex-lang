@@ -145,7 +145,10 @@ func CompileWith(src, out string, opts Options) error {
 	}
 	args := append(command[1:len(command):len(command)], flags...)
 	if runtime.GOOS == "windows" {
-		// The main thread gets 8 MB of stack, as on macOS and Linux.
+		// The runtime uses Win32 threads, so programs don't need the
+		// pthreads DLL. The main thread gets 8 MB of stack, as on macOS
+		// and Linux.
+		args = slices.DeleteFunc(args, func(f string) bool { return f == "-pthread" })
 		args = append(args, "-Wl,--stack,8388608")
 	}
 	args = append(args, opts.modeFlags()...)
@@ -193,6 +196,10 @@ func CompileWith(src, out string, opts Options) error {
 	}
 	args = append(args, opts.LinkArgs...)
 	args = append(args, "-lm")
+	if runtime.GOOS == "windows" {
+		// BCryptGenRandom, for random seeds.
+		args = append(args, "-lbcrypt")
+	}
 	cmd := exec.Command(command[0], args...)
 	var output bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &output, &output

@@ -4,6 +4,7 @@ import "vex:fs"
 import "vex:isolate"
 import "vex:json"
 import "vex:os"
+import "vex:time"
 
 struct Blob: Codable, Hashable {
     name: string
@@ -98,7 +99,13 @@ async fn main() throws {
     println(grown.decodeUtf8() ?? "?", hello.len)
 
     // Files.
-    let tmp = (try os.output("mktemp -d")).split("\n")[0]
+    var tmp = ""
+    if os.target == .windows {
+        tmp = (os.env("TEMP") ?? ".") + "\\vex-bytes-{time.nanos()}"
+        try fs.makeDir(tmp)
+    } else {
+        tmp = (try os.output("mktemp -d")).split("\n")[0]
+    }
     let path = tmp + "/data.bin"
     try fs.writeBytes(path, big)
     try fs.appendBytes(path, hello)
@@ -110,5 +117,9 @@ async fn main() throws {
     println(try fs.readBytes(path))
     let missing = try fs.readBytes(tmp + "/missing.bin") catch e { e.message.replace(tmp, "TMP").toBytes() }
     println(missing.decodeUtf8() ?? "?")
-    try os.run("rm -rf '{tmp}'")
+    if os.target == .windows {
+        try os.run("rmdir /s /q \"{tmp}\"")
+    } else {
+        try os.run("rm -rf '{tmp}'")
+    }
 }

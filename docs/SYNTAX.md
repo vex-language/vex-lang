@@ -1252,6 +1252,8 @@ fn helper() { }                         // private to models
   - `vex:crypto`: hashes, HMAC, key derivation, secure random bytes and UUIDs, encryption with `seal` and `open`, and Ed25519, X25519 and P-256 keys (see [Cryptography](#cryptography))
   - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status), `stdout` and `stderr`, writers with `write(text)`, `writeln(text)` and `flush()`, and `target` and `arch`, the system the program is built for (see [Platform conditionals](#platform-conditionals))
 
+On Windows, `os.run` and `os.output` run the command with `cmd` instead of `sh`, and `os.output` gives its lines ending in `\n`. Arguments, environment variables, file names and console output are UTF-8 there too, and files are read and written byte for byte. Setting an environment variable to `""` with `os.setEnv` keeps it, empty, for the program and the commands it runs.
+
 ```swift
 import "vex:fs"
 import "vex:os"

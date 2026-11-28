@@ -111,8 +111,14 @@ func TestExamples(t *testing.T) {
 			if err != nil {
 				t.Fatalf("%v\n%s", err, stderr.String())
 			}
+			// NAME.windows.out, when present, holds the output on Windows,
+			// for a program that shows which system it runs on.
+			out := base + ".out"
+			if _, err := os.Stat(base + "." + runtime.GOOS + ".out"); err == nil {
+				out = base + "." + runtime.GOOS + ".out"
+			}
 			if *update {
-				if err := os.WriteFile(base+".out", got, 0o644); err != nil {
+				if err := os.WriteFile(out, got, 0o644); err != nil {
 					t.Fatal(err)
 				}
 				if stderr.Len() > 0 {
@@ -122,12 +128,12 @@ func TestExamples(t *testing.T) {
 				}
 				return
 			}
-			want, err := os.ReadFile(base + ".out")
+			want, err := os.ReadFile(out)
 			if err != nil {
 				t.Fatalf("missing expected output; run go test ./tests -update")
 			}
 			if !bytes.Equal(got, want) {
-				t.Errorf("output differs from %s.out\n--- got\n%s--- want\n%s", name, got, want)
+				t.Errorf("output differs from %s\n--- got\n%s--- want\n%s", filepath.Base(out), got, want)
 			}
 			// NAME.err, when present, holds what the program writes to
 			// standard error.

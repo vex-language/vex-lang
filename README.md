@@ -112,7 +112,7 @@ Memory is managed by a garbage collector built into the runtime, with Go-like sp
 
 ## Getting started
 
-> Vex is pre-release. Programs compile and run on macOS and Linux; the language is still growing.
+> Vex is pre-release. Programs compile and run on macOS, Linux and Windows (x86-64); the language is still growing.
 
 **Requirements**
 - Go 1.23 or newer, to build the compiler
@@ -553,7 +553,7 @@ error: index 3 is out of range for a list of length 3
 go test ./...
 ```
 
-This includes golden tests: every program in [examples](examples) and [tests/run](tests/run) is compiled and run, and its output must match its `.out` file (with `.in` as keyboard input, if present). Each program also runs with the garbage collector forced to collect far more often than usual, to catch memory freed too early. Each program in [tests/errors](tests/errors) must fail with exactly the errors listed in its `// error:` comments. After an intended change to an example's output, refresh the `.out` files with `go test ./tests -update`.
+This includes golden tests: every program in [examples](examples) and [tests/run](tests/run) is compiled and run, and its output must match its `.out` file (with `.in` as keyboard input, if present, and `.windows.out` instead on Windows for a program whose output names the system). Each program also runs with the garbage collector forced to collect far more often than usual, to catch memory freed too early. Each program in [tests/errors](tests/errors) must fail with exactly the errors listed in its `// error:` comments. After an intended change to an example's output, refresh the `.out` files with `go test ./tests -update`.
 
 Deeper checks, which CI runs on every pull request on Linux with clang and gcc (run them locally on macOS before merging):
 
@@ -582,7 +582,7 @@ To compare speed with Go, `bench/run.sh` builds the programs in [bench](bench) i
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await and streams, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 84 of 89 tasks; next are the P1 items |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await and streams, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 85 of 89 tasks; next are the P1 items |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |
