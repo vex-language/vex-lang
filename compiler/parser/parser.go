@@ -142,6 +142,11 @@ func (p *parser) errorAt(t lexer.Token, hint, format string, args ...any) {
 	}
 }
 
+// Records an error of [length] characters at [pos].
+func (p *parser) errorAtPos(pos diag.Pos, length int, hint, format string, args ...any) {
+	p.errorAt(lexer.Token{Pos: pos, Text: strings.Repeat(" ", max(length, 1))}, hint, format, args...)
+}
+
 // Records an error at token [t] and abandons the current statement.
 func (p *parser) fail(t lexer.Token, hint, format string, args ...any) {
 	p.errorAt(t, hint, format, args...)
@@ -2665,6 +2670,16 @@ func (p *parser) interpolated() ast.Expr {
 		}
 		s.Exprs = append(s.Exprs, p.expr())
 		t := p.tok()
+		if t.Kind == lexer.FormatSpec {
+			p.next()
+			if spec := p.formatSpec(t); spec != nil {
+				for len(s.Specs) < len(s.Exprs)-1 {
+					s.Specs = append(s.Specs, nil)
+				}
+				s.Specs = append(s.Specs, spec)
+			}
+			t = p.tok()
+		}
 		switch t.Kind {
 		case lexer.StringMid:
 			p.next()
@@ -2678,6 +2693,23 @@ func (p *parser) interpolated() ast.Expr {
 		}
 		p.fail(t, "", "expected } to end the interpolation, found %s", describe(t))
 	}
+}
+
+// Returns the format spec of token [t], or nil after reporting a problem
+// in it.
+func (p *parser) formatSpec(t lexer.Token) *ast.FormatSpec {
+	spec, err := ParseFormatSpec(t.Value)
+	if err != nil {
+		// The spec's text starts after the colon.
+		at := t.Pos.Offset + 1 + err.Offset
+		if t.Value == "" {
+			at = t.Pos.Offset
+		}
+		p.errorAtPos(p.file.PosOf(at), err.Len, err.Hint, "%s", err.Message)
+		return nil
+	}
+	spec.Span = ast.Span{Start: p.file.PosOf(t.Pos.Offset + 1), End: t.End}
+	return spec
 }
 
 // Parses a record type, or a type in parentheses: `(int, string)`,

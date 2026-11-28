@@ -45,6 +45,8 @@ func TestExpressions(t *testing.T) {
 		{`f("Hi {name}!")`, `(call f (interp "Hi " name "!"))`},
 		{`f("{a + b} and {g(c)}")`, `(call f (interp (+ a b) " and " (call g c)))`},
 		{`f("{"inner {x}"}")`, `(call f (interp (interp "inner " x)))`},
+		{`f("{x:.2} and {n:>8}")`, `(call f (interp (:.2 x) " and " (:>8 n)))`},
+		{`f("{m["a"]:04} {g(a: 1):x} {(x: 1).x:^5}")`, `(call f (interp (:04 (index m "a")) " " (:x (call g (a: 1))) " " (:^5 (. (record (x: 1)) x))))`},
 		{"f([1, 2, 3])", "(call f (list 1 2 3))"},
 		{"f([])", "(call f list)"},
 		{"f([[1], [2, 3]])", "(call f (list (list 1) (list 2 3)))"},
@@ -884,6 +886,8 @@ func TestErrors(t *testing.T) {
 		{"unclosed call", "fn main() {\n f(1, 2\n}", "2:3", "unclosed '('", "add a matching )"},
 		{"unclosed list", "fn main() {\n let xs = [1, 2\n}", "2:11", "unclosed '['", "add a matching ]"},
 		{"missing comma", "fn main() {\n f(1 2)\n}", "2:6", "expected ',' or ')', found number 2", "add a , between items"},
+		{"empty format spec", "fn main() {\n f(\"{x:}\")\n}", "2:7", "empty format spec", "write a spec such as .2 or >8 after the colon, or remove it"},
+		{"bad format spec", "fn main() {\n f(\"{x:>8q}\")\n}", "2:10", "unexpected 'q' in format spec", "a spec is written fill, alignment, +, #, 0, width, comma, .precision, type, as in :>8 or :+08.2"},
 		{"empty interpolation", "fn main() {\n f(\"a {} b\")\n}", "2:8", "empty {} in string", `put a value inside, or write \{ for a literal brace`},
 		{"named closure", "fn main() {\n let f = fn g() {}\n}", "2:13", "expected '(' after 'fn' in an expression", "closures have no name; store one with let name = fn(...) { ... }"},
 		{"closure default", "fn main() {\n let f = fn(x = 1) {}\n}", "2:15", "closure parameters can't have default values", ""},
@@ -1117,6 +1121,68 @@ func TestRecords(t *testing.T) {
 		}
 		if got := ast.TypeString(f.Decls[0].(*ast.FuncDecl).Result); got != want {
 			t.Errorf("%s: got %s, want %s", src, got, want)
+		}
+	}
+}
+
+func TestParseFormatSpec(t *testing.T) {
+	cases := []struct {
+		text string
+		want ast.FormatSpec
+	}{
+		{".2", ast.FormatSpec{Precision: 2}},
+		{"04", ast.FormatSpec{Zero: true, Width: 4, Precision: -1}},
+		{"6", ast.FormatSpec{Width: 6, Precision: -1}},
+		{"<10", ast.FormatSpec{Align: '<', Width: 10, Precision: -1}},
+		{"*^10", ast.FormatSpec{Fill: "*", Align: '^', Width: 10, Precision: -1}},
+		{"·>3", ast.FormatSpec{Fill: "·", Align: '>', Width: 3, Precision: -1}},
+		{"<<3", ast.FormatSpec{Fill: "<", Align: '<', Width: 3, Precision: -1}},
+		{"0>4", ast.FormatSpec{Fill: "0", Align: '>', Width: 4, Precision: -1}},
+		{"X", ast.FormatSpec{Type: 'X', Precision: -1}},
+		{"#b", ast.FormatSpec{Alt: true, Type: 'b', Precision: -1}},
+		{"+", ast.FormatSpec{Plus: true, Precision: -1}},
+		{",", ast.FormatSpec{Comma: true, Precision: -1}},
+		{"+08.3", ast.FormatSpec{Plus: true, Zero: true, Width: 8, Precision: 3}},
+		{"+#010x", ast.FormatSpec{Plus: true, Alt: true, Zero: true, Width: 10, Type: 'x', Precision: -1}},
+		{"12,.2", ast.FormatSpec{Width: 12, Comma: true, Precision: 2}},
+	}
+	for _, c := range cases {
+		got, err := ParseFormatSpec(c.text)
+		if err != nil {
+			t.Errorf("%q: unexpected error %s", c.text, err.Message)
+			continue
+		}
+		c.want.Text = c.text
+		if *got != c.want {
+			t.Errorf("%q:\n got: %+v\nwant: %+v", c.text, *got, c.want)
+		}
+	}
+	errs := []struct {
+		text   string
+		offset int
+		msg    string
+	}{
+		{"", 0, "empty format spec"},
+		{".", 0, "missing precision after '.'"},
+		{">+#05x", 3, "a format spec can't have both an alignment and zero padding"},
+		{"0", 0, "zero padding needs a width"},
+		{"#", 0, "'#' needs a base: x, X, b or o"},
+		{"8.2x", 1, "a precision can't be used with 'x'"},
+		{",b", 0, "thousands separators can't be used with 'b'"},
+		{"1001", 0, "format width 1001 is too large"},
+		{".21", 1, "format precision 21 is too large"},
+		{"d", 0, "unexpected 'd' in format spec"},
+		{" 5", 0, "unexpected ' ' in format spec"},
+		{"5{", 1, "unexpected '{' in format spec"},
+	}
+	for _, c := range errs {
+		_, err := ParseFormatSpec(c.text)
+		if err == nil {
+			t.Errorf("%q: expected an error", c.text)
+			continue
+		}
+		if err.Offset != c.offset || err.Message != c.msg {
+			t.Errorf("%q:\n got: %d %q\nwant: %d %q", c.text, err.Offset, err.Message, c.offset, c.msg)
 		}
 	}
 }

@@ -655,6 +655,44 @@ type InterpolatedString struct {
 	Span
 	Texts []string
 	Exprs []Expr
+
+	// The format spec of each expression, such as `.2` in `{x:.2}`, or nil
+	// for one without. Nil when no expression has a spec.
+	Specs []*FormatSpec
+}
+
+// A format spec in an interpolation: `{n:>8}`, `{x:+.2}`, `{n:#x}`.
+//
+// Its parts, all optional, come in this order: fill and alignment, `+`,
+// `#`, `0`, width, `,`, `.` with a precision, and a type.
+type FormatSpec struct {
+	// The text after the colon, and where it is in the source.
+	Text string
+	Span Span
+
+	// The padding character, which defaults to a space, and the alignment:
+	// '<', '>', '^', or 0 for the default.
+	Fill  string
+	Align byte
+
+	// Set by `+` to show the sign of positive numbers, `#` to prefix the
+	// base, `0` to pad with zeros after the sign, and `,` to separate
+	// thousands.
+	Plus, Alt, Zero, Comma bool
+
+	// The minimum width in characters, or 0.
+	Width int
+
+	// The number of digits after the point, or -1.
+	Precision int
+
+	// The base of an int: 'x', 'X', 'b' or 'o', or 0 for decimal.
+	Type byte
+}
+
+// Reports whether [s] uses a part that only formats numbers.
+func (s *FormatSpec) Numeric() bool {
+	return s.Plus || s.Alt || s.Zero || s.Comma || s.Precision >= 0 || s.Type != 0
 }
 
 // A list literal: `[1, 2, 3]`.

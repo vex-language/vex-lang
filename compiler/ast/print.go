@@ -556,7 +556,11 @@ func buildExpr(e Expr) *tree {
 				t.kids = append(t.kids, leaf(strconv.Quote(text)))
 			}
 			if i < len(e.Exprs) {
-				t.kids = append(t.kids, buildExpr(e.Exprs[i]))
+				x := buildExpr(e.Exprs[i])
+				if i < len(e.Specs) && e.Specs[i] != nil {
+					x = branch(":"+e.Specs[i].Text, x)
+				}
+				t.kids = append(t.kids, x)
 			}
 		}
 		return t
