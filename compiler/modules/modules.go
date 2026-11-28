@@ -397,6 +397,28 @@ func Core() (*Module, error) {
 // Reports whether [m] is the core module.
 func (m *Module) Core() bool { return m.std && m.Name == CoreName }
 
+// Reports whether [m] belongs to the standard library.
+func (m *Module) Std() bool { return m.std }
+
+// Loads standard library module [name], such as `json`, on its own,
+// without the modules it imports.
+func LoadStd(name string) (*Module, error) {
+	if !IsStd(name) {
+		var names []string
+		all, _ := fs.ReadDir(stdFS, "std")
+		for _, e := range all {
+			names = append(names, "vex:"+e.Name())
+		}
+		return nil, fmt.Errorf("unknown module 'vex:%s'; the standard library has %s", name, strings.Join(names, ", "))
+	}
+	l := &loader{modules: map[string]*Module{}, prog: &Program{Target: Host()}}
+	m := l.stdModule(name, nil)
+	if len(l.errs) > 0 {
+		return nil, l.errs
+	}
+	return m, nil
+}
+
 var validName = regexp.MustCompile(`^[A-Za-z_][A-Za-z0-9_]*$`)
 
 // Finds the modules imported by each file of [m].
