@@ -1,0 +1,83 @@
+// Dates, times and durations, from fixed moments and parsed text.
+import "vex:datetime"
+import "vex:os"
+
+fn show(t: datetime.DateTime) -> string =>
+    "{t.year}-{t.month}-{t.day} {t.hour}:{t.minute}:{t.second}.{t.microsecond} day {t.weekday}"
+
+fn tryParse(text: string) -> string => try datetime.parse(text).toIso() catch e { e.message }
+
+fn main() {
+    // Calendar fields in UTC.
+    let epoch = datetime.fromUnix(0, utc: true)
+    println(epoch, show(epoch), epoch.isUtc, epoch.offset)
+    let before = datetime.fromUnix(-1, utc: true)
+    println(before, show(before), before.unix, before.unixMillis)
+    let t = datetime.utc(2024, 3, 15, hour: 9, minute: 30, second: 5, millisecond: 250)
+    println(t, show(t), t.millisecond, t.unix, t.unixMillis, t.unixMicros)
+    println(datetime.utc(2000, 2, 29), datetime.utc(1900, 3, 1).weekday, datetime.utc(2100, 12, 31).weekday)
+    println(datetime.utc(1, 1, 1), datetime.utc(0, 1, 1), datetime.utc(-44, 3, 15), datetime.utc(10000, 1, 1))
+    println(datetime.fromUnixMicros(1, utc: true), datetime.fromUnixMicros(-1, utc: true))
+
+    // Fields past their range roll over.
+    println(datetime.utc(2024, 13, 1), datetime.utc(2024, 3, 0), datetime.utc(2023, 0, 1), datetime.utc(2024, 1, 1, hour: 25, minute: -1))
+    println(datetime.utc(2024, 1, 31, hour: 0) + 1.days, datetime.utc(2023, -11, 1))
+
+    // Durations.
+    let d = 1.hours + 30.minutes
+    println(d, d.inMinutes, d.inSeconds, d.inMillis, d.inMicros, d.inHours, d.inDays)
+    println(datetime.Duration.days(2), datetime.Duration.seconds(5), datetime.Duration.millis(1500), datetime.Duration.micros(7))
+    println(0.seconds, 999.micros, 1.millis, 1500.micros, 59_999_999.micros, 60.seconds, 3600.seconds, 26.hours + 3.minutes + 4005.millis)
+    println(-d, (-d).abs(), (-d).isNegative, d.isNegative, (-90.seconds).inMinutes, d * 3, d / 4, d - 2.hours)
+    println(1.seconds < 2.seconds, 1000.millis == 1.seconds, 1.minutes > 59.seconds, 3.seconds <= 3.seconds)
+    let seen: [datetime.Duration: string] = [60.seconds: "a minute"]
+    println(seen[1.minutes] ?? "missing")
+    var wait = 5.seconds
+    wait += 250.millis
+    wait -= 5.seconds
+    println(wait)
+
+    // Arithmetic and comparison of moments.
+    let later = t + 90.minutes
+    println(later, later - t, t - later, t.add(1.days), t.subtract(1.days), t + (-1.seconds))
+    println(t < later, later > t, t == t.toLocal(), t.toLocal().isUtc, t == later, t != later)
+    let moments = [later, epoch, t]
+    println(moments.sorted())
+    let byMoment: [datetime.DateTime: int] = [t: 1]
+    println(byMoment[t.toLocal()] ?? 0)
+
+    // Parsing ISO 8601.
+    println(tryParse("2024-03-15T09:30:05Z"), tryParse("2024-03-15t09:30z"), tryParse("2024-03-15 09:30:05.25+05:30"))
+    println(tryParse("2024-03-15T09:30:05.123456789-08:00"), tryParse("2024-03-15T09:30:05,5+0100"), tryParse("2024-03-15T23:30-02"))
+    println(tryParse("+012345-01-02T00:00:00Z"), tryParse("-000044-03-15T12:00:00Z"), tryParse("2024-02-29T00:00:00.000001Z"))
+    let back = try datetime.parse(t.toIso()) catch { epoch }
+    println(back == t, back.toIso() == t.toIso())
+
+    // Text that isn't a date.
+    for bad in ["", "2024", "2024-3-15", "2024-13-01", "2023-02-29", "2024-04-31", "2024-03-15T24:00", "2024-03-15T09:60",
+                "2024-03-15T09:30:61Z", "2024-03-15T09", "2024-03-15T09:30:05.Z", "2024-03-15Z", "2024-03-15T09:30+5",
+                "2024-03-15T09:30+05:60", "2024-03-15T09:30Zx", "2024-03-15T09:30 UTC", "x2024-03-15"] {
+        println(tryParse(bad))
+    }
+
+    // Local time, in a fixed time zone.
+    os.setEnv("TZ", "IST-5:30")
+    let local = t.toLocal()
+    println(local, show(local), local.offset, local.toUtc())
+    println(datetime.local(2024, 3, 15, hour: 15), datetime.local(2024, 3, 15) == datetime.utc(2024, 3, 14, hour: 18, minute: 30))
+    println(tryParse("2024-03-15"), tryParse("2024-03-15T10:00"), datetime.fromUnix(0))
+    println(show(datetime.utc(2024, 3, 14, hour: 20).toLocal()))
+
+    // A zone with summer time.
+    os.setEnv("TZ", "EST5EDT,M3.2.0,M11.1.0")
+    let winter = datetime.local(2024, 1, 15, hour: 12)
+    let summer = datetime.local(2024, 7, 15, hour: 12)
+    println(winter, winter.offset, summer, summer.offset, summer - winter)
+    println(datetime.local(2024, 3, 10, hour: 2, minute: 30), datetime.local(2024, 11, 3, hour: 1, minute: 30))
+    let night = datetime.local(2024, 3, 9, hour: 12)
+    println(night + 1.days, (night + 1.days) - night)
+
+    // The clock.
+    let now = datetime.now()
+    println(now.year >= 2024, !now.isUtc, now.toUtc() == now, datetime.now() - now < 10.seconds)
+}

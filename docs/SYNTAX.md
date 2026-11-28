@@ -1241,6 +1241,7 @@ fn helper() { }                         // private to models
   - `vex:math`: `abs`, `min`, `max`, `clamp`, `pow` and `gcd` for integers and comparable values; `sqrt`, `cbrt`, `powf`, `exp`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `hypot`, `floor`, `ceil`, `round`, `trunc`, `absf` and `pi()` for floats
   - `vex:strings`: `repeat`, `join`, `padLeft`, `padRight`, which are also the methods `s.repeat(n)`, `parts.join(sep)`, `s.padStart(width, with: fill)` and `s.padEnd(width, with: fill)`
   - `vex:time`: `nanos()` for measuring, `unix()` for the date, `sleep(ms)`, a future that completes after `ms` milliseconds, and `timeout(future, ms)` (see [Cancellation](#cancellation-and-timeouts))
+  - `vex:datetime`: `now()`, `DateTime` and `Duration`, calendar fields in UTC and local time, and ISO 8601 with `toIso()` and `parse` (see [Dates and times](#dates-and-times))
   - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, or [`Bytes`](#bytes) with `readBytes`, `writeBytes` and `appendBytes`, and failures throw an `Error` naming the path and the reason
   - `vex:json`: `encode`, `decode`, `parse` and `write`, and the `Json` and `JsonError` enums (see [JSON](#json))
   - `vex:isolate`: `run` and `spawn`, which start work on other cores (see Isolates), and `cores()`
@@ -1314,6 +1315,40 @@ println(name, first, doc)                   // Ann vex {"user":{"name":"Ann","la
 - `get(key)` and `at(index)` look inside objects and lists, giving `nil` when the value isn't one or has no such entry. `asBool`, `asInt`, `asFloat`, `asString`, `asList` and `asObject` give the value as that type, or `nil`; `isNull` tells whether it is `null`. `asFloat` reads whole numbers too.
 - `json.toJson(value)` and `try json.fromJson<T>(json)` convert between Codable values and `Json`, for JSON that is partly known.
 - `Json` is Codable and Equatable, so it can be a field of a Codable struct, holding whatever the JSON has there.
+
+## Dates and times
+
+`vex:datetime` has `DateTime`, a moment to the microsecond, and `Duration`, a length of time. A `DateTime` is shown either in UTC or in the local time zone; its fields and `toIso()` follow the way it is shown.
+
+```swift
+import "vex:datetime"
+
+fn main() throws {
+    let start = datetime.now()                              // local time
+    let launch = datetime.utc(2024, 3, 15, hour: 9, minute: 30)
+    println(launch)                                         // 2024-03-15T09:30:00Z
+    println(launch.year, launch.month, launch.day, launch.weekday)   // 2024 3 15 5
+    println(launch.toLocal())                               // 2024-03-15T15:00:00+05:30 in India
+
+    let meeting = launch + 1.hours + 30.minutes             // a DateTime
+    let gap = meeting - launch                              // a Duration: 1h30m0s
+    println(gap.inMinutes, meeting > launch)                // 90 true
+
+    let parsed = try datetime.parse("2024-03-15T09:30:05.25+05:30")
+    println(parsed, parsed.toIso() == "2024-03-15T04:00:05.250Z")
+    println(datetime.now() - start < datetime.Duration.seconds(1))
+}
+```
+
+- `datetime.utc(year, month, day, hour:, minute:, second:, millisecond:)` and `datetime.local(...)` make a moment from calendar fields; the time ones default to 0. Fields past their range roll over, as in Dart: month 13 is January of the next year, and day 0 the last day of the month before. A local time the clocks skip moves on by the jump; one they show twice gives the first.
+- `fromUnix(seconds, utc:)` and `fromUnixMicros(micros, utc:)` make one from a count since 1970-01-01 UTC, shown in local time unless `utc: true`. `unix`, `unixMillis` and `unixMicros` read it back.
+- The fields are `year`, `month` (1 to 12), `day`, `hour`, `minute`, `second`, `millisecond`, `microsecond` and `weekday` (1 for Monday to 7 for Sunday, as in ISO 8601), with `isUtc` and `offset`, the time zone's offset from UTC as a `Duration`. `toUtc()` and `toLocal()` show the same moment the other way.
+- `+` and `add(d)` move a moment later by a `Duration`, and `subtract(d)` moves it earlier. `a - b` of two moments gives the `Duration` between them. Moments compare with `==`, `<` and the rest by the instant, whichever way they are shown, and can be map keys.
+- `toIso()`, which printing uses, writes `2024-03-15T09:30:00Z` in UTC and `2024-03-15T15:00:00+05:30` in local time, with milliseconds or microseconds when there are any. Years outside 0 to 9999 get a sign and six digits, `+012345`.
+- `datetime.parse(text)` reads `YYYY-MM-DD`, optionally followed by `T` or a space and `HH:MM`, `HH:MM:SS` or `HH:MM:SS.fraction`, then optionally `Z` or an offset such as `+05:30`, `+0530` or `+05`. With `Z` or an offset it gives the moment shown in UTC; without one the time is local, and a date alone is local midnight. Text that isn't a valid date throws an `Error` saying what is wrong: `'2023-02-29' isn't an ISO 8601 date: the day must be from 1 to 28, found 29`. Leap seconds aren't read.
+- A `Duration` is made with `Duration.days(n)`, `hours`, `minutes`, `seconds`, `millis` and `micros`, or, in a file that imports `vex:datetime`, as `n.days`, `n.hours`, `n.minutes`, `n.seconds`, `n.millis` and `n.micros`. `inDays`, `inHours`, `inMinutes`, `inSeconds`, `inMillis` and `inMicros` give it back in whole units, rounded toward zero. It has `+`, `-`, unary `-`, `* n` and `/ n`, comparisons, `abs()` and `isNegative`, and prints as Go writes durations: `1h30m0s`, `2.5s`, `750ms`.
+- The local time zone comes from the system, or from the `TZ` environment variable, which is read again each time it is needed.
+- `vex:time` stays the module for measuring and waiting: `time.nanos()` for how long code takes and `time.sleep(ms)`, which takes `d.inMillis` for a `Duration`.
 
 ## C functions
 

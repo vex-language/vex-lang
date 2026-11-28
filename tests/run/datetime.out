@@ -1,0 +1,48 @@
+1970-01-01T00:00:00Z 1970-1-1 0:0:0.0 day 4 true 0s
+1969-12-31T23:59:59Z 1969-12-31 23:59:59.0 day 3 -1 -1000
+2024-03-15T09:30:05.250Z 2024-3-15 9:30:5.250000 day 5 250 1710495005 1710495005250 1710495005250000
+2000-02-29T00:00:00Z 4 5
+0001-01-01T00:00:00Z 0000-01-01T00:00:00Z -000044-03-15T00:00:00Z +010000-01-01T00:00:00Z
+1970-01-01T00:00:00.000001Z 1969-12-31T23:59:59.999999Z
+2025-01-01T00:00:00Z 2024-02-29T00:00:00Z 2022-12-01T00:00:00Z 2024-01-02T00:59:00Z
+2024-02-01T00:00:00Z 2022-01-01T00:00:00Z
+1h30m0s 90 5400 5400000 5400000000 1 0
+48h0m0s 5s 1.5s 7µs
+0s 999µs 1ms 1.5ms 59.999999s 1m0s 1h0m0s 26h3m4.005s
+-1h30m0s 1h30m0s true false -1 4h30m0s 22m30s -30m0s
+true true true true
+a minute
+250ms
+2024-03-15T11:00:05.250Z 1h30m0s -1h30m0s 2024-03-16T09:30:05.250Z 2024-03-14T09:30:05.250Z 2024-03-15T09:30:04.250Z
+true true true false false true
+[1970-01-01T00:00:00Z, 2024-03-15T09:30:05.250Z, 2024-03-15T11:00:05.250Z]
+1
+2024-03-15T09:30:05Z 2024-03-15T09:30:00Z 2024-03-15T04:00:05.250Z
+2024-03-15T17:30:05.123456Z 2024-03-15T08:30:05.500Z 2024-03-16T01:30:00Z
++012345-01-02T00:00:00Z -000044-03-15T12:00:00Z 2024-02-29T00:00:00.000001Z
+true true
+'' isn't an ISO 8601 date: expected 4 digits for the year
+'2024' isn't an ISO 8601 date: expected '-' after the year
+'2024-3-15' isn't an ISO 8601 date: expected 2 digits for the month
+'2024-13-01' isn't an ISO 8601 date: the month must be from 1 to 12, found 13
+'2023-02-29' isn't an ISO 8601 date: the day must be from 1 to 28, found 29
+'2024-04-31' isn't an ISO 8601 date: the day must be from 1 to 30, found 31
+'2024-03-15T24:00' isn't an ISO 8601 date: the hour must be from 0 to 23, found 24
+'2024-03-15T09:60' isn't an ISO 8601 date: the minute must be from 0 to 59, found 60
+'2024-03-15T09:30:61Z' isn't an ISO 8601 date: the second must be from 0 to 59, found 61
+'2024-03-15T09' isn't an ISO 8601 date: expected ':' after the hour
+'2024-03-15T09:30:05.Z' isn't an ISO 8601 date: expected digits after the decimal point
+'2024-03-15Z' isn't an ISO 8601 date: unexpected 'Z' after the date
+'2024-03-15T09:30+5' isn't an ISO 8601 date: expected 2 digits for the offset hours
+'2024-03-15T09:30+05:60' isn't an ISO 8601 date: the offset minutes must be from 0 to 59, found 60
+'2024-03-15T09:30Zx' isn't an ISO 8601 date: unexpected 'x' at the end
+'2024-03-15T09:30 UTC' isn't an ISO 8601 date: unexpected ' ' after the time
+'x2024-03-15' isn't an ISO 8601 date: expected 4 digits for the year
+2024-03-15T15:00:05.250+05:30 2024-3-15 15:0:5.250000 day 5 5h30m0s 2024-03-15T09:30:05.250Z
+2024-03-15T15:00:00+05:30 true
+2024-03-15T00:00:00+05:30 2024-03-15T10:00:00+05:30 1970-01-01T05:30:00+05:30
+2024-3-15 1:30:0.0 day 5
+2024-01-15T12:00:00-05:00 -5h0m0s 2024-07-15T12:00:00-04:00 -4h0m0s 4367h0m0s
+2024-03-10T03:30:00-04:00 2024-11-03T01:30:00-04:00
+2024-03-10T13:00:00-04:00 24h0m0s
+true true true true

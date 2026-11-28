@@ -1013,6 +1013,24 @@ static int64_t vx_time_ns(void) {
 // Seconds since 1970-01-01 UTC.
 static int64_t vx_time_unix(void) { return (int64_t)time(NULL); }
 
+// Microseconds since 1970-01-01 UTC, for vex:datetime.
+static int64_t vx_datetime_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+}
+
+// Returns how many seconds the local time zone is ahead of UTC at
+// [seconds] after 1970-01-01 UTC. TZ is read again each time, so changes
+// to it take effect.
+static int64_t vx_datetime_offset(int64_t seconds) {
+    tzset();
+    time_t t = (time_t)seconds;
+    struct tm tm;
+    if (!localtime_r(&t, &tm)) return 0;
+    return (int64_t)tm.tm_gmtoff;
+}
+
 // Returns 64 bits from the operating system's random source, to seed an
 // isolate's generator in vex:random.
 static int64_t vx_random_seed(void) {
