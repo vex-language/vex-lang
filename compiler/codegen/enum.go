@@ -187,3 +187,81 @@ func (g *gen) matchExpr(m *ast.MatchExpr) string {
 	b.WriteString("})")
 	return b.String()
 }
+
+// Returns the name of a function generated once per enum and kind, with
+// [sig] its C signature around the name, writing [body] the first time.
+func (g *gen) enumHelper(kind string, e *types.Enum, sig string, body func() string) string {
+	name := kind + "_" + enumIdent(e)
+	if g.codecs[name] {
+		return name
+	}
+	g.codecs[name] = true
+	s := fmt.Sprintf(sig, name)
+	fmt.Fprintf(&g.codecDecls, "static %s;\n", s)
+	fmt.Fprintf(&g.codecDefs, "static %s { %s }\n", s, body())
+	return name
+}
+
+// Returns a C literal of the raw value [v] of a case.
+func rawLit(v any) string {
+	if s, ok := v.(string); ok {
+		return "VX_LIT(" + cQuote(s) + ")"
+	}
+	return fmt.Sprintf("INT64_C(%d)", v)
+}
+
+// Returns the name of the function giving the name of the case of a
+// value of [e].
+func (g *gen) caseNameFunc(e *types.Enum) string {
+	return g.enumHelper("casename", e, "vx_str %s("+enumName(e)+" *v)", func() string {
+		var b strings.Builder
+		b.WriteString("switch (v->tag) { ")
+		for _, cs := range e.Cases {
+			fmt.Fprintf(&b, "case %d: return VX_LIT(%s); ", cs.Index, cQuote(cs.Name))
+		}
+		b.WriteString("} return VX_LIT(\"\");")
+		return b.String()
+	})
+}
+
+// Returns the name of the function giving the raw value of a value of
+// [e].
+func (g *gen) rawValueFunc(e *types.Enum) string {
+	return g.enumHelper("rawvalue", e, decl(e.Raw, "%s")+"("+enumName(e)+" *v)", func() string {
+		var b strings.Builder
+		b.WriteString("switch (v->tag) { ")
+		for _, cs := range e.Cases {
+			fmt.Fprintf(&b, "case %d: return %s; ", cs.Index, rawLit(cs.Raw))
+		}
+		fmt.Fprintf(&b, "} return %s;", rawLit(e.Cases[0].Raw))
+		return b.String()
+	})
+}
+
+// Returns the name of the function finding the case of [e] with a raw
+// value, or NULL.
+func (g *gen) fromRawFunc(e *types.Enum) string {
+	return g.enumHelper("fromraw", e, enumName(e)+" *%s("+decl(e.Raw, "v")+")", func() string {
+		var b strings.Builder
+		for _, cs := range e.Cases {
+			cond := fmt.Sprintf("v == %s", rawLit(cs.Raw))
+			if e.Raw == types.String {
+				cond = fmt.Sprintf("vx_str_eq(v, %s)", rawLit(cs.Raw))
+			}
+			fmt.Fprintf(&b, "if (%s) return %s(); ", cond, caseFunc(cs))
+		}
+		b.WriteString("return NULL;")
+		return b.String()
+	})
+}
+
+// Returns the name of the function making the list of every case of [e].
+func (g *gen) allCasesFunc(e *types.Enum) string {
+	return g.enumHelper("allcases", e, "vx_list *%s(void)", func() string {
+		var items []string
+		for _, cs := range e.Cases {
+			items = append(items, caseFunc(cs)+"()")
+		}
+		return fmt.Sprintf("%s *items[] = {%s}; return vx_list_new(sizeof(%s *), %d, items);", enumName(e), strings.Join(items, ", "), enumName(e), len(items))
+	})
+}

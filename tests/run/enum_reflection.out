@@ -1,0 +1,22 @@
+Color.green green nil
+10 11 true #1
+red 1
+green 2
+blue 10
+black 11
+Level.high unknown Level.low
+found low
+[Dir.north, Dir.south] 2
+["circle", "rect", "empty"]
+true true
+true true
+Money.cents(n: 12) Money.cents(n: -12) Money.cents(n: 36) 3
+Money.cents(n: 24) true true
+true false
+[Money.cents(n: -1), Money.none, Money.cents(n: 3)] Money.cents(n: 3)
+Dir.south
+{"color":2,"level":"H"}
+Color.green Level.high
+color: no case of Color has raw value 7
+level: no case of Level has raw value "X"
+color: expected a raw value of Color, found a string

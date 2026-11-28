@@ -45,13 +45,7 @@ func (c *checker) declareExtension(d *ast.ExtensionDecl) {
 		case *ast.StructDecl:
 			t.Methods = append(t.Methods, d.Methods...)
 		case *ast.EnumDecl:
-			for _, m := range d.Methods {
-				if m.Accessor == ast.Operator {
-					c.errorAt(m.Name, "use a method, or a struct that holds the enum", "enums can't define operators yet")
-				} else {
-					t.Methods = append(t.Methods, m)
-				}
-			}
+			t.Methods = append(t.Methods, d.Methods...)
 		}
 		for _, m := range d.Methods {
 			c.units[m] = u
@@ -155,7 +149,7 @@ func (c *checker) declareRecvFunc(d *ast.ExtensionDecl, md *ast.FuncDecl, params
 		c.errorAt(md.Name, "make it a method", "only extensions of structs and enums can add setters")
 		return
 	case md.Accessor == ast.Operator:
-		c.errorAt(md.Name, "make it a method", "only extensions of structs can add operators")
+		c.errorAt(md.Name, "make it a method", "only extensions of structs and enums can add operators")
 		return
 	case c.reserved(md.Name, "a method"):
 		return

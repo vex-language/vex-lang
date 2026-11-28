@@ -233,6 +233,10 @@ type EnumDecl struct {
 	Pub        bool
 	Name       *Ident
 	TypeParams []*TypeParam
+
+	// The type of the cases' raw values, written first after the colon as
+	// in `enum Color: int`, or nil.
+	RawType    *NamedType
 	Interfaces []*NamedType
 	Cases      []*EnumCase
 	Methods    []*FuncDecl
@@ -301,6 +305,9 @@ type EnumCase struct {
 
 	// The values the case carries; their defaults are always nil.
 	Fields []*Field
+
+	// The raw value written after `=`, as in `red = 1`, or nil.
+	Value Expr
 }
 
 func (*FuncDecl) declNode()       {}

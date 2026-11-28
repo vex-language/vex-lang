@@ -369,6 +369,9 @@ func funcName(f *types.Func) string {
 	}
 	if f.Enum != nil {
 		id := enumIdent(f.Enum)
+		if f.Decl.Accessor == ast.Operator {
+			return fmt.Sprintf("p%d%s_%s", len(id), id, operatorNames[f.Name])
+		}
 		return fmt.Sprintf("m%d%s_%s", len(id), id, cid(f.Name)) + typeArgsTag(f)
 	}
 	if f.Recv != nil {
@@ -1928,6 +1931,12 @@ func (g *gen) value(e ast.Expr) string {
 			return g.constRef(m.Const)
 		}
 		switch m.Builtin {
+		case "enum.allCases":
+			return g.allCasesFunc(g.info.Types[e].(*types.List).Elem.(*types.Enum)) + "()"
+		case "enum.name":
+			return g.caseNameFunc(g.info.Types[e.X].(*types.Enum)) + "(" + g.expr(e.X) + ")"
+		case "enum.rawValue":
+			return g.rawValueFunc(g.info.Types[e.X].(*types.Enum)) + "(" + g.expr(e.X) + ")"
 		case "int.max":
 			return "INT64_MAX"
 		case "int.min":
@@ -2146,6 +2155,8 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 		return g.orderedBy(c.Args, rank, func(cs []string) string {
 			return caseFunc(c.Case) + "(" + strings.Join(cs, ", ") + ")"
 		})
+	case types.RawCall:
+		return g.fromRawFunc(c.Enum) + "(" + g.expr(c.Args[0]) + ")"
 	case types.MethodCall:
 		if c.Recv == nil {
 			return g.orderedBy(c.Args, rank, func(cs []string) string {

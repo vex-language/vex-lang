@@ -92,7 +92,7 @@ func (c *checker) checkEquality() {
 		for _, cs := range e.Cases {
 			fields = append(fields, cs.Fields...)
 		}
-		c.checkEqualFields(e.Decl.Name.Name, e.Decl.Name, fields, false, e.Hashable(), e.Methods)
+		c.checkEqualFields(e.Decl.Name.Name, e.Decl.Name, fields, e.Operator("==") != nil, e.Hashable(), e.Methods)
 	}
 }
 

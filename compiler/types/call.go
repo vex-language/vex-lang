@@ -182,9 +182,7 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		}
 	}
 	if en := c.enums[name]; en != nil {
-		c.checkArgs(e)
-		c.errorAt(id, caseHint("create it from a case, e.g. ", en, true), "enums are created from one of their cases")
-		return Invalid
+		return c.enumCall(e, en, id, "")
 	}
 	if i := c.interfaces[name]; i != nil {
 		c.checkArgs(e)
@@ -240,9 +238,7 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		} else if ok {
 			return c.construct(e, s)
 		}
-		c.checkArgs(e)
-		c.errorAt(id, caseHint("create it from a case, e.g. ", t.(*Enum), true), "enums are created from one of their cases")
-		return Invalid
+		return c.enumCall(e, t.(*Enum), id, "")
 	}
 	if a := c.aliases[name]; a != nil && c.lookupVar(name) == nil {
 		c.checkArgs(e)
@@ -878,8 +874,13 @@ func (c *checker) castCall(e *ast.CallExpr, m *ast.MemberExpr, l *List) Type {
 // Reports whether lists of [t] can be sorted without an order given: [t]
 // is ordered, or a struct that defines `<`.
 func sortable(t Type) bool {
-	if s, ok := t.(*Struct); ok {
-		return s.Operator("<") != nil
+	switch t := t.(type) {
+	case *Struct:
+		return t.Operator("<") != nil
+	case *Enum:
+		if t.Operator("<") != nil {
+			return true
+		}
 	}
 	return ordered(t)
 }

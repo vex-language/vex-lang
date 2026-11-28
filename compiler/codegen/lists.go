@@ -11,8 +11,13 @@ import (
 // Returns C code telling whether [a] goes before [b], two values of [t],
 // by the `<` of [t].
 func (g *gen) less(t types.Type, a, b string) string {
-	if s, ok := t.(*types.Struct); ok {
+	switch s := t.(type) {
+	case *types.Struct:
 		return g.operator(lexer.Lt, s.Operator("<"), t, a, b)
+	case *types.Enum:
+		if f := s.Operator("<"); f != nil {
+			return g.operator(lexer.Lt, f, t, a, b)
+		}
 	}
 	return binop(lexer.Lt, t, a, b, 0)
 }

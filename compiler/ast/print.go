@@ -400,10 +400,20 @@ func build(n Node) *tree {
 		if n.Pub {
 			label = "pub " + label
 		}
-		label += interfacesString(n.Interfaces)
+		if n.RawType != nil {
+			label += ": " + TypeString(n.RawType)
+			if len(n.Interfaces) > 0 {
+				label += "," + strings.TrimPrefix(interfacesString(n.Interfaces), ":")
+			}
+		} else {
+			label += interfacesString(n.Interfaces)
+		}
 		t := branch(label)
 		for _, c := range n.Cases {
 			ct := branch("case " + c.Name.Name)
+			if c.Value != nil {
+				ct.kids = append(ct.kids, branch("raw", build(c.Value)))
+			}
 			for _, f := range c.Fields {
 				ct.kids = append(ct.kids, leaf(f.Name.Name+": "+TypeString(f.Type)))
 			}

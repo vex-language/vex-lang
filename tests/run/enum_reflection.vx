@@ -1,0 +1,102 @@
+// Raw values, case names, allCases, and operators on enums.
+import "vex:json"
+
+enum Color: int, Codable {
+    red = 1
+    green
+    blue = 10
+    black
+
+    fn isDark() -> bool => self == .black
+    fn code() -> string => "#{rawValue}"
+}
+
+enum Level: string, Codable {
+    low = "L"
+    high = "H"
+    unknown
+}
+
+enum Shape: Equatable {
+    circle(radius: float)
+    rect(width: float, height: float)
+    empty
+}
+
+enum Money {
+    cents(n: int)
+    none
+
+    operator +(other: Money) -> Money => .cents(n: value() + other.value())
+    operator -() -> Money => .cents(n: -value())
+    operator *(k: int) -> Money => .cents(n: value() * k)
+    operator <(other: Money) -> bool => value() < other.value()
+    operator ==(other: Money) -> bool => value() == other.value()
+    operator [](part: int) -> int => value() / part
+
+    fn value() -> int => match self {
+        cents(n) => n
+        none => 0
+    }
+}
+
+enum Dir { north, south }
+
+extension Dir {
+    operator -() -> Dir => match self {
+        north => .south
+        south => .north
+    }
+}
+
+fn largest<T: Comparable>(xs: [T]) -> T {
+    var best = xs[0]
+    for x in xs {
+        if best < x { best = x }
+    }
+    return best
+}
+
+struct Pixel: Codable {
+    color: Color
+    level: Level
+}
+
+fn main() throws {
+    let c = Color(rawValue: 2)
+    println(c, c?.name, Color(rawValue: 3))
+    println(Color.blue.rawValue, Color.black.rawValue, Color.black.isDark(), Color.red.code())
+    for color in Color.allCases {
+        println(color.name, color.rawValue)
+    }
+    println(Level(rawValue: "H"), Level.unknown.rawValue, Level(rawValue: "x") ?? .low)
+    if let level = Level(rawValue: "L") {
+        println("found", level.name)
+    }
+    println(Dir.allCases, Dir.allCases.len)
+
+    let shapes = [Shape.circle(radius: 1), .rect(width: 2, height: 3), .empty]
+    println(shapes.map(fn(s) => s.name))
+    println(Shape.circle(radius: 1) == .circle(radius: 1), Shape.circle(radius: 1) != .circle(radius: 2))
+    println(Shape.empty == .empty, shapes.contains(.rect(width: 2, height: 3)))
+
+    var m = Money.cents(n: 5) + .cents(n: 7)
+    println(m, -m, m * 3, m[4])
+    m += .none
+    m *= 2
+    println(m, m == Money.cents(n: 24), Money.none == Money.cents(n: 0))
+    println(Money.cents(n: 1) < .cents(n: 2), Money.cents(n: 3) >= .cents(n: 4))
+    var wallet = [Money.cents(n: 3), .none, .cents(n: -1)]
+    wallet.sort()
+    println(wallet, largest(wallet))
+    println(-Dir.north)
+
+    let p = Pixel(color: .green, level: .high)
+    let text = json.encode(p)
+    println(text)
+    let back: Pixel = try json.decode(text)
+    println(back.color, back.level)
+    try json.decode<Pixel>("\{\"color\": 7, \"level\": \"L\"\}") catch e { println(e) }
+    try json.decode<Pixel>("\{\"color\": 1, \"level\": \"X\"\}") catch e { println(e) }
+    try json.decode<Pixel>("\{\"color\": \"red\", \"level\": \"L\"\}") catch e { println(e) }
+}

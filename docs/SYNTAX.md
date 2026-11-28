@@ -268,7 +268,7 @@ let letters = words.reduce(0, fn(n, w) => n + w.len)
 |---|---|
 | `.len`, `.isEmpty`, `.first`, `.last` | Properties; `first` and `last` are `nil` for an empty list |
 | `.push(x)`, `.pop()`, `.insert(x, at: i)`, `.remove(at: i)`, `.removeWhere(f)`, `.clear()` | Change the list in place; `remove` and `pop` give the element removed |
-| `.sort()`, `.sort(by: f)` | Sort in place. `sort()` needs elements that `<` orders: numbers, strings, enums whose cases carry no values, and structs that define `operator <`. `by:` takes whether `a` goes before `b`. Sorting is stable: equal elements keep their order |
+| `.sort()`, `.sort(by: f)` | Sort in place. `sort()` needs elements that `<` orders: numbers, strings, enums whose cases carry no values, and structs and enums that define `operator <`. `by:` takes whether `a` goes before `b`. Sorting is stable: equal elements keep their order |
 | `.sorted()`, `.sorted(by: f)`, `.reversed()`, `.slice(from, to)`, `.copy()`, `.cast<T>()` | New lists; the original is unchanged. `slice` takes the elements from `from` up to `to`, as `xs[from..to]` does (see [Slicing](#ranges)); `cast` converts each element to `T` (see below) |
 | `.contains(x)`, `.indexOf(x)` | Whether `x` is in the list, and the index of the first match as an `int?`; elements need `==` |
 | `.find(f)`, `.any(f)`, `.all(f)` | The first element `f` accepts, as an optional; whether any or every element passes |
@@ -640,7 +640,7 @@ println([m, m])              // [$12.50, $12.50]
 - `toString` must be written `fn toString() -> string`: no parameters, not static, async or throwing. An extension of a struct or enum can add it too. `int`, `string` and the other built-in types always print in their own form, so an extension can't give them a `toString`.
 - Showing `self` inside `toString` calls it again without end; show the fields instead.
 
-**Operators.** A struct defines an operator like a method, as in Dart: `self` is the left operand and the parameter the right one.
+**Operators.** A struct or enum defines an operator like a method, as in Dart: `self` is the left operand and the parameter the right one.
 
 ```swift
 struct Vec {
@@ -681,9 +681,9 @@ grid[(1, 0)] += 1             // reads with [], then sets with []=
 
 - The operators are `+ - * / %`, unary `-` (no parameter), `==`, `<`, `[]` and `[]=`. The right operand of the arithmetic ones and the index can have any type.
 - `!=` is the opposite of `==`, and `>`, `<=` and `>=` come from `<`, so they can't be defined themselves.
-- `==` and `<` take the struct itself and return `bool`. A struct with `==` is `Equatable`, so it works with `contains` and in records compared with `==`; one with `<` and `==` is also `Comparable`. To compare all fields without writing `==`, list `Equatable` instead.
-- A compound assignment such as `+=` uses the operator, which must return the struct. Operands run left to right, as for other operators.
-- Operators can't be static, generic, async or throwing, and their parameters have no defaults. `pub` makes one visible to other modules, and extensions of structs can add them. Enums, interfaces and built-in types can't define operators yet.
+- `==` and `<` take the struct or enum itself and return `bool`. A struct with `==` is `Equatable`, so it works with `contains` and in records compared with `==`; one with `<` and `==` is also `Comparable`. To compare all fields without writing `==`, list `Equatable` instead.
+- A compound assignment such as `+=` uses the operator, which must return the struct or enum. Operands run left to right, as for other operators.
+- Operators can't be static, generic, async or throwing, and their parameters have no defaults. `pub` makes one visible to other modules, and extensions of structs and enums can add them. Enums can't define `[]=`, and interfaces and built-in types can't define operators yet.
 
 ## Equality and hashing
 
@@ -750,8 +750,8 @@ A type parameter can require what the generic code needs from it: an [interface]
 
 | Constraint | Allows | Met by |
 |---|---|---|
-| `Equatable` | `==`, `!=`, `list.contains` | int, float, bool, string, enums whose cases carry no values, structs that define `operator ==`, structs and enums that list `Equatable` or `Hashable`, and lists, maps, optionals and records of these |
-| `Comparable` | `<`, `<=`, `>`, `>=`, and `==` | int, float, string, enums whose cases carry no values, structs that define `operator <` and `operator ==` |
+| `Equatable` | `==`, `!=`, `list.contains` | int, float, bool, string, enums whose cases carry no values, structs and enums that define `operator ==`, structs and enums that list `Equatable` or `Hashable`, and lists, maps, optionals and records of these |
+| `Comparable` | `<`, `<=`, `>`, `>=`, and `==` | int, float, string, enums whose cases carry no values, structs that define `operator <` and `operator ==`, and enums that define `operator <` and have `==` |
 | `Hashable` | map keys, and `==` | int, bool, string, enums whose cases carry no values, records of these, and structs and enums that list `Hashable` |
 | an interface, such as `Shape` | its methods | structs that implement it, and the interface itself |
 
@@ -1163,7 +1163,7 @@ fn main() throws {
 
 - Codable types are `int`, `float`, `bool`, `string`, lists, maps with `string` keys and optionals of those, and structs and enums that list `Codable`. Every field of a Codable type must be Codable; a generic one asks for it with `<T: Codable>`.
 - A struct is an object with a key for each field, in the order they are declared. A missing key takes the field's default, or `nil` for an optional; without either it is an error.
-- An enum case without values is its name as a string, `"admin"`. A case with values is an object with one key, the case's name: `{"circle": {"radius": 2.0}}`.
+- An enum case without values is its name as a string, `"admin"`, or its raw value when the enum has them. A case with values is an object with one key, the case's name: `{"circle": {"radius": 2.0}}`.
 - An `int` reads only whole numbers. A `float` reads any number, and writes non-finite values as `null`.
 - `decode` throws a `JsonError`. `syntax(reason, line, column)` means the text isn't JSON; `mismatch(path, reason)` means it doesn't fit the type, and shows as `users[2].age: expected an int, found a string`.
 - A type can write its own conversion, for dates and other values JSON has no form for. It writes both `fn encode() -> json.Json` and `static fn decode(value: json.Json) throws(json.JsonError) -> Self`, naming its own type for `Self`; its fields then don't have to be Codable. An error `decode` throws gets the path to the value in front of its own.
@@ -1589,7 +1589,37 @@ println(a.area(), b)                         // 12.56 Shape.rect(width: 2.0, hei
 - `.case` works wherever the enum is expected: a typed `let`, an argument, a `return`, a list of that enum, or a `==` comparison.
 - The values a case carries are read with `match`, not with `.`.
 - Enum values never change after they are created.
-- `==` and `!=` work on enums whose cases carry no values, like `Light`, and on enums that list `Equatable` or `Hashable`, which compare the case and then its values.
+- `==` and `!=` work on enums whose cases carry no values, like `Light`, and on enums that list `Equatable` or `Hashable`, which compare the case and then its values. As with structs, an enum whose cases carry values gets `==` only by listing `Equatable` or defining `operator ==`.
+- `.name` is the name of a value's case as a string, on every enum: `a.name` is `"circle"`. An enum's own `name` member takes its place.
+- Enums define operators the way [structs do](#structs), except `[]=`, since their values never change.
+
+**Raw values.** An enum whose cases carry no values can give each case a fixed `int` or `string`, as in Swift. The raw type comes right after the name, before any interfaces:
+
+```swift
+enum Color: int {
+    red = 1
+    green                          // 2: an int counts up from the case before
+    blue                           // 3
+}
+
+enum Level: string, Codable {
+    low = "L"
+    high = "H"
+    unknown                        // "unknown": a string defaults to the case's name
+}
+
+let c = Color(rawValue: 2)         // Color?, nil when no case has that raw value
+println(c?.name)                   // green
+println(Color.blue.rawValue)       // 3
+for color in Color.allCases {      // every case, in the order declared
+    println(color.name, color.rawValue)
+}
+```
+
+- Raw values are `int` or `string` literals, and no two cases can share one. The first `int` case without `= ...` is 0.
+- Inside the enum's methods, `rawValue` alone is `self.rawValue`.
+- A Codable enum with raw values is written to JSON as its raw value, `2` or `"H"`, rather than as its case's name.
+- `Type.allCases` lists the cases of any enum whose cases carry no values, with or without raw values.
 
 **match** picks the first arm whose pattern fits and runs it. It works on any value: enums, numbers, `bool`, `string`, records, structs and lists.
 
@@ -1993,7 +2023,7 @@ The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, m
   As in Swift, `<<` and `>>` bind tightest, `&` binds like `*` and `|` and `^` like `+`, all tighter than comparisons, so `flags & SELECTED != 0` reads as written. Bits shifted out of the top are lost, `>>` keeps the sign, and a shift by less than 0 or more than 63 stops the program.
 - `int` and `float` never mix silently: `count * price` is an error until one side is converted with `float(count)` or `int(price)`.
 - Strings join with `+` only to other strings. Use interpolation for anything else: `"{count} items"`.
-- `==` and `!=` compare `int`, `float`, `bool`, `string`, enums whose cases carry no values, records, and structs that define `operator ==`. `<`, `<=`, `>`, `>=` work on `int`, `float`, `string`, those enums, and structs that define `operator <`. Enum cases are ordered as they are declared, so in `enum Level { low, high }`, `Level.low < Level.high`.
+- `==` and `!=` compare `int`, `float`, `bool`, `string`, enums whose cases carry no values, records, and structs and enums that define `operator ==`. `<`, `<=`, `>`, `>=` work on `int`, `float`, `string`, those enums, and structs and enums that define `operator <`. Enum cases are ordered as they are declared, so in `enum Level { low, high }`, `Level.low < Level.high`.
 - Conditions must be `bool`: write `if xs.len > 0`, not `if xs`.
 - Structs are shared references: after `let b = a`, changing `b.name` also changes `a.name`. `let` stops the name being reassigned, not the fields being changed.
 - A name can be declared again in an inner block, which hides the outer one; declaring it twice in the same block is an error.

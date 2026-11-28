@@ -24,7 +24,7 @@ extension int {
 }
 
 extension Shape {
-    operator +(other: Shape) -> Shape => self
+    operator []=(i: int, v: int) {}
 }
 
 fn largest<T: Comparable>(xs: [T]) -> T => xs[0]
@@ -58,8 +58,8 @@ struct Sink {
 // error: 7:14: operator '*' must return a value
 // error: 8:37: operator '[]=' doesn't return a value
 // error: 10:14: operator '+' is already declared on line 6
-// error: 23:14: only extensions of structs can add operators
-// error: 27:14: enums can't define operators yet
+// error: 23:14: only extensions of structs and enums can add operators
+// error: 27:14: enum values never change, so an enum can't define operator []=
 // error: 33:13: '+' can't be used with Plain
 // error: 34:13: values of type Plain can't be compared with ==
 // error: 35:13: values of type Plain can't be ordered with <

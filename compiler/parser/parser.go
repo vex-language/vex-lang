@@ -649,6 +649,14 @@ func (p *parser) enumDecl() *ast.EnumDecl {
 	e := &ast.EnumDecl{Name: p.ident("an enum name")}
 	e.TypeParams = p.typeParams()
 	e.Interfaces = p.ifaceList()
+	if len(e.Interfaces) > 0 && rawTypeName(e.Interfaces[0]) {
+		e.RawType, e.Interfaces = e.Interfaces[0], e.Interfaces[1:]
+	}
+	for _, i := range e.Interfaces {
+		if rawTypeName(i) {
+			p.errorAt(lexer.Token{Pos: i.Start, Text: i.Name}, fmt.Sprintf("write the raw type first: enum %s: %s, ...", e.Name.Name, i.Name), "the raw type must come before the interfaces")
+		}
+	}
 	open := p.expect(lexer.LBrace)
 	for {
 		for p.at(lexer.Semi) || p.at(lexer.Comma) {
@@ -665,6 +673,20 @@ func (p *parser) enumDecl() *ast.EnumDecl {
 	p.next()
 	e.Span = p.span(start)
 	return e
+}
+
+// Reports whether [t] names a built-in value type, which after an enum's
+// name gives the type of its raw values rather than an interface.
+func rawTypeName(t *ast.NamedType) bool {
+	if t.Module != "" || len(t.Args) > 0 {
+		return false
+	}
+	switch t.Name {
+	case "int", "float", "bool", "string", "int8", "int16", "int32", "int64",
+		"uint8", "uint16", "uint32", "uint64", "float32", "float64":
+		return true
+	}
+	return false
 }
 
 // Parses one case or method inside an enum body.
@@ -703,7 +725,10 @@ func (p *parser) enumMember(e *ast.EnumDecl) {
 			p.fail(t, "use a method that returns a new value", "enums can't have setters, since their values never change")
 		}
 		if isOperatorDecl(t, p.peek(1)) {
-			p.fail(t, "use a method, or a struct that holds the enum", "enums can't define operators yet")
+			m := p.operatorDecl()
+			m.Pub = pub
+			e.Methods = append(e.Methods, m)
+			return
 		}
 		if t.Text == "get" && p.peek(1).Kind == lexer.Ident {
 			m := p.accessor()
@@ -736,6 +761,10 @@ func (p *parser) enumMember(e *ast.EnumDecl) {
 			f.Span = p.span(name.Start)
 			c.Fields = append(c.Fields, f)
 		})
+	}
+	if p.at(lexer.Assign) {
+		p.next()
+		c.Value = p.expr()
 	}
 	c.Span = p.span(t.Pos)
 	if !p.at(lexer.Semi) && !p.at(lexer.Comma) && !p.at(lexer.RBrace) {
