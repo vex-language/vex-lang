@@ -1,0 +1,12 @@
+binary-trees	Binary trees	Allocation and garbage collection: builds and walks binary trees up to depth 17
+fannkuch	Fannkuch-redux	Swapping list elements in place: flips prefixes of every permutation of 10 items
+fib	Fibonacci	Function calls and int arithmetic: recursive Fibonacci of 40
+generators	Generators	Generators and lazy filter, map and take: sums 10 million values from an endless generator
+json	JSON	vex:json against encoding/json: encodes 1000 records and decodes them, 200 times
+mandelbrot	Mandelbrot	Tight float loops: the Mandelbrot set on a 3000 x 3000 grid
+maps	Hash maps	Hash maps with int and string keys: 2 million inserts, 4 million lookups, 1 million removals, then word counts
+nbody	N-body	Float math on struct fields: 10 million steps of the Jovian planets
+sort	Sorting	Sorting lists: 3 million ints and 750,000 strings
+spectral-norm	Spectral norm	Float math and list indexing: the spectral norm of a 3000 x 3000 matrix
+strings	Strings	Interpolation and string methods: builds, joins, splits, replaces and searches strings, 3000 rounds
+tasks	Async tasks	Starting and awaiting tasks against goroutines on one thread: a tree of 2 million tasks

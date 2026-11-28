@@ -4,6 +4,7 @@ package bench
 
 import (
 	"bytes"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
@@ -39,6 +40,11 @@ func TestBenchmarks(t *testing.T) {
 	if _, err := cc.Command(); err != nil {
 		t.Skip(err)
 	}
+	tsv, err := os.ReadFile("benchmarks.tsv")
+	if err != nil {
+		t.Fatal(err)
+	}
+	info := "\n" + string(tsv)
 	dirs, _ := filepath.Glob("*/main.vx")
 	if len(dirs) == 0 {
 		t.Fatal("no benchmarks found")
@@ -50,6 +56,9 @@ func TestBenchmarks(t *testing.T) {
 			size, ok := small[name]
 			if !ok {
 				t.Fatalf("add %s to the small table in bench_test.go", name)
+			}
+			if !strings.Contains(info, "\n"+name+"\t") {
+				t.Errorf("add %s to benchmarks.tsv", name)
 			}
 			out := runVex(t, path, filepath.Join(t.TempDir(), name), size.arg)
 			lines := strings.Split(strings.TrimSpace(string(out)), "\n")

@@ -10,7 +10,7 @@ bench/run.sh fib nbody       # only these
 bench/run.sh -n 10 sort      # 10 runs
 ```
 
-The script builds the compiler, builds each Vex program with `vex build` (optimized with `-O3`, the default; `--debug` is the unoptimized mode) and each Go program with `go build`, and runs both once to check that they print exactly the same output. It stops with a diff if they don't. It then times each program and prints a Markdown table:
+The script builds the compiler into `bin/vex` with `build.sh`, builds each Vex program with `vex build` (optimized with `-O3`, the default; `--debug` is the unoptimized mode) and each Go program with `go build`, and runs both once to check that they print exactly the same output. It stops with a diff if they don't. It then times each program and prints a Markdown table:
 
 | Column | Meaning |
 |---|---|
@@ -20,6 +20,12 @@ The script builds the compiler, builds each Vex program with `vex build` (optimi
 | Vex MB RSS, Go MB RSS | Peak resident memory of one run, from `/usr/bin/time` |
 
 It needs Go and a C compiler. With [hyperfine](https://github.com/sharkdp/hyperfine) installed it does the timing, after one warm-up run; otherwise a shell loop does, using `perl` or `python3` for the clock. Peak memory uses `/usr/bin/time -l` on macOS and `/usr/bin/time -v` (GNU time) on Linux, and shows `-` when that isn't available.
+
+`--json FILE` also writes the results as JSON, for publishing: the date, the machine (CPU, cores, memory, system), the method, the versions of `vex`, Go and the C compiler, and for each benchmark its id, title and description from [benchmarks.tsv](benchmarks.tsv), the line it prints, and for Vex and Go the median, minimum and standard deviation in ms, the executable's size and the peak memory in bytes (`null` when unknown):
+
+```sh
+bench/run.sh --json results.json
+```
 
 Each program takes its problem size as an optional first argument, so one can also be run by hand:
 
@@ -79,4 +85,4 @@ On an Apple M3 (8 cores, 16 GB), macOS 26.4, Apple clang 21, Go 1.23.2, on 2026-
 
 ## Adding a benchmark
 
-Make a folder with `main.vx` and `main.go` that print the same lines, ending with a `name(size) = result` line, and take the size as an optional first argument. Add the folder to the `small` table in `bench_test.go` with a tiny size and the line the Go version prints at that size.
+Make a folder with `main.vx` and `main.go` that print the same lines, ending with a `name(size) = result` line, and take the size as an optional first argument. Add a line to `benchmarks.tsv` with its id, title and description, separated by tabs, and add the folder to the `small` table in `bench_test.go` with a tiny size and the line the Go version prints at that size.
