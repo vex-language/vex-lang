@@ -2377,7 +2377,7 @@ error: index 5 is out of range for a list of length 3
 
 These cover list and `Bytes` indexes out of range, values outside 0 to 255 stored in `Bytes`, `pop()` on an empty list, a list changed while it is being sorted, division by zero, integer overflow, shifts by less than 0 or more than 63, a radix outside 2 to 36, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`.
 
-Unless the error is in `main` itself, a stack trace follows: the calls that led to it, innermost first, each with the line it was at.
+With `vex run` and `vex test`, and in programs built with `vex build --traces` or `--debug`, a stack trace follows unless the error is in `main` itself: the calls that led to it, innermost first, each with the line it was at. A plain `vex build` leaves traces out, since recording each call slows down programs made of many small calls, and its errors show only the source line.
 
 ```
 error: index 5 is out of range for a list of length 3

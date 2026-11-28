@@ -146,6 +146,7 @@ vex doc vex:json Json       # print one declaration's signature and docs
 vex run                     # run the project in this folder (with a package.toml)
 vex run app.vx one two      # arguments after the program go to it (os.args())
 vex build --debug app.vx    # -O0 -g, keeping the generated C as app.c for a debugger
+vex build --traces app.vx   # runtime errors list the calls that led to them
 vex run --sanitize=address,undefined app.vx  # stop at memory errors and undefined behaviour
 vex get https://github.com/ann/charts  # add a package from git and lock it in package.lock
 vex version
