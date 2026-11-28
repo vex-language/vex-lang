@@ -1,0 +1,29 @@
+false true
+31
+19
+1 ["ann": 31, "bob": 25, "cat": 40, "dan": 19]
+["a": ["apple", "avocado"], "b": ["banana", "blueberry"], "c": ["cherry"]]
+26
+nil
+["ann": 31, "bob": 26, "cat": 40, "dan": 19]
+["a": 3, "b": 2, "c": 1]
+["ann": 31, "cat": 40] 4
+["cat": 40]
+["ann": "31 years", "bob": "26 years", "cat": "40 years", "dan": "19 years"]
+["ann": 15.5, "bob": 13.0, "cat": 20.0, "dan": 9.5]
+ann 31
+bob 26
+cat 40
+dan 19
+ann=31
+bob=26
+cat=40
+dan=19
+[] 4
+p 2
+[6, 1]
+[Point(x: 1, y: 2)]
+[1: 1, 2: 2] 4
+50 50
+["eve": 50]
+30 ["a": 30, "b": 2, "c": 1]

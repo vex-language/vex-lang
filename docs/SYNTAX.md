@@ -320,7 +320,37 @@ let empty: [string: int] = [:]
 - Loops visit entries in the order their keys were first added. A loop sees the entries that existed when it started; entries removed during the loop are skipped.
 - Keys can be `int`, `string`, `bool`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable` (see [Equality and hashing](#equality-and-hashing)). Values can be any type except an optional, since a missing key already reads as `nil`.
 - Maps are shared references, like lists and structs.
-- `m[k] += 1` is an error, since the key may be missing. Write `m[k] = (m[k] ?? 0) + 1`.
+- `m[k] += 1` is an error, since the key may be missing. Write `m[k] = (m[k] ?? 0) + 1`, or `m.update(k) { it + 1 }` when the key is known to be there.
+
+**Helpers.** These read or change entries without spelling out the missing-key case:
+
+```swift
+var groups: [string: [string]] = [:]
+for w in words {
+    groups.getOrPut(w.substring(0, 1)) { [] }.push(w)
+}
+
+var stock = ["apple": 3, "pear": 0]
+stock.update("apple") { it - 1 }          // 2, the new value
+stock.update("plum") { it - 1 }           // nil: plum is missing, nothing changes
+
+let inStock = stock.filter { name, n in n > 0 }    // ["apple": 2]
+let labels = stock.mapValues { "{it} left" }      // [string: string]
+for e in stock.entries { println(e.key, e.value) }
+```
+
+| Member | What it does |
+|---|---|
+| `.isEmpty` | Whether the map has no entries |
+| `.getOrPut(key) { value }` | The value of `key`; when it is missing, runs the block, stores its result under `key` and returns it |
+| `.update(key) { old in new }` | Replaces the value of `key` with what the block returns and gives the new value, an optional. A missing key is left missing, the block doesn't run, and the result is `nil` |
+| `.filter { k, v in ... }` | A new map of the entries the function accepts |
+| `.mapValues { v in ... }` | A new map with the same keys, in the same order, and what the function returns as values. The function can't return an optional |
+| `.entries` | The entries as a list of `({K key, V value})` records, in order |
+
+- `getOrPut` and `update` change the map, so they can't be used on a constant map. `filter`, `mapValues` and `entries` leave it as it is.
+- `filter` and `mapValues` visit the entries there were at the start, as a `for` loop does.
+- `update` never adds a key. To count with it, add the key when the result is `nil`: `if m.update(k, fn(n) => n + 1) == nil { m[k] = 1 }`. In an `if` condition the function goes in the parentheses, since a `{` there starts the body.
 
 ## Ranges
 
@@ -1288,7 +1318,7 @@ let make: fn(int) -> Box<int> = Box.new  // generic types take their type argume
 - Methods of structs, enums and interfaces, extension methods (those added to interfaces included) and built-in members such as `upper` and `push` can be torn off. Inside a struct or enum, a method named alone is torn off `self`, or the type when static: `names.map(greet)`.
 - `x?.method` is nil when `x` is nil, and otherwise a function bound to the value inside.
 - A tear-off has the method's parameters and result, and throws what the method throws. Default arguments don't carry over: the function takes every parameter.
-- A method must be torn off a value: `User.greet` is an error. Async and generic methods, and `map`, can't be torn off yet; call them in a closure.
+- A method must be torn off a value: `User.greet` is an error. Async and generic methods, and `map` and `mapValues`, can't be torn off yet; call them in a closure.
 
 **Trailing blocks.** A `{ ... }` block after a call is passed as its last argument, which must be a function or a list (see builder blocks below). A call with only a trailing block can leave out the `()`: `Column { ... }`, `xs.map { ... }`.
 
@@ -1876,7 +1906,7 @@ $ vex test
 | `panic(msg)`, `assert(cond, msg)` | Stop the program with a message; `assert`'s message is optional |
 | `expect(cond, msg)` | In tests, report `cond` as failed without stopping the test; see [Tests](#tests) |
 | `list.len`, `.push(x)`, `.sort()`, `.filter(f)`, `.map(f)`, `.join(sep)` and the rest | List members; see [Lists](#lists) |
-| `map.len`, `.keys`, `.values`, `.contains(k)`, `.remove(k)` | Map members |
+| `map.len`, `.isEmpty`, `.keys`, `.values`, `.entries`, `.contains(k)`, `.remove(k)`, `.getOrPut`, `.update`, `.filter`, `.mapValues` | Map members; see [Maps](#maps) |
 | `s.len`, `.isEmpty`, `.upper()`, `.lower()`, `.capitalize()`, `.contains(x)` | String members. `len` counts Unicode code points, so an emoji with a modifier counts as more than one; `upper`, `lower` and `capitalize` (the first character upper case) change only the letters A–Z for now |
 | `.split(sep)`, `.split(sep, limit: n)` | The parts between each `sep`. With a `limit` above 0, as in Kotlin, at most that many parts, the last holding the rest: `"k=v=w".split("=", limit: 2)` is `["k", "v=w"]` |
 | `.replace(old, with)`, `.trim()`, `.trimStart()`, `.trimEnd()` | New strings: every `old` replaced; spaces, tabs and line endings removed from the ends |

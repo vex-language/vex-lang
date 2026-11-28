@@ -1,0 +1,38 @@
+// Mistakes with the map helpers.
+const limits = ["a": 1]
+
+fn main() {
+    var ages = ["ann": 31]
+    println(ages.isEmpty(), ages.entries())
+    ages.getOrPut("bob") { "x" }
+    ages.getOrPut(1) { 2 }
+    ages.update("ann") { "old" }
+    let a = ages.filter { k, v in v }
+    let b = ages.mapValues { k, v in v }
+    let c = ages.mapValues { ages["zoe"] }
+    let d = ages.mapValues
+    let e = ages.mapValues()
+    let f = ages.mapValues { println(it) }
+    limits.getOrPut("b") { 2 }
+    limits.update("a") { it + 1 }
+    ages.putIfAbsent("cat", 3)
+    let g: int = ages.update("ann") { it + 1 }
+    let h = ages.entrys
+}
+
+// error: 6:18: isEmpty is a property, not a method
+// error: 6:34: entries is a property, not a method
+// error: 7:28: expected int, found string
+// error: 8:19: argument 'key': expected string, found int
+// error: 9:26: expected int, found string
+// error: 10:35: expected bool, found int
+// error: 11:28: expected a function with 1 parameter, found one with 2
+// error: 12:28: map values can't be optional, so mapValues needs a function that returns int, not int?
+// error: 13:18: 'mapValues' can't be used as a value
+// error: 14:18: mapValues takes 1 function
+// error: 15:28: mapValues needs a function that returns a value
+// error: 16:5: can't change a constant map: 'limits' is constant
+// error: 17:5: can't change a constant map: 'limits' is constant
+// error: 18:10: [string: int] has no method 'putIfAbsent'
+// error: 19:18: expected int, found int?
+// error: 20:18: [string: int] has no member 'entrys'

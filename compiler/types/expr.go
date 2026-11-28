@@ -955,6 +955,12 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		case "values":
 			c.info.Members[e] = &Member{Builtin: "values"}
 			return &List{Elem: x.Value}
+		case "isEmpty":
+			c.info.Members[e] = &Member{Builtin: "isEmpty"}
+			return Bool
+		case "entries":
+			c.info.Members[e] = &Member{Builtin: "entries"}
+			return &List{Elem: mapEntry(x)}
 		}
 	}
 	if x == String {
@@ -1017,6 +1023,10 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 	}
 	if _, ok := x.(*List); ok && (name == "map" || name == "flatMap" || name == "reduce") {
 		c.errorAt(e.Name, "call it in a closure: fn(x) => ...", "'%s' can't be used as a value", name)
+		return Invalid
+	}
+	if _, ok := x.(*Map); ok && name == "mapValues" {
+		c.errorAt(e.Name, "call it in a closure: fn(v) => ...", "'%s' can't be used as a value", name)
 		return Invalid
 	}
 	if t, ok := c.extTearOff(e, x, name, called, want); ok {
