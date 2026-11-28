@@ -1,41 +1,13 @@
 /// Building and padding strings.
 
 /// Returns [s] repeated [count] times.
-pub fn repeat(s: string, count: int) -> string {
-    var out = ""
-    for i in 0..count {
-        out += s
-    }
-    return out
-}
+pub fn repeat(s: string, count: int) -> string => s.repeat(count)
 
 /// Returns [parts] joined with [separator] between them.
-pub fn join(parts: [string], separator: string) -> string {
-    var out = ""
-    for i, p in parts {
-        if i > 0 {
-            out += separator
-        }
-        out += p
-    }
-    return out
-}
+pub fn join(parts: [string], separator: string) -> string => parts.join(separator)
 
 /// Returns [s] with [fill] added in front until it is [width] characters long.
-pub fn padLeft(s: string, width: int, fill: string = " ") -> string {
-    return padding(width - s.len, fill) + s
-}
+pub fn padLeft(s: string, width: int, fill: string = " ") -> string => s.padStart(width, with: fill)
 
 /// Returns [s] with [fill] added after it until it is [width] characters long.
-pub fn padRight(s: string, width: int, fill: string = " ") -> string {
-    return s + padding(width - s.len, fill)
-}
-
-/// Returns [n] characters made of [fill] repeated, cutting the last copy
-/// short when needed.
-fn padding(n: int, fill: string) -> string {
-    if n <= 0 || fill.len == 0 {
-        return ""
-    }
-    return repeat(fill, (n + fill.len - 1) / fill.len).substring(0, n)
-}
+pub fn padRight(s: string, width: int, fill: string = " ") -> string => s.padEnd(width, with: fill)
