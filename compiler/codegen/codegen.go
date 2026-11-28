@@ -14,8 +14,17 @@ import (
 	"github.com/vex-language/vex-lang/compiler/types"
 )
 
+//go:generate go run ../../tools/unigen -ucd ../../tools/unigen/ucd -o runtime/vexuni.h
+
 //go:embed runtime/vexrt.h
-var runtime string
+var runtimeSrc string
+
+//go:embed runtime/vexuni.h
+var unicodeTables string
+
+// The C runtime, with the Unicode tables in place of the line that
+// includes them.
+var runtime = strings.Replace(runtimeSrc, "#include \"vexuni.h\"\n", unicodeTables, 1)
 
 type gen struct {
 	// The index of the source file being translated, for runtime errors.
@@ -2053,6 +2062,9 @@ func (g *gen) value(e ast.Expr) string {
 			if m.Builtin == "isEmpty" {
 				return "((" + x + ").len == 0)"
 			}
+			if m.Builtin == "graphemeCount" {
+				return "vx_str_grapheme_count(" + x + ")"
+			}
 			return "vx_str_len(" + x + ")"
 		}
 		if _, ok := g.info.Types[e.X].(*types.Set); (ok || g.info.Types[e.X] == types.Bytes) && m.Builtin == "isEmpty" {
@@ -2536,7 +2548,7 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 			return fmt.Sprintf("vx_str_pad(%s, %s, %s, %t, %d)", cs[0], cs[1], fill, c.Builtin == "padStart", line)
 		case "replace":
 			return fmt.Sprintf("vx_str_replace(%s, %s, %s, %d)", cs[0], cs[1], cs[2], line)
-		case "trim", "chars", "lines":
+		case "trim", "chars", "lines", "graphemes":
 			return fmt.Sprintf("vx_str_%s(%s)", c.Builtin, cs[0])
 		case "trimStart", "trimEnd", "startsWith", "endsWith":
 			name := map[string]string{"trimStart": "trim_start", "trimEnd": "trim_end", "startsWith": "starts_with", "endsWith": "ends_with"}[c.Builtin]
