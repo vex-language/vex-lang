@@ -1248,7 +1248,8 @@ fn helper() { }                         // private to models
   - `vex:json`: `encode`, `decode`, `parse` and `write`, and the `Json` and `JsonError` enums (see [JSON](#json))
   - `vex:isolate`: `run` and `spawn`, which start work on other cores (see Isolates), and `cores()`
   - `vex:regex`: `compile(pattern)`, which throws for a pattern that isn't valid, giving a `Regex` with `matches`, `hasMatch`, `find`, `findAll`, `replace`, `replaceFirst` and `split`, and `escape(text)` (see [Regular expressions](#regular-expressions))
-  - `vex:random`: `nextInt(range)` (`random.nextInt(1..=6)` rolls a die; stepped and reversed ranges work), `nextFloat()` from 0.0 up to 1.0, `nextBool()`, `pick(items)`, a `T?` that is `nil` for an empty list, and `shuffle(items)` in place and `shuffled(items)`, also written `xs.shuffle()` and `xs.shuffled()`. These use a generator seeded by the system, one per isolate. `random.Random(seed: 42)` has the same methods and gives the same values on every run, for tests. Neither is for passwords or keys
+  - `vex:random`: `nextInt(range)` (`random.nextInt(1..=6)` rolls a die; stepped and reversed ranges work), `nextFloat()` from 0.0 up to 1.0, `nextBool()`, `pick(items)`, a `T?` that is `nil` for an empty list, and `shuffle(items)` in place and `shuffled(items)`, also written `xs.shuffle()` and `xs.shuffled()`. These use a generator seeded by the system, one per isolate. `random.Random(seed: 42)` has the same methods and gives the same values on every run, for tests. Neither is for passwords or keys; use `vex:crypto`
+  - `vex:crypto`: hashes, HMAC, key derivation, secure random bytes and UUIDs, encryption with `seal` and `open`, and Ed25519, X25519 and P-256 keys (see [Cryptography](#cryptography))
   - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status), `stdout` and `stderr`, writers with `write(text)`, `writeln(text)` and `flush()`, and `target` and `arch`, the system the program is built for (see [Platform conditionals](#platform-conditionals))
 
 ```swift
@@ -1444,6 +1445,73 @@ The pattern syntax:
 - Patterns work on characters, not bytes, so `.` matches `é` and `[à-ï]` is a range of code points. The classes `\d`, `\w`, `\s` and `\b` and ignoring case cover ASCII only.
 - `^` and `$` match only at the ends of the whole text, not at each line. Backreferences, lookaround and possessive repeats aren't supported, and a plain `{` must be written `\{`.
 - Matching remembers what it has tried, so its time grows with the pattern's size times the text's length: patterns such as `(a*)*b` that take exponential time in some engines finish at once.
+
+## Cryptography
+
+`vex:crypto` hashes, authenticates, encrypts and signs [`Bytes`](#bytes). It never implements a primitive of its own: ChaCha20-Poly1305, BLAKE2b, SHA-512, Argon2id, X25519 and Ed25519 come from [Monocypher](https://monocypher.org) 4.0.3, built into the program, and SHA-256, HKDF with SHA-256, AES-GCM, PBKDF2, P-256, MD5 and SHA-1 from the system: CommonCrypto, CryptoKit and the Security framework on Apple systems, and OpenSSL 3's libcrypto on Linux. Text becomes bytes with `s.toBytes()`.
+
+```swift
+import "vex:crypto"
+
+fn main() throws {
+    println(crypto.sha256("abc".toBytes()).toHex())    // ba7816bf...
+    let token = crypto.randomBytes(32)
+    println(token.len, crypto.uuid())                   // 32 3b241101-e2bb-4255-8caf-4136c566a962
+
+    // Encrypting: any change to the box makes open throw.
+    let key = crypto.SecretKey.generate()
+    let box = crypto.seal("attack at dawn".toBytes(), key)
+    let text = try crypto.open(box, key)
+    println(text.decodeUtf8() ?? "")                    // attack at dawn
+
+    // Passwords: store the salt and the hash, then compare with equal.
+    let salt = crypto.randomBytes(16)
+    let hash = crypto.argon2id("hunter2".toBytes(), salt: salt)
+    println(crypto.equal(hash, crypto.argon2id("hunter2".toBytes(), salt: salt)))   // true
+
+    // Signatures.
+    let signer = crypto.SigningKey.generate()
+    let sig = signer.sign("release 1.0".toBytes())
+    println(signer.verifyKey.verify("release 1.0".toBytes(), signature: sig))      // true
+}
+```
+
+| Function | What it is for |
+|---|---|
+| `sha256(data)`, `sha512(data)` | Hashes of 32 and 64 bytes, for fingerprints and integrity |
+| `blake2b(data, size: 32, key: Bytes())` | A fast hash of 1 to 64 bytes; with a key of up to 64 bytes, a message authentication code |
+| `hmacSha256(key, data)`, `hmacSha512(key, data)` | Message authentication codes: proof that data came from someone holding the key |
+| `hkdf(secret, salt:, info:, size: 32)`, `hkdfSha512(...)` | Keys derived from a secret that is already random, such as a shared secret (RFC 5869). Different `info` gives independent keys |
+| `argon2id(password, salt:, size: 32, memoryKiB: 65536, iterations: 3, lanes: 4)` | Keys and password hashes from passwords, slow on purpose (RFC 9106). The defaults are the RFC's second recommendation, 64 MiB; the salt needs 8 bytes or more, and 16 random bytes are best |
+| `pbkdf2Sha256(password, salt:, iterations: 600000, size: 32)` | Password hashes for systems that need PBKDF2; prefer `argon2id` |
+| `randomBytes(n)` | Bytes from the system's secure random source, for keys, salts and tokens |
+| `uuid()` | A random version 4 UUID as text |
+| `equal(a, b)` | Compares bytes in a time that doesn't depend on where they differ, for tags, hashes and tokens. `==` would tell an attacker how many leading bytes matched |
+| `seal(data, key, associatedData:)` | Encrypts and authenticates with XChaCha20-Poly1305: a random 24-byte nonce, the ciphertext, and a 16-byte tag. Associated data is authenticated but not encrypted |
+| `open(box, key, associatedData:)` | The data back; throws when the box was changed, cut short, or sealed with another key or associated data |
+| `aesGcmSeal`, `aesGcmOpen` | The same with AES-256-GCM and a random 12-byte nonce, for systems that need it |
+| `verifyP256(message, signature:, publicKey:)` | Checks a DER-encoded ECDSA P-256 signature with SHA-256 (ES256), by a 65-byte public key `04‖X‖Y`; `isP256PublicKey(key)` checks a key |
+| `legacy.md5(data)`, `legacy.sha1(data)` | Broken hashes for old formats only, never for security |
+
+Keys have their own [extension types](#extension-types), so a key can't be passed where data is expected or the wrong kind of key used, and printing one never shows a secret:
+
+| Type | Made with | Members |
+|---|---|---|
+| `SecretKey` | `generate()`, `fromBytes(b)` (32 bytes, throws otherwise) | `bytes`; used by `seal`, `open`, `aesGcmSeal`, `aesGcmOpen` |
+| `SigningKey` (Ed25519, RFC 8032) | `generate()`, `fromSeed(seed)` (32 bytes) | `sign(message)`, a 64-byte signature; `verifyKey`; `seed`, to store it |
+| `VerifyKey` | `signingKey.verifyKey`, `fromBytes(b)` (32 bytes) | `verify(message, signature:)`, `bytes` |
+| `ExchangeKey` (X25519, RFC 7748) | `generate()`, `fromBytes(b)` (32 bytes) | `publicKey`; `sharedSecret(peer)`, which throws for a weak public key |
+| `ExchangePublicKey` | `exchangeKey.publicKey`, `fromBytes(b)` (32 bytes) | `bytes` |
+| `P256SigningKey` (ECDSA, SHA-256) | `generate()`, `fromBytes(b)` (97 bytes: `04‖X‖Y‖d`) | `sign(message)`, a DER signature; `publicKey`, 65 bytes |
+
+- A shared secret from `sharedSecret` isn't a key yet: pass it through `hkdf`, with both public keys in `info`, and make a `SecretKey` from the result.
+- Wrong sizes and arguments, such as `blake2b(data, size: 100)` or a salt of 4 bytes, stop the program, as an index out of range does. Data from outside that may be wrong, such as a box or a stored key, gives an error to catch.
+- Wrapping bytes directly, as in `SecretKey(bytes: b)`, skips the size check, which then happens when the key is used. Prefer `fromBytes`.
+- `seal` is the one to choose: its 24-byte random nonces never repeat in practice. A random 12-byte nonce, as `aesGcmSeal` uses, is safe for a few billion messages under one key.
+- Ed25519 signatures are checked strictly as RFC 8032 says, and P-256 signatures must be strict DER, so a signature has one accepted form.
+- Signatures and boxes are tested in CI against the RFC and NIST test vectors of every primitive and against Google's Wycheproof vectors.
+
+**Limits.** Keys live in `Bytes`, which the garbage collector manages: copies made when bytes are sliced, copied or grown, and the memory of keys no longer used, are not wiped, and may stay in memory until it is reused. Temporary buffers inside the runtime are wiped. For high-value keys, keep them in the platform's keychain or keystore, which a later version will reach. On Apple systems, AES-GCM and HKDF come from CryptoKit through a small Swift file, so building a program that imports `vex:crypto` needs `swiftc` from the Xcode Command Line Tools (`xcode-select --install`). On Linux, building a program that imports `vex:crypto` needs OpenSSL 3's development files (`apt install libssl-dev` or `dnf install openssl-devel`). On Windows, the functions that use the system's provider, including `randomBytes` and so every `generate()` and `seal`, stop with "not available on this system yet" for now.
 
 ## C functions
 

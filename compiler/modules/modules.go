@@ -105,7 +105,34 @@ func (p *Program) CCOptions() cc.Options {
 		}
 		opts.Flags = append(opts.Flags, f)
 	}
+	for _, m := range p.Modules {
+		if m.std && m.Name == "crypto" {
+			p.addCrypto(&opts)
+		}
+	}
 	return opts
+}
+
+// Adds what `vex:crypto` builds on to [opts]: Monocypher's sources, the
+// code that reaches the system's own cryptography library (CryptoKit
+// through Swift on Apple systems), and that library.
+func (p *Program) addCrypto(opts *cc.Options) {
+	for _, dir := range []string{"std/crypto", "std/crypto/monocypher"} {
+		entries, _ := fs.ReadDir(stdFS, dir)
+		for _, e := range entries {
+			ext := path.Ext(e.Name())
+			if ext == ".c" || ext == ".h" || ext == ".swift" && p.Target.OS == "macos" {
+				text, _ := fs.ReadFile(stdFS, dir+"/"+e.Name())
+				opts.Files = append(opts.Files, cc.File{Name: e.Name(), Text: text})
+			}
+		}
+	}
+	switch p.Target.OS {
+	case "macos":
+		opts.LinkArgs = append(opts.LinkArgs, "-framework", "Security", "-framework", "CoreFoundation")
+	case "linux":
+		opts.LinkArgs = append(opts.LinkArgs, "-lcrypto")
+	}
 }
 
 // Returns the warnings of every file, each marked with its file.

@@ -217,7 +217,7 @@ type runtimeSig struct {
 var runtimeSigs = func() map[string]runtimeSig {
 	m := map[string]runtimeSig{}
 	re := regexp.MustCompile(`(?m)^static (?:inline )?([A-Za-z_][A-Za-z0-9_ ]*?[ *]+)(vx_[A-Za-z0-9_]+)\(([^)]*)\)`)
-	for _, sm := range re.FindAllStringSubmatch(runtime, -1) {
+	for _, sm := range re.FindAllStringSubmatch(runtime+cryptoRuntime, -1) {
 		sig := runtimeSig{result: strings.TrimSpace(sm[1])}
 		for _, p := range strings.Split(sm[3], ",") {
 			sig.strs = append(sig.strs, strings.HasPrefix(strings.TrimSpace(p), "vx_str "))

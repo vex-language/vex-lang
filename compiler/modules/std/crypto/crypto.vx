@@ -1,0 +1,369 @@
+/// Cryptography: hashes, message authentication, key derivation, secure
+/// random bytes, encryption and signatures.
+///
+/// Nothing here is a primitive of its own. ChaCha20-Poly1305, BLAKE2b,
+/// SHA-512, Argon2id, X25519 and Ed25519 come from Monocypher, built into
+/// the program; SHA-256, HKDF-SHA-256, AES-GCM, PBKDF2 and P-256 come
+/// from the system's provider: CommonCrypto, CryptoKit and Security on
+/// Apple systems, and OpenSSL 3's libcrypto on Linux. Keys have their own types, so a key can't be
+/// passed where data is expected, and printing one never shows it.
+
+extern fn cError() -> string as "vx_crypto_error"
+extern fn cRandom(n: int) -> Bytes? as "vx_crypto_random"
+extern fn cEqual(a: Bytes, b: Bytes) -> bool as "vx_crypto_equal"
+extern fn cSha256(data: Bytes) -> Bytes? as "vx_crypto_sha256"
+extern fn cSha512(data: Bytes) -> Bytes? as "vx_crypto_sha512"
+extern fn cSha1(data: Bytes) -> Bytes? as "vx_crypto_sha1"
+extern fn cMd5(data: Bytes) -> Bytes? as "vx_crypto_md5"
+extern fn cBlake2b(data: Bytes, key: Bytes, size: int) -> Bytes? as "vx_crypto_blake2b"
+extern fn cHmacSha256(key: Bytes, data: Bytes) -> Bytes? as "vx_crypto_hmac_sha256"
+extern fn cHmacSha512(key: Bytes, data: Bytes) -> Bytes? as "vx_crypto_hmac_sha512"
+extern fn cHkdfSha256(secret: Bytes, salt: Bytes, info: Bytes, size: int) -> Bytes? as "vx_crypto_hkdf_sha256"
+extern fn cHkdfSha512(secret: Bytes, salt: Bytes, info: Bytes, size: int) -> Bytes? as "vx_crypto_hkdf_sha512"
+extern fn cPbkdf2(password: Bytes, salt: Bytes, iterations: int, size: int) -> Bytes? as "vx_crypto_pbkdf2_sha256"
+extern fn cArgon2id(password: Bytes, salt: Bytes, secret: Bytes, ad: Bytes, size: int, kib: int, passes: int, lanes: int) -> Bytes? as "vx_crypto_argon2id"
+extern fn cChachaSeal(key: Bytes, nonce: Bytes, ad: Bytes, data: Bytes) -> Bytes? as "vx_crypto_chacha_seal"
+extern fn cChachaOpen(key: Bytes, nonce: Bytes, ad: Bytes, box: Bytes) -> Bytes? as "vx_crypto_chacha_open"
+extern fn cGcmSeal(key: Bytes, nonce: Bytes, ad: Bytes, data: Bytes) -> Bytes? as "vx_crypto_aes_gcm_seal"
+extern fn cGcmOpen(key: Bytes, nonce: Bytes, ad: Bytes, box: Bytes) -> Bytes? as "vx_crypto_aes_gcm_open"
+extern fn cEd25519Key(seed: Bytes) -> Bytes? as "vx_crypto_ed25519_key"
+extern fn cEd25519Sign(key: Bytes, message: Bytes) -> Bytes? as "vx_crypto_ed25519_sign"
+extern fn cEd25519Verify(key: Bytes, message: Bytes, signature: Bytes) -> bool as "vx_crypto_ed25519_verify"
+extern fn cX25519Public(key: Bytes) -> Bytes? as "vx_crypto_x25519_public"
+extern fn cX25519(key: Bytes, peer: Bytes) -> Bytes? as "vx_crypto_x25519"
+extern fn cP256Check(key: Bytes) -> bool as "vx_crypto_p256_check"
+extern fn cP256CheckPrivate(key: Bytes) -> bool as "vx_crypto_p256_check_private"
+extern fn cP256Verify(key: Bytes, message: Bytes, signature: Bytes) -> bool as "vx_crypto_p256_verify"
+extern fn cP256Generate() -> Bytes? as "vx_crypto_p256_generate"
+extern fn cP256Sign(key: Bytes, message: Bytes) -> Bytes? as "vx_crypto_p256_sign"
+
+/// Returns [result], or stops the program with what [name] couldn't do.
+fn must(result: Bytes?, name: string) -> Bytes {
+    guard let out = result else {
+        panic("crypto.{name} {cError()}")
+    }
+    return out
+}
+
+/// Stops the program unless [key] holds [size] bytes, as a key of type
+/// [type] made by its own functions does.
+fn checkKey(key: Bytes, size: int, type: string) {
+    if key.len != size {
+        panic("a {type} holds {size} bytes, found {key.len}; make one with {type}.generate() or {type}.fromBytes()")
+    }
+}
+
+/// Returns [n] bytes from the operating system's secure random source,
+/// for keys, salts, nonces and tokens.
+pub fn randomBytes(n: int) -> Bytes {
+    if n < 0 {
+        panic("crypto.randomBytes needs a count of 0 or more, found {n}")
+    }
+    return must(cRandom(n), "randomBytes")
+}
+
+/// Returns a random version 4 UUID, such as
+/// `"3b241101-e2bb-4255-8caf-4136c566a962"`.
+pub fn uuid() -> string {
+    let b = randomBytes(16)
+    b[6] = (b[6] & 0x0f) | 0x40
+    b[8] = (b[8] & 0x3f) | 0x80
+    let h = b.toHex()
+    return "{h[0..8]}-{h[8..12]}-{h[12..16]}-{h[16..20]}-{h[20..]}"
+}
+
+/// Reports whether [a] and [b] hold the same bytes, taking the same time
+/// whichever byte differs, for comparing tags, hashes and tokens. Only
+/// the lengths may show through the time taken.
+pub fn equal(a: Bytes, b: Bytes) -> bool => cEqual(a, b)
+
+/// Returns the 32-byte SHA-256 hash of [data].
+pub fn sha256(data: Bytes) -> Bytes => must(cSha256(data), "sha256")
+
+/// Returns the 64-byte SHA-512 hash of [data].
+pub fn sha512(data: Bytes) -> Bytes => must(cSha512(data), "sha512")
+
+/// Returns the BLAKE2b hash of [data], [size] bytes long, from 1 to 64.
+/// With a [key] of up to 64 bytes it is a message authentication code.
+pub fn blake2b(data: Bytes, size: int = 32, key: Bytes = Bytes()) -> Bytes {
+    if size < 1 || size > 64 {
+        panic("crypto.blake2b needs a size from 1 to 64, found {size}")
+    }
+    if key.len > 64 {
+        panic("crypto.blake2b needs a key of at most 64 bytes, found {key.len}")
+    }
+    return must(cBlake2b(data, key, size), "blake2b")
+}
+
+/// Returns the 32-byte HMAC-SHA-256 of [data] under [key].
+pub fn hmacSha256(key: Bytes, data: Bytes) -> Bytes => must(cHmacSha256(key, data), "hmacSha256")
+
+/// Returns the 64-byte HMAC-SHA-512 of [data] under [key].
+pub fn hmacSha512(key: Bytes, data: Bytes) -> Bytes => must(cHmacSha512(key, data), "hmacSha512")
+
+/// Returns [size] bytes of key material derived from [secret] by HKDF
+/// with SHA-256 (RFC 5869). [secret] must already be random, such as a
+/// shared secret; use [argon2id] for passwords. Different [info] gives
+/// independent keys from one secret.
+pub fn hkdf(secret: Bytes, salt: Bytes = Bytes(), info: Bytes = Bytes(), size: int = 32) -> Bytes {
+    if size < 1 || size > 8160 {
+        panic("crypto.hkdf needs a size from 1 to 8160, found {size}")
+    }
+    return must(cHkdfSha256(secret, salt, info, size), "hkdf")
+}
+
+/// Returns [size] bytes derived from [secret] by HKDF with SHA-512.
+pub fn hkdfSha512(secret: Bytes, salt: Bytes = Bytes(), info: Bytes = Bytes(), size: int = 64) -> Bytes {
+    if size < 1 || size > 16320 {
+        panic("crypto.hkdfSha512 needs a size from 1 to 16320, found {size}")
+    }
+    return must(cHkdfSha512(secret, salt, info, size), "hkdfSha512")
+}
+
+/// Returns a [size]-byte key derived from [password] and [salt] by
+/// Argon2id (RFC 9106), slow on purpose so that guessing passwords is
+/// slow too. The defaults are the RFC's second recommendation: 64 MiB
+/// ([memoryKiB] is in KiB), 3 passes and 4 lanes. Use a random salt of
+/// 16 bytes for each password, and store it next to the result.
+pub fn argon2id(password: Bytes, salt: Bytes, size: int = 32, memoryKiB: int = 65536, iterations: int = 3, lanes: int = 4) -> Bytes {
+    if salt.len < 8 {
+        panic("crypto.argon2id needs a salt of at least 8 bytes, found {salt.len}; use crypto.randomBytes(16)")
+    }
+    if size < 4 || iterations < 1 || lanes < 1 || memoryKiB < 8 * lanes {
+        panic("crypto.argon2id needs a size of at least 4, 1 iteration or more, 1 lane or more and 8 KiB of memory for each lane")
+    }
+    return must(cArgon2id(password, salt, Bytes(), Bytes(), size, memoryKiB, iterations, lanes), "argon2id")
+}
+
+/// Returns a [size]-byte key derived from [password] and [salt] by
+/// PBKDF2 with HMAC-SHA-256, for systems that need it. Prefer [argon2id],
+/// which resists guessing on graphics cards far better.
+pub fn pbkdf2Sha256(password: Bytes, salt: Bytes, iterations: int = 600000, size: int = 32) -> Bytes {
+    if iterations < 1 || size < 1 {
+        panic("crypto.pbkdf2Sha256 needs 1 iteration or more and a size of 1 or more")
+    }
+    return must(cPbkdf2(password, salt, iterations, size), "pbkdf2Sha256")
+}
+
+/// A 32-byte key for [seal] and [open], and for [aesGcmSeal] and
+/// [aesGcmOpen].
+pub extension type SecretKey(bytes: Bytes) {
+    /// Returns a new random key.
+    pub static fn generate() -> SecretKey => SecretKey(bytes: randomBytes(32))
+
+    /// Returns the key held in [bytes], which must be 32 bytes long, such
+    /// as one made by [hkdf] or [argon2id].
+    pub static fn fromBytes(bytes: Bytes) throws -> SecretKey {
+        if bytes.len != 32 {
+            throw Error("a SecretKey needs 32 bytes, found {bytes.len}")
+        }
+        return SecretKey(bytes: bytes.copy())
+    }
+
+    pub fn toString() -> string => "SecretKey(32 bytes)"
+}
+
+/// Returns [data] encrypted and authenticated with [key] by
+/// XChaCha20-Poly1305: a random 24-byte nonce, then the ciphertext, then
+/// a 16-byte tag. [associatedData] is authenticated but not encrypted,
+/// and [open] needs the same.
+pub fn seal(data: Bytes, key: SecretKey, associatedData: Bytes = Bytes()) -> Bytes {
+    checkKey(key.bytes, 32, "SecretKey")
+    let nonce = randomBytes(24)
+    nonce.append(must(cChachaSeal(key.bytes, nonce, associatedData, data), "seal"))
+    return nonce
+}
+
+/// Returns the data [seal] put in [box]. Throws when [box] was changed,
+/// or sealed with another key or other associated data.
+pub fn open(box: Bytes, key: SecretKey, associatedData: Bytes = Bytes()) throws -> Bytes {
+    checkKey(key.bytes, 32, "SecretKey")
+    if box.len < 40 {
+        throw Error("can't open the data: it is too short to have been sealed")
+    }
+    guard let data = cChachaOpen(key.bytes, box[0..24], associatedData, box[24..]) else {
+        throw Error("can't open the data: {cError()}")
+    }
+    return data
+}
+
+/// Returns [data] encrypted and authenticated with [key] by AES-256-GCM,
+/// for systems that need it: a random 12-byte nonce, then the
+/// ciphertext, then a 16-byte tag. Prefer [seal]: random 12-byte nonces
+/// are only safe for some billions of messages under one key.
+pub fn aesGcmSeal(data: Bytes, key: SecretKey, associatedData: Bytes = Bytes()) -> Bytes {
+    checkKey(key.bytes, 32, "SecretKey")
+    let nonce = randomBytes(12)
+    nonce.append(must(cGcmSeal(key.bytes, nonce, associatedData, data), "aesGcmSeal"))
+    return nonce
+}
+
+/// Returns the data [aesGcmSeal] put in [box]. Throws when [box] was
+/// changed, or sealed with another key or other associated data.
+pub fn aesGcmOpen(box: Bytes, key: SecretKey, associatedData: Bytes = Bytes()) throws -> Bytes {
+    checkKey(key.bytes, 32, "SecretKey")
+    if box.len < 28 {
+        throw Error("can't open the data: it is too short to have been sealed")
+    }
+    guard let data = cGcmOpen(key.bytes, box[0..12], associatedData, box[12..]) else {
+        throw Error("can't open the data: {cError()}")
+    }
+    return data
+}
+
+/// An Ed25519 key that signs messages (RFC 8032). It holds the 32-byte
+/// seed followed by the 32-byte public key.
+pub extension type SigningKey(bytes: Bytes) {
+    /// Returns a new random key.
+    pub static fn generate() -> SigningKey => SigningKey(bytes: must(cEd25519Key(randomBytes(32)), "SigningKey.generate"))
+
+    /// Returns the key made from the 32-byte [seed], as other Ed25519
+    /// libraries store private keys.
+    pub static fn fromSeed(seed: Bytes) throws -> SigningKey {
+        if seed.len != 32 {
+            throw Error("an Ed25519 seed needs 32 bytes, found {seed.len}")
+        }
+        return SigningKey(bytes: must(cEd25519Key(seed), "SigningKey.fromSeed"))
+    }
+
+    /// The 32-byte seed the key is made from, for storing it.
+    pub get seed -> Bytes {
+        checkKey(bytes, 64, "SigningKey")
+        return bytes[0..32]
+    }
+
+    /// The key that checks this key's signatures, to give to others.
+    pub get verifyKey -> VerifyKey {
+        checkKey(bytes, 64, "SigningKey")
+        return VerifyKey(bytes: bytes[32..])
+    }
+
+    /// Returns the 64-byte signature of [message].
+    pub fn sign(message: Bytes) -> Bytes {
+        checkKey(bytes, 64, "SigningKey")
+        return must(cEd25519Sign(bytes, message), "SigningKey.sign")
+    }
+
+    pub fn toString() -> string => "SigningKey(Ed25519)"
+}
+
+/// An Ed25519 public key, which checks signatures made by its
+/// [SigningKey].
+pub extension type VerifyKey(bytes: Bytes) {
+    /// Returns the key held in the 32 bytes [bytes].
+    pub static fn fromBytes(bytes: Bytes) throws -> VerifyKey {
+        if bytes.len != 32 {
+            throw Error("an Ed25519 public key needs 32 bytes, found {bytes.len}")
+        }
+        return VerifyKey(bytes: bytes.copy())
+    }
+
+    /// Reports whether [signature] is this key's signature of [message].
+    pub fn verify(message: Bytes, signature: Bytes) -> bool => cEd25519Verify(bytes, message, signature)
+
+    pub fn toString() -> string => "VerifyKey({bytes.toHex()})"
+}
+
+/// An X25519 private key, for agreeing on a shared secret with another
+/// party (RFC 7748).
+pub extension type ExchangeKey(bytes: Bytes) {
+    /// Returns a new random key.
+    pub static fn generate() -> ExchangeKey => ExchangeKey(bytes: randomBytes(32))
+
+    /// Returns the key held in the 32 bytes [bytes].
+    pub static fn fromBytes(bytes: Bytes) throws -> ExchangeKey {
+        if bytes.len != 32 {
+            throw Error("an X25519 private key needs 32 bytes, found {bytes.len}")
+        }
+        return ExchangeKey(bytes: bytes.copy())
+    }
+
+    /// The public key to give the other party.
+    pub get publicKey -> ExchangePublicKey {
+        checkKey(bytes, 32, "ExchangeKey")
+        return ExchangePublicKey(bytes: must(cX25519Public(bytes), "ExchangeKey.publicKey"))
+    }
+
+    /// Returns the 32-byte secret this key shares with the owner of
+    /// [peer]. Pass it through [hkdf] before using it as a key. Throws for
+    /// a weak public key that would give a secret anyone can know.
+    pub fn sharedSecret(peer: ExchangePublicKey) throws -> Bytes {
+        checkKey(bytes, 32, "ExchangeKey")
+        if peer.bytes.len != 32 {
+            throw Error("an X25519 public key needs 32 bytes, found {peer.bytes.len}")
+        }
+        guard let secret = cX25519(bytes, peer.bytes) else {
+            throw Error("can't agree on a secret: {cError()}")
+        }
+        return secret
+    }
+
+    pub fn toString() -> string => "ExchangeKey(X25519)"
+}
+
+/// An X25519 public key.
+pub extension type ExchangePublicKey(bytes: Bytes) {
+    /// Returns the key held in the 32 bytes [bytes].
+    pub static fn fromBytes(bytes: Bytes) throws -> ExchangePublicKey {
+        if bytes.len != 32 {
+            throw Error("an X25519 public key needs 32 bytes, found {bytes.len}")
+        }
+        return ExchangePublicKey(bytes: bytes.copy())
+    }
+
+    pub fn toString() -> string => "ExchangePublicKey({bytes.toHex()})"
+}
+
+/// A P-256 key that signs with ECDSA and SHA-256, as ES256 in JSON Web
+/// Tokens. It holds the public point and then the private scalar, 97
+/// bytes in all, the form Apple's Security framework uses.
+pub extension type P256SigningKey(bytes: Bytes) {
+    /// Returns a new random key.
+    pub static fn generate() -> P256SigningKey => P256SigningKey(bytes: must(cP256Generate(), "P256SigningKey.generate"))
+
+    /// Returns the key held in [bytes]: 0x04, the coordinates X and Y and
+    /// the private scalar, 32 bytes each.
+    pub static fn fromBytes(bytes: Bytes) throws -> P256SigningKey {
+        if !cP256CheckPrivate(bytes) {
+            throw Error("not a P-256 private key: it needs 97 bytes, 0x04, X, Y and the scalar, that belong together")
+        }
+        return P256SigningKey(bytes: bytes.copy())
+    }
+
+    /// The public key, as 65 bytes: 0x04, then X and Y.
+    pub get publicKey -> Bytes {
+        checkKey(bytes, 97, "P256SigningKey")
+        return bytes[0..65]
+    }
+
+    /// Returns the DER-encoded ECDSA signature of [message], which
+    /// [verifyP256] checks.
+    pub fn sign(message: Bytes) -> Bytes {
+        checkKey(bytes, 97, "P256SigningKey")
+        return must(cP256Sign(bytes, message), "P256SigningKey.sign")
+    }
+
+    pub fn toString() -> string => "P256SigningKey(P-256)"
+}
+
+/// Reports whether [signature], a DER-encoded ECDSA signature, is the
+/// signature of [message] with SHA-256 by the P-256 key [publicKey]
+/// (65 bytes: 0x04, then X and Y). An invalid key gives false.
+pub fn verifyP256(message: Bytes, signature: Bytes, publicKey: Bytes) -> bool => cP256Verify(publicKey, message, signature)
+
+/// Reports whether [publicKey] is a valid P-256 public key: 65 bytes,
+/// 0x04, then the coordinates of a point on the curve.
+pub fn isP256PublicKey(publicKey: Bytes) -> bool => cP256Check(publicKey)
+
+/// Hashes kept for old formats and protocols. They are broken: never use
+/// them for security, such as passwords, signatures or integrity checks.
+pub struct Legacy {
+    /// Returns the 16-byte MD5 hash of [data]. Not for security.
+    pub fn md5(data: Bytes) -> Bytes => must(cMd5(data), "legacy.md5")
+
+    /// Returns the 20-byte SHA-1 hash of [data]. Not for security.
+    pub fn sha1(data: Bytes) -> Bytes => must(cSha1(data), "legacy.sha1")
+}
+
+/// MD5 and SHA-1, for old formats only: `crypto.legacy.md5(data)`.
+pub let legacy = Legacy()

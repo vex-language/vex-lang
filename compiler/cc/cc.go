@@ -61,6 +61,15 @@ type Options struct {
 	Flags      []string
 	Frameworks []string
 
+	// C files the standard library brings along, written next to the
+	// generated C: `.c` files are compiled with it, `.swift` files are
+	// compiled by swiftc and linked with the Swift runtime, and headers can
+	// be included by name.
+	Files []File
+
+	// Linker arguments the standard library needs, such as -lcrypto.
+	LinkArgs []string
+
 	// Set for a debug build: without optimizations and with debug
 	// information. Otherwise the program is optimized with -O3.
 	Debug bool
@@ -71,6 +80,12 @@ type Options struct {
 	// Where to keep the generated C, so a debugger can show it; empty to
 	// write it to a temporary file.
 	KeepC string
+}
+
+// A C file kept in memory, such as a source file of the standard library.
+type File struct {
+	Name string
+	Text []byte
 }
 
 // Returns the flags that set how the program is optimized and checked.
@@ -115,6 +130,28 @@ func CompileWith(src, out string, opts Options) error {
 	args = append(args, strings.Fields(os.Getenv("VEX_CFLAGS"))...)
 	args = append(args, opts.Flags...)
 	args = append(args, "-o", out, cfile)
+	if len(opts.Files) > 0 {
+		args = append(args, "-I", dir)
+	}
+	for _, f := range opts.Files {
+		path := filepath.Join(dir, f.Name)
+		if err := os.WriteFile(path, f.Text, 0o644); err != nil {
+			return err
+		}
+		switch filepath.Ext(f.Name) {
+		case ".c":
+			args = append(args, path)
+		case ".swift":
+			obj, err := compileSwift(path)
+			if err != nil {
+				return err
+			}
+			args = append(args, obj)
+			if sdk, err := exec.Command("xcrun", "--show-sdk-path").Output(); err == nil {
+				args = append(args, "-L", filepath.Join(strings.TrimSpace(string(sdk)), "usr", "lib", "swift"))
+			}
+		}
+	}
 	for _, s := range opts.Sources {
 		if filepath.Ext(s) == ".m" {
 			// Objective-C, with automatic reference counting.
@@ -132,12 +169,16 @@ func CompileWith(src, out string, opts Options) error {
 	for _, f := range opts.Frameworks {
 		args = append(args, "-framework", f)
 	}
+	args = append(args, opts.LinkArgs...)
 	args = append(args, "-lm")
 	cmd := exec.Command(command[0], args...)
 	var output bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &output, &output
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError
+		if errors.As(err, &exit) && slices.Contains(opts.LinkArgs, "-lcrypto") && missingLibcrypto(output.String()) {
+			return fmt.Errorf("vex:crypto needs the libcrypto library of OpenSSL 3; install it, such as with apt install libssl-dev or dnf install openssl-devel\n%s", strings.TrimSpace(output.String()))
+		}
 		if errors.As(err, &exit) && len(opts.Sources)+len(opts.Libs)+len(opts.Flags)+len(opts.Frameworks) > 0 {
 			return fmt.Errorf("the C compiler (%s) failed; check the C code and the [c] section of package.toml\n%s", command[0], strings.TrimSpace(output.String()))
 		}
@@ -150,4 +191,28 @@ func CompileWith(src, out string, opts Options) error {
 		return fmt.Errorf("running the C compiler (%s): %w", command[0], err)
 	}
 	return nil
+}
+
+// Reports whether the C compiler's [output] says OpenSSL's headers or
+// library are missing.
+func missingLibcrypto(output string) bool {
+	return strings.Contains(output, "openssl/") && strings.Contains(output, "No such file") ||
+		strings.Contains(output, "-lcrypto") || strings.Contains(output, "library 'crypto' not found")
+}
+
+// Compiles the Swift file at [path] into an object file next to it, whose
+// path it returns. The object names the Swift libraries it needs, so the
+// linker adds them.
+func compileSwift(path string) (string, error) {
+	swiftc, err := exec.LookPath("swiftc")
+	if err != nil {
+		return "", errors.New("vex:crypto uses CryptoKit, which needs swiftc from the Xcode Command Line Tools; install them with xcode-select --install")
+	}
+	obj := strings.TrimSuffix(path, ".swift") + ".o"
+	name := strings.TrimSuffix(filepath.Base(path), ".swift")
+	cmd := exec.Command(swiftc, "-parse-as-library", "-emit-object", "-O", "-module-name", "vx_"+name, "-o", obj, path)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return "", fmt.Errorf("swiftc failed on %s; this is a bug in vex\n%s", filepath.Base(path), strings.TrimSpace(string(out)))
+	}
+	return obj, nil
 }

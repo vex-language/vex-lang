@@ -1,0 +1,92 @@
+// vex:crypto: hashes, keys, sealing and signatures. Random results are
+// checked through properties; the test vectors run in crypto_test.go.
+import "vex:crypto"
+
+fn main() throws {
+    let abc = "abc".toBytes()
+    println(crypto.sha256(abc).toHex())
+    println(crypto.sha512(Bytes()).toHex()[0..32])
+    println(crypto.blake2b(abc).toHex())
+    println(crypto.blake2b(abc, size: 16, key: "key".toBytes()).toHex())
+    println(crypto.hmacSha256("key".toBytes(), abc).toHex())
+    println(crypto.hmacSha512("key".toBytes(), abc).len)
+    println(crypto.hkdf("secret".toBytes(), info: "files".toBytes()).toHex())
+    println(crypto.hkdf("secret".toBytes(), salt: "salt".toBytes(), size: 8).toHex())
+    println(crypto.hkdfSha512("secret".toBytes()).len)
+    println(crypto.pbkdf2Sha256("password".toBytes(), salt: "salt".toBytes(), iterations: 1000, size: 16).toHex())
+    println(crypto.argon2id("password".toBytes(), salt: "somesalt".toBytes(), memoryKiB: 64, iterations: 2, lanes: 1).toHex())
+    println(crypto.legacy.md5(abc).toHex(), crypto.legacy.sha1(abc).toHex())
+
+    // Random bytes and UUIDs.
+    let r = crypto.randomBytes(32)
+    println(r.len, crypto.randomBytes(0).len, crypto.equal(r, crypto.randomBytes(32)))
+    let id = crypto.uuid()
+    let parts = id.split("-")
+    println(id.len, parts.map(fn(p) => p.len), id[14..=14], "89ab".contains(id[19..=19]), id == id.lower())
+    println(crypto.equal(abc, "abc".toBytes()), crypto.equal(abc, "abd".toBytes()), crypto.equal(abc, "ab".toBytes()))
+
+    // Sealing: the same data gives a new box each time, and any change
+    // makes open throw.
+    let key = crypto.SecretKey.generate()
+    println(key, key.bytes.len)
+    let box = crypto.seal("attack at dawn".toBytes(), key)
+    println(box.len, crypto.equal(box, crypto.seal("attack at dawn".toBytes(), key)))
+    println(try crypto.open(box, key).decodeUtf8() ?? "")
+    let changed = box.copy()
+    changed[30] = changed[30] ^ 1
+    println(try crypto.open(changed, key).toHex() catch e { e.message })
+    println(try crypto.open(box, crypto.SecretKey.generate()).toHex() catch e { e.message })
+    println(try crypto.open(box[0..20], key).toHex() catch e { e.message })
+    let withAd = crypto.seal("x".toBytes(), key, associatedData: "header".toBytes())
+    println(try crypto.open(withAd, key, associatedData: "header".toBytes()).decodeUtf8() ?? "")
+    println(try crypto.open(withAd, key).toHex() catch e { e.message })
+
+    let gcm = crypto.aesGcmSeal("interop".toBytes(), key)
+    println(gcm.len, try crypto.aesGcmOpen(gcm, key).decodeUtf8() ?? "")
+    gcm[0] = gcm[0] ^ 1
+    println(try crypto.aesGcmOpen(gcm, key).toHex() catch e { e.message })
+
+    let derived = try crypto.SecretKey.fromBytes(crypto.hkdf("shared".toBytes()))
+    println(try crypto.open(crypto.seal(abc, derived), derived).decodeUtf8() ?? "")
+    println(try crypto.SecretKey.fromBytes(Bytes(count: 16)).toString() catch e { e.message })
+
+    // Ed25519 signatures.
+    let seed = Bytes.fromHex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60") ?? Bytes()
+    let signer = try crypto.SigningKey.fromSeed(seed)
+    println(signer, signer.verifyKey)
+    println(crypto.equal(signer.seed, seed))
+    let sig = signer.sign("hello".toBytes())
+    println(sig.len, signer.verifyKey.verify("hello".toBytes(), signature: sig), signer.verifyKey.verify("hellO".toBytes(), signature: sig))
+    println(signer.verifyKey.verify("hello".toBytes(), signature: sig[0..63]))
+    let fresh = crypto.SigningKey.generate()
+    println(fresh.verifyKey.verify("hello".toBytes(), signature: fresh.sign("hello".toBytes())))
+    let shared = try crypto.VerifyKey.fromBytes(signer.verifyKey.bytes)
+    println(shared.verify("hello".toBytes(), signature: sig))
+    println(try crypto.VerifyKey.fromBytes(Bytes(count: 31)).toString() catch e { e.message })
+    println(try crypto.SigningKey.fromSeed(Bytes()).toString() catch e { e.message })
+
+    // X25519 key agreement.
+    let alice = crypto.ExchangeKey.generate()
+    let bob = crypto.ExchangeKey.generate()
+    let s1 = try alice.sharedSecret(bob.publicKey)
+    let s2 = try bob.sharedSecret(alice.publicKey)
+    println(alice, s1.len, crypto.equal(s1, s2))
+    let weak = try crypto.ExchangePublicKey.fromBytes(Bytes(count: 32))
+    println(try alice.sharedSecret(weak).toHex() catch e { e.message })
+
+    // P-256 signatures.
+    let p256 = crypto.P256SigningKey.generate()
+    let der = p256.sign("hello".toBytes())
+    println(p256, p256.publicKey.len, p256.publicKey[0], crypto.isP256PublicKey(p256.publicKey))
+    println(crypto.verifyP256("hello".toBytes(), signature: der, publicKey: p256.publicKey))
+    println(crypto.verifyP256("hellO".toBytes(), signature: der, publicKey: p256.publicKey))
+    let restored = try crypto.P256SigningKey.fromBytes(p256.bytes)
+    println(crypto.verifyP256("again".toBytes(), signature: restored.sign("again".toBytes()), publicKey: p256.publicKey))
+    let other = crypto.P256SigningKey.generate()
+    let mixed = p256.publicKey.copy()
+    mixed.append(other.bytes[65..])
+    println(try crypto.P256SigningKey.fromBytes(mixed).toString() catch e { e.message })
+    let offCurve = p256.publicKey.copy()
+    offCurve[64] = offCurve[64] ^ 1
+    println(crypto.isP256PublicKey(offCurve), crypto.verifyP256("hello".toBytes(), signature: der, publicKey: offCurve))
+}
