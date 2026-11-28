@@ -174,7 +174,7 @@ Goal: the compiler, `vex` and programs built with it run on Windows 10 and 11 (x
 - [x] **V-182** Async tasks and generators on Windows: switching stacks allocated with `VirtualAlloc`, with guard pages (L)
 - [x] **V-183** Collector on Windows: heap memory from `VirtualAlloc`, thread stack bounds and saved registers for root scanning (M)
 - [x] **V-184** Standard library on Windows: `vex:fs`, `vex:os` (arguments, environment, exit codes, console UTF-8), time, `vex:datetime` local offsets, and `BCryptGenRandom` for random seeds (M)
-- [ ] **V-185** Windows CI: every PR runs the suite and the sanitizer-free battery on `windows-latest` (S)
+- [x] **V-185** Windows CI: every PR runs the suite and the sanitizer-free battery on `windows-latest` (S)
 - [ ] **V-186** SDK archives for Windows, Linux and macOS: `vex`, the standard library, runtime, docs and the C toolchain wherever its license allows (LLVM-MinGW on Windows, clang with a musl sysroot on Linux; macOS uses the Xcode Command Line Tools). The layout is relocatable, finding everything next to the `vex` binary, so the UI framework's archive can embed it as Flutter's embeds Dart. Release CI builds, signs and checksums them, and tests each archive on a clean machine; a `winget` package points at the Windows one (M)
 - [x] **V-187** `vex doctor`: checks the toolchain and, for app builds, Xcode and Android Studio with its SDK and NDK, saying what is missing and how to install it; it never installs those itself (S)
 

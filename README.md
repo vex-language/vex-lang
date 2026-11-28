@@ -555,7 +555,7 @@ go test ./...
 
 This includes golden tests: every program in [examples](examples) and [tests/run](tests/run) is compiled and run, and its output must match its `.out` file (with `.in` as keyboard input, if present, and `.windows.out` instead on Windows for a program whose output names the system). Each program also runs with the garbage collector forced to collect far more often than usual, to catch memory freed too early. Each program in [tests/errors](tests/errors) must fail with exactly the errors listed in its `// error:` comments. After an intended change to an example's output, refresh the `.out` files with `go test ./tests -update`.
 
-Deeper checks, which CI runs on every pull request on Linux with clang and gcc (run them locally on macOS before merging):
+Deeper checks, which CI runs on every pull request on Linux with clang and gcc (run them locally on macOS before merging). On Windows, CI builds `vex` and runs the suite, the random programs and the random map programs with clang from a pinned [LLVM-MinGW](https://github.com/mstorsjo/llvm-mingw) release; the sanitizer and fuzzing runs stay on Linux:
 
 ```sh
 # Feed random programs to the compiler: it must report errors, never crash.
