@@ -141,7 +141,7 @@ Goal: the language features real apps need before any UI work.
 
 ### Tools and packages
 - [x] **V-121** Package manager: `vex get` from public git repos, `package.lock` with hashes ([design](docs/design/packages.md)) (L)
-- [ ] **V-122** `vex doc`: API docs from `///` comments (M)
+- [x] **V-122** `vex doc`: API docs from `///` comments (M)
 - [ ] **V-124** Benchmark suite in the repo (`bench/`): Vex programs with Go equivalents and a script that compares them (M)
 - [ ] **V-123** Stack traces: runtime errors list the chain of calls with their lines (M)
 - [x] **V-128** Modules, next steps: warn about unused imports, `pub` names whose types are private, and errors sorted with the root module first (S)

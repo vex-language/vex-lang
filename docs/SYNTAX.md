@@ -41,6 +41,8 @@ let text = "Tab\tquote\" brace\{ smile \u{1F600}"
 /* Block comments /* can nest */ too. */
 ```
 
+`vex doc` turns `///` comments into API documentation; see [Documentation](#documentation).
+
 Escapes: `\n` `\t` `\r` `\\` `\"` `\{` `\}` and `\u{...}`. A `"..."` string stays on one line.
 
 An interpolated value can take a format spec after a `:`, as in Python and Rust:
@@ -2235,6 +2237,41 @@ $ vex test
 - Each test runs in its own process, so a runtime error or crash fails that test and the others still run. `vex test -filter parse` runs only the tests whose names contain `parse`.
 - A test can't await; use `run(future)` to wait for async work.
 - The exit status is 1 when a test fails.
+
+## Documentation
+
+A `///` comment on the lines right above a declaration documents it: a type, case, field, method, property, function, constant, type alias or extension. A `///` comment at the top of a file, before the imports and set apart from the first declaration by a blank line, documents the module. Doc comments are Markdown, as in Dart: paragraphs, lists, `code`, fenced code blocks, **bold**, *italic*, [links](https://example.com), and references in square brackets, which become links.
+
+````swift
+/// Flat shapes and their areas.
+
+/// A circle. Its [area] grows with the square of [radius].
+///
+/// ```
+/// let c = Circle(radius: 2.0)
+/// ```
+pub struct Circle {
+    /// The distance from the centre to the edge.
+    pub radius: float
+
+    /// Returns the area, in square units.
+    pub fn area() -> float => 3.14159 * radius * radius
+}
+````
+
+```text
+$ vex doc                      # HTML pages in doc/, one per module, and an index
+$ vex doc shapes -o site       # the project in shapes/, written to site/
+$ vex doc --text               # an overview in the terminal
+$ vex doc Circle               # one declaration, like go doc
+$ vex doc Circle.area
+$ vex doc vex:json Json        # the standard library too
+```
+
+- `vex doc` documents the `pub` declarations of the project's modules; the standard library is documented with `vex doc vex:name`. A root module without any `pub` declaration, such as a program of one file, has all its declarations documented.
+- Signatures are shown without bodies, and constants with their values: `fn add(a: int, b: int = 1) -> int`, `const limit = 10`.
+- `[Name]` refers to a declaration of the module, `[Type.member]` to a member, and `[module.Name]` to a declaration of another module of the project. Inside a type, `[member]` refers to its own members, and in a function `[param]` to a parameter. A reference that names nothing is shown as code, with a warning.
+- The pages are plain HTML and CSS, without scripts or anything loaded from elsewhere, and follow the system's light or dark appearance.
 
 ## Built-ins
 
