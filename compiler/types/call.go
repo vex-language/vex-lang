@@ -498,7 +498,7 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 		}
 		if hint := mapMethodHint(recv, name); hint != "" {
 			c.errorAt(m.Name, hint, "%s has no method '%s'", recv, name)
-		} else if name == "len" || name == "keys" || name == "values" || name == "entries" || name == "first" || name == "last" || name == "isEmpty" || name == "isCancelled" || name == "stream" || name == "isClosed" {
+		} else if name == "len" || name == "keys" || name == "values" || name == "entries" || name == "first" || name == "last" || name == "isEmpty" || name == "graphemeCount" || name == "isCancelled" || name == "stream" || name == "isClosed" {
 			c.errorAt(m.Name, "write it without (): ."+name, "%s is a property, not a method", name)
 		} else {
 			c.errorAt(m.Name, didYouMean(name, builtinMemberNames(recv)), "%s has no method '%s'", recv, name)
@@ -1107,7 +1107,7 @@ func builtinMember(recv Type, name string) *memberSig {
 			return &memberSig{[]slot{{name: "text", typ: String}}, &Optional{Elem: Int}}
 		case "substring":
 			return &memberSig{[]slot{{name: "from", typ: Int}, {name: "to", typ: Int}}, String}
-		case "chars", "lines":
+		case "chars", "lines", "graphemes":
 			return &memberSig{nil, &List{Elem: String}}
 		}
 	}
@@ -1148,7 +1148,7 @@ func builtinMemberNames(recv Type) []string {
 	if recv == String {
 		return []string{"len", "isEmpty", "upper", "lower", "capitalize", "contains", "count", "split", "replace",
 			"trim", "trimStart", "trimEnd", "startsWith", "endsWith", "indexOf", "lastIndexOf", "substring",
-			"chars", "lines", "repeat", "padStart", "padEnd", "reversed", "toBytes"}
+			"chars", "graphemes", "graphemeCount", "lines", "repeat", "padStart", "padEnd", "reversed", "toBytes"}
 	}
 	return nil
 }

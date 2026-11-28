@@ -1,0 +1,9 @@
+// Mistakes with the grapheme members.
+fn main() {
+    let s = "héllo"
+    println(s.graphemeCount())
+    let n: int = s.graphemes().len + s.graphemesCount
+}
+
+// error: 4:15: graphemeCount is a property, not a method
+// error: 5:40: string has no member 'graphemesCount'

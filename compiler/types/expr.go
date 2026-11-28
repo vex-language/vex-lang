@@ -1076,10 +1076,13 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		case "isEmpty":
 			c.info.Members[e] = &Member{Builtin: "isEmpty"}
 			return Bool
+		case "graphemeCount":
+			c.info.Members[e] = &Member{Builtin: "graphemeCount"}
+			return Int
 		case "count":
 			// Swift's count is the length; here count(text) counts matches.
 			if _, ok := want.(*FuncType); !ok {
-				c.errorAt(e.Name, "use .len for the length; count(text) counts how often text appears", "count is a method, not a property")
+				c.errorAt(e.Name, "use .len for the length or .graphemeCount for visible characters; count(text) counts how often text appears", "count is a method, not a property")
 				return Invalid
 			}
 		}

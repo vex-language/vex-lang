@@ -1,0 +1,33 @@
+// Case mapping beyond A-Z and counting the characters a reader sees.
+fn main() {
+    // upper and lower across scripts.
+    println("Grüße aus Köln".upper(), "ÉLAN ÇA ÑANDÚ Ø".lower())
+    println("Łódź Čeština Ģirts Ŵales".upper(), "ŐRÜLT ĦAĠAR".lower())
+    println("Ελληνικά".upper(), "ΑΛΦΑΒΗΤΟ".lower())
+    println("Привет, мир".upper(), "ЁЖИК В ТУМАНЕ".lower(), "Ґанок Їжак".lower())
+    println("Բարեւ".upper(), "ՀԱՅԵՐԵՆ".lower())
+    println("ქართული".upper(), "ᏣᎳᎩ".lower(), "ꭰꭱꭲ".upper())
+    println("Ｆｕｌｌ ｗｉｄｔｈ".upper(), "𐐔𐐯𐑅𐐨𐑉𐐯𐐻".upper(), "𐐔𐐯𐑅𐐨𐑉𐐯𐐻".lower())
+    println("日本語 한국어 العربية 123 !?".upper(), "ǅ ǈ ǋ".lower(), "ǆ ǉ ǌ".upper())
+
+    // Mappings to more than one character.
+    println("straße".upper(), "ﬁx ﬂow ﬃ".upper(), "ŉ".upper(), "İ".lower().len)
+
+    // capitalize uses title case.
+    println("élan".capitalize(), "ßig".capitalize(), "ǆungla".capitalize(), "ωμέγα".capitalize(), "ﬁsh".capitalize())
+
+    // len counts code points; graphemeCount counts what a reader sees.
+    let words = ["cafe\u{301}", "café", "👨‍👩‍👧‍👦", "🇯🇵🇫🇷🇧🇷", "👍🏽", "한국어", "\u{1100}\u{1161}\u{11A8}", "नमस्ते", "a\r\nb", "🏳️‍🌈", "e\u{301}\u{302}\u{303}", ""]
+    for w in words {
+        println(w.len, w.graphemeCount, w.graphemes())
+    }
+
+    // Flags pair up regional indicators in order.
+    println("🇺🇸🇬🇧🇩".graphemes(), "🇺🇸🇬🇧🇩".graphemeCount)
+
+    // reversed keeps each visible character whole.
+    println("noe\u{308}l".reversed(), "🇯🇵🇫🇷".reversed(), "a👨‍👩‍👧b".reversed())
+
+    let split: fn() -> [string] = "ab".graphemes
+    println(split())
+}

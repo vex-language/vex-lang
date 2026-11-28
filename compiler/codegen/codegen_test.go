@@ -871,7 +871,7 @@ fn main() {
     var t = "a"
     t += "b"
     println(t + "c", "tab\there", "quote \"q\"", "brace \{x\}")
-}`, "", "12 HéLLO, WöRLD abc true false\n[\"a\", \"b\", \"\", \"c\"] true true true true\nabc tab\there quote \"q\" brace {x}\n"},
+}`, "", "12 HÉLLO, WÖRLD abc true false\n[\"a\", \"b\", \"\", \"c\"] true true true true\nabc tab\there quote \"q\" brace {x}\n"},
 		{"interpolation", `struct P {
     x: int
     y: int = 2
