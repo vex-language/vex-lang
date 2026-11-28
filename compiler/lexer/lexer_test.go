@@ -32,6 +32,8 @@ func describe(t Token) string {
 		return "mid:" + t.Value
 	case StringTail:
 		return "tail:" + t.Value
+	case FormatSpec:
+		return "spec:" + t.Value
 	}
 	return t.Text
 }
@@ -101,6 +103,15 @@ func TestInterpolation(t *testing.T) {
 		{"braces inside", `"{f({})}"`, "head: id:f ( { } ) tail: NL EOF"},
 		{"escaped brace", `"\{not}"`, "str:{not} NL EOF"},
 		{"call after", `println("n = {n}")`, "id:println ( head:n =  id:n tail: ) NL EOF"},
+		{"format spec", `"{x:.2} {n:>8}!"`, "head: id:x spec:.2 mid:  id:n spec:>8 tail:! NL EOF"},
+		{"spec with fill", `"{s:*^10}"`, "head: id:s spec:*^10 tail: NL EOF"},
+		{"colon in brackets", `"{m["a"]:04}"`, "head: id:m [ str:a ] spec:04 tail: NL EOF"},
+		{"colon in a call or record", `"{f(a: 1)} {(x: 1).x}"`, "head: id:f ( id:a : int:1 ) mid:  ( id:x : int:1 ) . id:x tail: NL EOF"},
+		{"colon in a map", `"{[1: 2]:x}"`, "head: [ int:1 : int:2 ] spec:x tail: NL EOF"},
+		{"colon in a block", `"{f({ a: 1 })}"`, "head: id:f ( { id:a : int:1 } ) tail: NL EOF"},
+		{"spec in nested string", `"{"{x:3}":>5}"`, "head: head: id:x spec:3 tail: spec:>5 tail: NL EOF"},
+		{"spec in multi-line string", "\"\"\"\n    {x:<4}|\n    \"\"\"", "head: id:x spec:<4 tail:| NL EOF"},
+		{"colon in raw string", `r"{x:2}"`, "str:{x:2} NL EOF"},
 	}
 	for _, c := range cases {
 		got, errs := lex(t, c.src)
@@ -246,6 +257,8 @@ func TestErrors(t *testing.T) {
 		{"code point too large", `"\u{110000}"`, "1:2", "invalid unicode code point U+110000", ""},
 		{"interpolation across lines", "\"a {x\n}\"", "1:1", "unterminated string interpolation", `close it with } and "`},
 		{"interpolation at end of file", `"a {x`, "1:1", "unterminated string interpolation", `close it with } and "`},
+		{"unterminated format spec", `"{x:5"`, "1:4", "unterminated format spec", "end the spec with }, as in {price:.2}"},
+		{"interpolation in format spec", `"{x:{w}}"`, "1:5", "a format spec can't contain an interpolation", "write the width and precision as numbers, as in {x:8.2}"},
 		{"dollar", "a $ b", "1:3", `unexpected character '$'`, ""},
 		{"single quotes", "'hi'", "1:1", "single quotes are not used for strings", `strings use double quotes: "text"`},
 		{"lone single quote", "it's", "1:3", "unexpected character '", `strings use double quotes: "text"`},

@@ -1,0 +1,70 @@
+const width = 7
+const label = "[{width:04}] [{"ab":>4}]"
+
+struct Point {
+    x: int
+    y: int
+}
+
+fn main() {
+    let pi = 3.14159
+    let n = 42
+    let name = "Ann"
+
+    // Fixed decimals, rounding halves away from zero.
+    println("{pi:.2} {pi:.0} {2.5:.0} {-2.5:.0} {0.125:.2} {n:.1}")
+    println("[{-0.001:.2}] [{1e21:.1}]")
+
+    // Width, zero padding and alignment.
+    println("[{n:04}] [{-n:05}] [{n:6}] [{pi:8.3}] [{pi:08.3}]")
+    println("[{name:<6}] [{name:>6}] [{name:^6}] [{name:^7}] [{name:6}]")
+    println("[{name:*^9}] [{n:-<5}] [{n:0>5}] [{name:·>5}] [{"héllo":>7}]")
+    println("[{name:2}] [{n:<1}]")
+
+    // Bases, prefixes and signs.
+    println("{255:x} {255:X} {5:b} {8:o} {255:#x} {255:#X} {5:#b} {8:#o} {-255:#x}")
+    println("{n:+} {-n:+} {0:+} {pi:+.1} {-pi:+.1} {255:+#06x} {5:08b}")
+
+    // Thousands separators.
+    println("{1234567:,} {-1234567:,} {123:,} {1000:,} {1234567.891:,.2} {0:,}")
+    println("[{1234:+12,}] [{1234567:010,}]")
+
+    // Combinations, as in the docs.
+    println("[{pi:+08.3}] [{-pi:+08.3}]")
+
+    // Extremes.
+    println("{9223372036854775807:,}")
+    let min = -9223372036854775807 - 1
+    println("{min:x} {min:,}")
+    println("[{float.nan:8}] [{float.infinity:+.2}] [{-float.infinity:08}] [{float.nan:08.1}]")
+
+    // Any printable value can be aligned.
+    let p = Point(x: 1, y: 2)
+    let xs = [1, 2]
+    let maybe: int? = nil
+    println("[{p:>20}] [{xs:^10}] [{true:>6}] [{maybe:>5}]")
+
+    // A spec applies once per value, inside calls and nested strings too.
+    var count = 0
+    let next = fn() -> int {
+        count += 1
+        return count
+    }
+    println("{next():03} {next():03} {"in {next():>3}"}")
+
+    // A colon nested in brackets, a record or a call isn't a spec.
+    let m = ["a": 1]
+    let r = (x: 1, y: 2)
+    println("{m["a"] ?? 0:03} {r.x:>3} {[1: "one"][1] ?? "-":>5} {max(a: 3, b: 4):02}")
+
+    // Multi-line strings take specs too.
+    let table = """
+        | {name:<5} | {n:>5} |
+        | {"Bo":<5} | {pi:>5.1} |
+        """
+    println(table)
+    println("{pi:.2}".len)
+    println(label)
+}
+
+fn max(a: int, b: int) -> int => if a > b { a } else { b }

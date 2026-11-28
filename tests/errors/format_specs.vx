@@ -1,0 +1,21 @@
+fn main() {
+    let name = "Ann"
+    let x = 2.5
+    let n: int? = 3
+    println("{name:.2}")
+    println("{name:04}")
+    println("{true:+}")
+    println("{x:x}")
+    println("{x:#b}")
+    println("{n:,}")
+    println("{[1, 2]:>8.1}")
+    println("{name:>8} {x:.2} {n:>4}")
+}
+
+// error: 5:20: format spec '.2' needs an int or float, found string
+// error: 6:20: format spec '04' needs an int or float, found string
+// error: 7:20: format spec '+' needs an int or float, found bool
+// error: 8:17: format spec 'x' needs an int, found float
+// error: 9:17: format spec '#b' needs an int, found float
+// error: 10:17: format spec ',' needs an int or float, found int?
+// error: 11:22: format spec '>8.1' needs an int or float, found [int]

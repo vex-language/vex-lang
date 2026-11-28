@@ -1,0 +1,28 @@
+fn main() {
+    let x = 1.5
+    println("{x:}")
+    println("{x:.}")
+    println("{x:y}")
+    println("{x:<05}")
+    println("{x:0}")
+    println("{x:#}")
+    println("{x:x.2}")
+    println("{x:.2x}")
+    println("{x:,x}")
+    println("{x:5000}")
+    println("{x:.21}")
+    println("{x: 5}")
+}
+
+// error: 3:16: empty format spec
+// error: 4:17: missing precision after '.'
+// error: 5:17: unexpected 'y' in format spec
+// error: 6:18: a format spec can't have both an alignment and zero padding
+// error: 7:17: zero padding needs a width
+// error: 8:17: '#' needs a base: x, X, b or o
+// error: 9:18: unexpected '.' in format spec
+// error: 10:17: a precision can't be used with 'x'
+// error: 11:17: thousands separators can't be used with 'x'
+// error: 12:17: format width 5000 is too large
+// error: 13:18: format precision 21 is too large
+// error: 14:17: unexpected ' ' in format spec

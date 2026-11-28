@@ -72,9 +72,12 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 	case *ast.StringLit:
 		return String
 	case *ast.InterpolatedString:
-		for _, x := range e.Exprs {
-			if t := c.expr(x, nil); !printable(t) {
+		for i, x := range e.Exprs {
+			t := c.expr(x, nil)
+			if !printable(t) {
 				c.errorAt(x, "", "this expression has no value to put in a string")
+			} else if i < len(e.Specs) && e.Specs[i] != nil {
+				c.formatSpec(e.Specs[i], t)
 			}
 		}
 		return String
@@ -1156,4 +1159,20 @@ func editDistance(a, b string) int {
 		}
 	}
 	return d[len(ra)][len(rb)]
+}
+
+// Reports a part of format spec [s] that doesn't apply to a value of type
+// [t]: only numbers take a sign, zeros, separators or a precision, and
+// only ints take a base.
+func (c *checker) formatSpec(s *ast.FormatSpec, t Type) {
+	if t == Invalid {
+		return
+	}
+	if t != Int && t != Float && s.Numeric() {
+		c.errorAt(s.Span, "only fill, alignment and width, as in :<10, apply to "+t.String(), "format spec '%s' needs an int or float, found %s", s.Text, t)
+		return
+	}
+	if t == Float && s.Type != 0 {
+		c.errorAt(s.Span, "convert it with int(x) first, or use a spec such as .2", "format spec '%s' needs an int, found float", s.Text)
+	}
 }

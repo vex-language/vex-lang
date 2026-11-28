@@ -43,6 +43,23 @@ let text = "Tab\tquote\" brace\{ smile \u{1F600}"
 
 Escapes: `\n` `\t` `\r` `\\` `\"` `\{` `\}` and `\u{...}`. A `"..."` string stays on one line.
 
+An interpolated value can take a format spec after a `:`, as in Python and Rust:
+
+```swift
+println("{price:.2}")        // 9.99: two digits after the point
+println("{n:04} {n:6}")      // 0042 and "    42": zeros, or spaces, to a width
+println("{name:<10}|")       // left-aligned in 10 characters; also > and ^
+println("{name:*^9}")        // ***Ann***: a fill character before the alignment
+println("{n:x} {n:#X}")      // 2a 0x2A; also b for binary and o for octal
+println("{n:+} {big:,}")     // +42 1,234,567
+println("{x:+08.3}")         // +003.142
+```
+
+- The parts, each optional, go in this order: fill and alignment (`<` `>` `^`), `+` to always show the sign, `#` for a `0x`, `0b` or `0o` prefix, `0` to pad with zeros after the sign, the width, `,` for thousands separators, `.` and the digits after the point, and the base `x`, `X`, `b` or `o`.
+- Any value can be padded and aligned; the width counts characters. Numbers are right-aligned by default and other values left-aligned.
+- A sign, zeros, separators and a precision need an `int` or `float`, and a base needs an `int`. An `int` with a precision prints like a float: `{3:.1}` is `3.0`. Rounding is as in `toFixed`, halves away from zero.
+- The spec is plain text, checked when compiling. A `:` inside brackets, a call or a nested string isn't a spec: `{m["a"] ?? 0:03}`.
+
 A multi-line string starts with `"""` at the end of a line and ends with `"""` on its own line, as in Swift. The indentation of the closing `"""` is removed from every line, so the string can be indented with the code around it:
 
 ```swift
