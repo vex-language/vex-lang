@@ -457,3 +457,46 @@ func TestDocStd(t *testing.T) {
 		t.Errorf("doc a b c: code %d", code)
 	}
 }
+
+func TestStackOverflowOffTheMainStack(t *testing.T) {
+	needCC(t)
+	if strings.Contains(os.Getenv("VEX_CFLAGS"), "sanitize") {
+		t.Skip("sanitizers report stack overflows themselves")
+	}
+	depth := `
+fn depth(n: int) -> int {
+    if n < 0 { return 0 }
+    return depth(n + 1) + depth(n - 1)
+}
+`
+	tests := map[string]string{
+		"task": `import "vex:time"
+` + depth + `
+async fn deep() -> int {
+    await time.sleep(1)
+    return depth(0)
+}
+
+async fn main() {
+    println("start")
+    println(await deep())
+}
+`,
+		"isolate": `import "vex:isolate"
+` + depth + `
+async fn main() {
+    println("start")
+    println(await isolate.run(fn() -> int => depth(0)))
+}
+`,
+	}
+	want := "error: stack overflow: too many nested function calls, probably a function that calls itself without stopping\n"
+	for name, src := range tests {
+		t.Run(name, func(t *testing.T) {
+			code, out, errOut := runCLI("run", writeFile(t, src))
+			if code != exitError || out != "start\n" || errOut != want {
+				t.Errorf("code %d, stdout %q, stderr %q", code, out, errOut)
+			}
+		})
+	}
+}
