@@ -93,6 +93,8 @@ func (c *checker) binaryOperator(e *ast.BinaryExpr, s opOwner) Type {
 		switch {
 		case !ok:
 			c.errorAt(e, "", "'%s' works only on int, found %s", written, s)
+		case name == "==" && ext != nil && ext.Module != nil && ext.Module.Path == "vex:crypto":
+			c.errorAt(e, fmt.Sprintf("compare their bytes with crypto.equal(a.%s, b.%s), which takes the same time for any bytes", ext.Fields[0].Name, ext.Fields[0].Name), "values of type %s can't be compared with %s", s, written)
 		case name == "==" && ext != nil:
 			c.errorAt(e, fmt.Sprintf("list Equatable on it: %s: Equatable", ext.header()), "values of type %s can't be compared with %s", s, written)
 		case name == "==":

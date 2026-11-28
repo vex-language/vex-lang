@@ -26,6 +26,12 @@ var unicodeTables string
 // includes them.
 var runtime = strings.Replace(runtimeSrc, "#include \"vexuni.h\"\n", unicodeTables, 1)
 
+// The runtime side of `vex:crypto`, added only to programs that import it,
+// since it links Monocypher and the system's cryptography library.
+//
+//go:embed runtime/crypto.h
+var cryptoRuntime string
+
 type gen struct {
 	// The index of the source file being translated, for runtime errors.
 	file int
@@ -212,6 +218,11 @@ func GenerateWith(info *types.Info, srcName string, opts Options) string {
 		g.line("#define VX_TRACES 1")
 	}
 	g.b.WriteString(runtime)
+	for _, m := range info.Modules {
+		if m.Path == "vex:crypto" {
+			g.b.WriteString(cryptoRuntime)
+		}
+	}
 	g.line("")
 	g.line("// --- Program ---")
 	g.line("")

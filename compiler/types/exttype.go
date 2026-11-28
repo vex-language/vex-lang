@@ -121,6 +121,9 @@ func (c *checker) wrapHint(n ast.Node, want, got Type) string {
 		}
 	}
 	if s, ok := want.(*Struct); ok && s.Underlying() != nil && Identical(s.Underlying(), got) && got != Invalid {
+		if makers := stdMakers(s); s.Module != c.mod && len(makers) > 0 {
+			return "make one with " + strings.Join(makers, " or ")
+		}
 		return fmt.Sprintf("wrap it: %s(%s: %s)", s.Name, s.Fields[0].Name, text)
 	}
 	if s, ok := got.(*Struct); ok && s.Underlying() != nil && Identical(s.Underlying(), want) && want != Invalid {
@@ -130,4 +133,20 @@ func (c *checker) wrapHint(n ast.Node, want, got Type) string {
 		return "use ." + s.Fields[0].Name
 	}
 	return ""
+}
+
+// Returns the public static methods that make extension type [s] of the
+// standard library, such as `crypto.SecretKey.generate()`, which check
+// what they wrap as wrapping it directly doesn't.
+func stdMakers(s *Struct) []string {
+	if s.Module == nil || !strings.HasPrefix(s.Module.Path, "vex:") {
+		return nil
+	}
+	var out []string
+	for _, m := range s.Methods {
+		if m.Decl != nil && m.Decl.Static && m.Decl.Pub && Identical(m.Result, s) {
+			out = append(out, s.String()+"."+m.Name+"()")
+		}
+	}
+	return out
 }

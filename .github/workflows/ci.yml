@@ -24,6 +24,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Install OpenSSL headers for vex:crypto
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Format
         run: test -z "$(gofmt -l .)" || { gofmt -l .; exit 1; }
       - name: Vet
@@ -43,6 +45,8 @@ jobs:
       - uses: actions/setup-go@v5
         with:
           go-version-file: go.mod
+      - name: Install OpenSSL headers for vex:crypto
+        run: sudo apt-get update && sudo apt-get install -y libssl-dev
       - name: Test generated programs under ASan and UBSan
         run: go test -count=1 ./compiler/codegen ./tests
       - name: Test async and isolates under TSan
