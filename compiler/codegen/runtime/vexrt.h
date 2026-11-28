@@ -3,7 +3,6 @@
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
-#include <pthread.h>
 #include <math.h>
 #include <setjmp.h>
 #include <signal.h>
@@ -15,11 +14,19 @@
 #include <time.h>
 #include <string.h>
 #include <dirent.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#ifdef _WIN32
+#define WIN32_LEAN_AND_MEAN
+#define NOMINMAX
+#include <windows.h>
+#include <process.h>
+#else
+#include <pthread.h>
 #include <sys/mman.h>
 #include <sys/resource.h>
-#include <sys/stat.h>
 #include <sys/wait.h>
-#include <unistd.h>
+#endif
 
 // Runtime state is per thread, so each isolate has its own heap and loop.
 #define VX_TLS _Thread_local
@@ -5296,6 +5303,52 @@ static vx_future *vx_any(vx_list *futures, int64_t esz, int line) {
     return result;
 }
 
+// --- Threads ---
+//
+// The locks and condition variables of isolates and channels: pthreads,
+// or their Win32 counterparts.
+
+#ifdef _WIN32
+typedef SRWLOCK vx_mutex;
+typedef CONDITION_VARIABLE vx_cond;
+#define vx_mutex_init(m) InitializeSRWLock(m)
+#define vx_mutex_destroy(m) ((void)(m))
+#define vx_mutex_lock(m) AcquireSRWLockExclusive(m)
+#define vx_mutex_unlock(m) ReleaseSRWLockExclusive(m)
+#define vx_cond_init(c) InitializeConditionVariable(c)
+#define vx_cond_destroy(c) ((void)(c))
+#define vx_cond_wait(c, m) SleepConditionVariableSRW(c, m, INFINITE, 0)
+#define vx_cond_signal(c) WakeConditionVariable(c)
+#define vx_cond_broadcast(c) WakeAllConditionVariable(c)
+
+// Waits on [c] for at most [ns] nanoseconds, up to a day.
+static void vx_cond_wait_ns(vx_cond *c, vx_mutex *m, int64_t ns) {
+    SleepConditionVariableSRW(c, m, (DWORD)((ns + 999999) / 1000000), 0);
+}
+#else
+typedef pthread_mutex_t vx_mutex;
+typedef pthread_cond_t vx_cond;
+#define vx_mutex_init(m) pthread_mutex_init(m, NULL)
+#define vx_mutex_destroy(m) pthread_mutex_destroy(m)
+#define vx_mutex_lock(m) pthread_mutex_lock(m)
+#define vx_mutex_unlock(m) pthread_mutex_unlock(m)
+#define vx_cond_init(c) pthread_cond_init(c, NULL)
+#define vx_cond_destroy(c) pthread_cond_destroy(c)
+#define vx_cond_wait(c, m) pthread_cond_wait(c, m)
+#define vx_cond_signal(c) pthread_cond_signal(c)
+#define vx_cond_broadcast(c) pthread_cond_broadcast(c)
+
+// Waits on [c] for at most [ns] nanoseconds, up to a day.
+static void vx_cond_wait_ns(vx_cond *c, vx_mutex *m, int64_t ns) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    ns += (int64_t)ts.tv_nsec;
+    ts.tv_sec += (time_t)(ns / 1000000000);
+    ts.tv_nsec = (long)(ns % 1000000000);
+    pthread_cond_timedwait(c, m, &ts);
+}
+#endif
+
 // --- Isolates ---
 //
 // An isolate is a thread with its own heap, collector and event loop, so
@@ -5425,8 +5478,8 @@ typedef struct vx_msg {
 } vx_msg;
 
 typedef struct {
-    pthread_mutex_t mu;
-    pthread_cond_t cv;
+    vx_mutex mu;
+    vx_cond cv;
     vx_msg *head, *tail;
 } vx_inbox;
 
@@ -5436,8 +5489,8 @@ static VX_TLS vx_inbox *vx_self;
 static vx_inbox *vx_inbox_new(void) {
     vx_inbox *in = calloc(1, sizeof(vx_inbox));
     if (!in) vx_out_of_memory();
-    pthread_mutex_init(&in->mu, NULL);
-    pthread_cond_init(&in->cv, NULL);
+    vx_mutex_init(&in->mu);
+    vx_cond_init(&in->cv);
     return in;
 }
 
@@ -5447,25 +5500,25 @@ static void vx_post(vx_inbox *to, vx_future *f, char *buf, void (*fill)(const ch
     vx_msg *m = malloc(sizeof(vx_msg));
     if (!m) vx_out_of_memory();
     *m = (vx_msg){NULL, f, buf, fill, failed};
-    pthread_mutex_lock(&to->mu);
+    vx_mutex_lock(&to->mu);
     if (to->tail) {
         to->tail->next = m;
     } else {
         to->head = m;
     }
     to->tail = m;
-    pthread_cond_signal(&to->cv);
-    pthread_mutex_unlock(&to->mu);
+    vx_cond_signal(&to->cv);
+    vx_mutex_unlock(&to->mu);
 }
 
 // Completes the futures of the messages that have arrived. Returns
 // whether there were any.
 static bool vx_drain(void) {
     if (!vx_self) return false;
-    pthread_mutex_lock(&vx_self->mu);
+    vx_mutex_lock(&vx_self->mu);
     vx_msg *m = vx_self->head;
     vx_self->head = vx_self->tail = NULL;
-    pthread_mutex_unlock(&vx_self->mu);
+    vx_mutex_unlock(&vx_self->mu);
     bool any = m != NULL;
     while (m) {
         vx_msg *next = m->next;
@@ -5492,26 +5545,19 @@ static bool vx_drain(void) {
 // Waits until the next timer is due or a message arrives, after vx_poll
 // found nothing to run.
 static void vx_idle(void) {
-    pthread_mutex_lock(&vx_self->mu);
+    vx_mutex_lock(&vx_self->mu);
     if (!vx_self->head) {
         if (vx_timers_len > 0) {
             int64_t wait = vx_timers[0].at - vx_time_ns();
             // Very long waits wake once a day, which keeps the deadline
             // arithmetic in range.
             if (wait > 86400 * (int64_t)1000000000) wait = 86400 * (int64_t)1000000000;
-            if (wait > 0) {
-                struct timespec ts;
-                clock_gettime(CLOCK_REALTIME, &ts);
-                int64_t ns = (int64_t)ts.tv_nsec + wait;
-                ts.tv_sec += (time_t)(ns / 1000000000);
-                ts.tv_nsec = (long)(ns % 1000000000);
-                pthread_cond_timedwait(&vx_self->cv, &vx_self->mu, &ts);
-            }
+            if (wait > 0) vx_cond_wait_ns(&vx_self->cv, &vx_self->mu, wait);
         } else if (vx_remote_len > 0) {
-            pthread_cond_wait(&vx_self->cv, &vx_self->mu);
+            vx_cond_wait(&vx_self->cv, &vx_self->mu);
         }
     }
-    pthread_mutex_unlock(&vx_self->mu);
+    vx_mutex_unlock(&vx_self->mu);
 }
 
 // Frees the heap of the running thread when its isolate ends.
@@ -5559,39 +5605,57 @@ static void *vx_isolate_main(void *p) {
     char base;
     vx_gc_thread_init(&base);
     vx_stack_limit = VX_ISOLATE_STACK;
+#ifndef _WIN32
     stack_t old_alt;
     void *alt = vx_signal_stack(&old_alt);
+#endif
     vx_self = vx_inbox_new();
     vx_isolate_body(&s);
     free(s.buf);
     vx_heap_free();
-    pthread_mutex_destroy(&vx_self->mu);
-    pthread_cond_destroy(&vx_self->cv);
+    vx_mutex_destroy(&vx_self->mu);
+    vx_cond_destroy(&vx_self->cv);
     free(vx_self);
+#ifndef _WIN32
     if (alt) {
         // Sanitizers free the stack they installed when the thread ends,
         // so theirs goes back first.
         sigaltstack(&old_alt, NULL);
         free(alt);
     }
+#endif
     return NULL;
 }
+
+#ifdef _WIN32
+static unsigned __stdcall vx_isolate_thread(void *p) {
+    vx_isolate_main(p);
+    return 0;
+}
+#endif
 
 static void vx_isolate_start(vx_isolate_entry entry, vx_enc *e, vx_future *f) {
     vx_start *s = malloc(sizeof(vx_start));
     if (!s) vx_out_of_memory();
     *s = (vx_start){entry, vx_enc_done(e), vx_self, f};
+#ifdef _WIN32
+    HANDLE t = (HANDLE)_beginthreadex(NULL, (unsigned)VX_ISOLATE_STACK, vx_isolate_thread, s, STACK_SIZE_PARAM_IS_A_RESERVATION, NULL);
+    bool started = t != NULL;
+    if (t) CloseHandle(t);
+#else
     pthread_attr_t attr;
     pthread_attr_init(&attr);
     pthread_attr_setstacksize(&attr, VX_ISOLATE_STACK);
     pthread_attr_setdetachstate(&attr, PTHREAD_CREATE_DETACHED);
     pthread_t t;
-    if (pthread_create(&t, &attr, vx_isolate_main, s) != 0) {
+    bool started = pthread_create(&t, &attr, vx_isolate_main, s) == 0;
+    pthread_attr_destroy(&attr);
+#endif
+    if (!started) {
         fflush(stdout);
         fputs("error: can't start another isolate: the system has no threads left\n", stderr);
         exit(1);
     }
-    pthread_attr_destroy(&attr);
 }
 
 // Starts an isolate for isolate.run, and returns the future of its result.
@@ -5620,8 +5684,8 @@ typedef struct vx_waiter {
 } vx_waiter;
 
 typedef struct {
-    pthread_mutex_t mu;
-    pthread_cond_t cv;
+    vx_mutex mu;
+    vx_cond cv;
     vx_queued *head, *tail;
     vx_waiter *waiters, *waiters_tail;
     bool closed;
@@ -5630,16 +5694,16 @@ typedef struct {
 static vx_chan *vx_chan_new(void) {
     vx_chan *c = calloc(1, sizeof(vx_chan));
     if (!c) vx_out_of_memory();
-    pthread_mutex_init(&c->mu, NULL);
-    pthread_cond_init(&c->cv, NULL);
+    vx_mutex_init(&c->mu);
+    vx_cond_init(&c->cv);
     return c;
 }
 
 static void vx_chan_send(vx_chan *c, vx_enc *e, int line) {
     char *buf = vx_enc_done(e);
-    pthread_mutex_lock(&c->mu);
+    vx_mutex_lock(&c->mu);
     if (c->closed) {
-        pthread_mutex_unlock(&c->mu);
+        vx_mutex_unlock(&c->mu);
         free(buf);
         vx_fail(line, "send on a closed channel");
     }
@@ -5659,9 +5723,9 @@ static void vx_chan_send(vx_chan *c, vx_enc *e, int line) {
             c->head = q;
         }
         c->tail = q;
-        pthread_cond_signal(&c->cv);
+        vx_cond_signal(&c->cv);
     }
-    pthread_mutex_unlock(&c->mu);
+    vx_mutex_unlock(&c->mu);
 }
 
 // Takes the oldest waiting message; the channel is locked.
@@ -5678,15 +5742,15 @@ static char *vx_chan_take(vx_chan *c) {
 // which [fill] decodes; it is nil once the channel is closed and empty.
 static vx_future *vx_chan_receive(vx_chan *c, void (*fill)(const char *, void *), int64_t size) {
     vx_future *f = vx_future_new(size);
-    pthread_mutex_lock(&c->mu);
+    vx_mutex_lock(&c->mu);
     if (c->head) {
         char *buf = vx_chan_take(c);
-        pthread_mutex_unlock(&c->mu);
+        vx_mutex_unlock(&c->mu);
         fill(buf, f->value);
         free(buf);
         vx_future_settle(f, 1);
     } else if (c->closed) {
-        pthread_mutex_unlock(&c->mu);
+        vx_mutex_unlock(&c->mu);
         vx_future_settle(f, 1);
     } else {
         vx_waiter *w = malloc(sizeof(vx_waiter));
@@ -5699,7 +5763,7 @@ static vx_future *vx_chan_receive(vx_chan *c, void (*fill)(const char *, void *)
         }
         c->waiters_tail = w;
         vx_remote_add(f);
-        pthread_mutex_unlock(&c->mu);
+        vx_mutex_unlock(&c->mu);
     }
     return f;
 }
@@ -5707,15 +5771,15 @@ static vx_future *vx_chan_receive(vx_chan *c, void (*fill)(const char *, void *)
 // Blocks the thread until a message arrives, and returns it, or NULL once
 // the channel is closed and empty.
 static char *vx_chan_receive_sync(vx_chan *c) {
-    pthread_mutex_lock(&c->mu);
-    while (!c->head && !c->closed) pthread_cond_wait(&c->cv, &c->mu);
+    vx_mutex_lock(&c->mu);
+    while (!c->head && !c->closed) vx_cond_wait(&c->cv, &c->mu);
     char *buf = c->head ? vx_chan_take(c) : NULL;
-    pthread_mutex_unlock(&c->mu);
+    vx_mutex_unlock(&c->mu);
     return buf;
 }
 
 static void vx_chan_close(vx_chan *c) {
-    pthread_mutex_lock(&c->mu);
+    vx_mutex_lock(&c->mu);
     if (!c->closed) {
         c->closed = true;
         for (vx_waiter *w = c->waiters, *next; w; w = next) {
@@ -5724,13 +5788,17 @@ static void vx_chan_close(vx_chan *c) {
             free(w);
         }
         c->waiters = c->waiters_tail = NULL;
-        pthread_cond_broadcast(&c->cv);
+        vx_cond_broadcast(&c->cv);
     }
-    pthread_mutex_unlock(&c->mu);
+    vx_mutex_unlock(&c->mu);
 }
 
 static int64_t vx_cores(void) {
+#ifdef _WIN32
+    long n = (long)GetActiveProcessorCount(ALL_PROCESSOR_GROUPS);
+#else
     long n = sysconf(_SC_NPROCESSORS_ONLN);
+#endif
     return n > 0 ? n : 1;
 }
 
