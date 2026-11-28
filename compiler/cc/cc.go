@@ -42,15 +42,33 @@ func ParseSanitizers(list string) ([]string, error) {
 // Returns the C compiler command: `$CC` if set (it may include arguments),
 // otherwise clang, otherwise cc.
 func Command() ([]string, error) {
-	if env := strings.Fields(os.Getenv("CC")); len(env) > 0 {
-		return env, nil
+	env := os.Getenv("CC")
+	// A path with spaces, such as C:\Program Files\LLVM\bin\clang.exe,
+	// names the compiler alone.
+	if info, err := os.Stat(env); env != "" && err == nil && !info.IsDir() {
+		return []string{env}, nil
+	}
+	if fields := strings.Fields(env); len(fields) > 0 {
+		return fields, nil
 	}
 	for _, name := range []string{"clang", "cc", "gcc"} {
 		if path, err := exec.LookPath(name); err == nil {
 			return []string{path}, nil
 		}
 	}
+	if runtime.GOOS == "windows" {
+		return nil, errors.New("no C compiler found; install LLVM-MinGW (winget install MartinStorsjo.LLVM-MinGW.UCRT) or set $CC")
+	}
 	return nil, errors.New("no C compiler found; install clang (on macOS: xcode-select --install) or set $CC")
+}
+
+// Returns the file name of the program [name]: on Windows it ends in
+// .exe, which is added when missing.
+func Executable(name string) string {
+	if runtime.GOOS == "windows" && !strings.EqualFold(filepath.Ext(name), ".exe") {
+		return name + ".exe"
+	}
+	return name
 }
 
 // C code a program brings along: source files and built objects to
