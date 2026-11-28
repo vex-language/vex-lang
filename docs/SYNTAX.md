@@ -2290,13 +2290,14 @@ $ vex doc vex:json Json        # the standard library too
 | `list.len`, `.push(x)`, `.sort()`, `.filter(f)`, `.map(f)`, `.join(sep)` and the rest | List members; see [Lists](#lists) |
 | `map.len`, `.isEmpty`, `.keys`, `.values`, `.entries`, `.contains(k)`, `.remove(k)`, `.getOrPut`, `.update`, `.filter`, `.mapValues` | Map members; see [Maps](#maps) |
 | `set.len`, `.contains(x)`, `.insert(x)`, `.remove(x)`, `.union(s)` and the rest | Set members; see [Sets](#sets) |
-| `s.len`, `.isEmpty`, `.upper()`, `.lower()`, `.capitalize()`, `.contains(x)` | String members. `len` counts Unicode code points, so an emoji with a modifier counts as more than one; `upper`, `lower` and `capitalize` (the first character upper case) change only the letters A–Z for now |
+| `s.len`, `.isEmpty`, `.upper()`, `.lower()`, `.capitalize()`, `.contains(x)` | String members. `len` counts Unicode code points, so an emoji with a modifier counts as more than one. `upper` and `lower` follow the case mappings of Unicode 15.0 for every script, whatever the system's locale, including those that change the length: `"straße".upper()` is `"STRASSE"`. `capitalize` puts the first character in title case, which is upper case for most letters |
+| `.graphemeCount`, `.graphemes()` | The characters a reader sees, as Swift counts them: Unicode's grapheme clusters, which keep an accent with its letter and an emoji sequence or flag whole. `"👍🏽".len` is 2 and `"👍🏽".graphemeCount` is 1; `"🇯🇵🇫🇷".graphemes()` is `["🇯🇵", "🇫🇷"]` |
 | `.split(sep)`, `.split(sep, limit: n)` | The parts between each `sep`. With a `limit` above 0, as in Kotlin, at most that many parts, the last holding the rest: `"k=v=w".split("=", limit: 2)` is `["k", "v=w"]` |
 | `.replace(old, with)`, `.trim()`, `.trimStart()`, `.trimEnd()` | New strings: every `old` replaced; spaces, tabs and line endings removed from the ends |
 | `.startsWith(x)`, `.endsWith(x)`, `.indexOf(x)`, `.lastIndexOf(x)` | The index functions give an `int?`: the index of the first or last match, or `nil` |
 | `.count(x)` | How many times `x` appears, without overlapping: `"aaaa".count("aa")` is 2. The length is `len`, not `count` |
 | `.padStart(width)`, `.padEnd(width, with: ".")` | Copies of `with` (a space when left out) added at the start or end until the string is `width` characters long, the last copy cut short when needed: `"7".padStart(3, with: "0")` is `"007"`. A longer string stays as it is |
-| `.repeat(n)`, `.reversed()` | The string `n` times (`""` when `n` is 0 or less); the characters in reverse order |
+| `.repeat(n)`, `.reversed()` | The string `n` times (`""` when `n` is 0 or less); the grapheme clusters in reverse order, so `"noe\u{308}l".reversed()` is `"lëon"` |
 | `.substring(from, to)`, `.chars()`, `.lines()` | The characters from `from` up to `to`, as `s[from..to]` gives them; each character; each line without its line ending. Indexes count characters, as `len` does, and an index out of range stops the program |
 | `.toBytes()` | The string's UTF-8 bytes as [`Bytes`](#bytes) |
 

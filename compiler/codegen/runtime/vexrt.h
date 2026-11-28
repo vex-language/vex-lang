@@ -1104,22 +1104,200 @@ static int64_t vx_str_len(vx_str s) {
     return n;
 }
 
-static vx_str vx_str_upper(vx_str s) {
-    char *buf = vx_alloc_atomic((size_t)s.len + 1);
-    for (int64_t i = 0; i < s.len; i++) {
-        char c = s.ptr[i];
-        buf[i] = (c >= 'a' && c <= 'z') ? (char)(c - 32) : c;
+// --- Unicode ---
+
+#include "vexuni.h"
+
+#define VX_LEN(a) ((int64_t)(sizeof(a) / sizeof((a)[0])))
+
+// Returns the code point starting at byte [i] of [s], [w] bytes long, or -1
+// for a byte that doesn't begin a valid UTF-8 sequence or an encoding that
+// is too long or a surrogate.
+static int32_t vx_utf8_decode(vx_str s, int64_t i, int64_t w) {
+    const unsigned char *p = (const unsigned char *)s.ptr + i;
+    int32_t cp;
+    switch (w) {
+    case 1: return p[0] < 0x80 ? p[0] : -1;
+    case 2: return ((p[0] & 0x1F) << 6) | (p[1] & 0x3F);
+    case 3:
+        cp = ((p[0] & 0x0F) << 12) | ((p[1] & 0x3F) << 6) | (p[2] & 0x3F);
+        return cp < 0x800 || (cp >= 0xD800 && cp < 0xE000) ? -1 : cp;
+    default:
+        cp = ((p[0] & 0x07) << 18) | ((p[1] & 0x3F) << 12) | ((p[2] & 0x3F) << 6) | (p[3] & 0x3F);
+        return cp < 0x10000 || cp > 0x10FFFF ? -1 : cp;
     }
-    return (vx_str){buf, s.len};
 }
 
-static vx_str vx_str_lower(vx_str s) {
-    char *buf = vx_alloc_atomic((size_t)s.len + 1);
-    for (int64_t i = 0; i < s.len; i++) {
-        char c = s.ptr[i];
-        buf[i] = (c >= 'A' && c <= 'Z') ? (char)(c + 32) : c;
+// Writes [cp] as UTF-8 to [out], if not NULL; returns its byte length.
+static int vx_utf8_put(char *out, int32_t cp) {
+    unsigned char b[4];
+    int n;
+    if (cp < 0x80) { b[0] = (unsigned char)cp; n = 1; }
+    else if (cp < 0x800) { b[0] = (unsigned char)(0xC0 | cp >> 6); b[1] = (unsigned char)(0x80 | (cp & 0x3F)); n = 2; }
+    else if (cp < 0x10000) { b[0] = (unsigned char)(0xE0 | cp >> 12); b[1] = (unsigned char)(0x80 | (cp >> 6 & 0x3F)); b[2] = (unsigned char)(0x80 | (cp & 0x3F)); n = 3; }
+    else { b[0] = (unsigned char)(0xF0 | cp >> 18); b[1] = (unsigned char)(0x80 | (cp >> 12 & 0x3F)); b[2] = (unsigned char)(0x80 | (cp >> 6 & 0x3F)); b[3] = (unsigned char)(0x80 | (cp & 0x3F)); n = 4; }
+    if (out) memcpy(out, b, (size_t)n);
+    return n;
+}
+
+// Returns [cp] mapped by the simple case mapping [t] of [n] runs.
+static int32_t vx_uni_map(const int32_t (*t)[4], int64_t n, int32_t cp) {
+    int64_t lo = 0, hi = n;
+    while (lo < hi) {
+        int64_t mid = (lo + hi) / 2;
+        if (t[mid][0] <= cp) lo = mid + 1; else hi = mid;
     }
-    return (vx_str){buf, s.len};
+    if (lo == 0) return cp;
+    const int32_t *r = t[lo - 1];
+    return cp <= r[1] && (cp - r[0]) % r[2] == 0 ? cp + r[3] : cp;
+}
+
+// Returns the text [cp] maps to in the special mappings [t], or NULL.
+static const char *vx_uni_special_find(const vx_uni_special *t, int64_t n, int32_t cp) {
+    int64_t lo = 0, hi = n;
+    while (lo < hi) {
+        int64_t mid = (lo + hi) / 2;
+        if (t[mid].cp == (uint32_t)cp) return t[mid].s;
+        if (t[mid].cp < (uint32_t)cp) lo = mid + 1; else hi = mid;
+    }
+    return NULL;
+}
+
+enum { VX_CASE_UPPER, VX_CASE_LOWER, VX_CASE_TITLE };
+
+// Writes the case mapping [kind] of [cp] to [out], if not NULL; returns
+// its byte length.
+static int64_t vx_uni_case(char *out, int32_t cp, int kind) {
+    const char *sp = kind == VX_CASE_UPPER ? vx_uni_special_find(vx_uni_special_upper, VX_LEN(vx_uni_special_upper), cp)
+                   : kind == VX_CASE_LOWER ? vx_uni_special_find(vx_uni_special_lower, VX_LEN(vx_uni_special_lower), cp)
+                   : vx_uni_special_find(vx_uni_special_title, VX_LEN(vx_uni_special_title), cp);
+    if (sp) {
+        int64_t n = (int64_t)strlen(sp);
+        if (out) memcpy(out, sp, (size_t)n);
+        return n;
+    }
+    int32_t m;
+    if (kind == VX_CASE_LOWER) m = vx_uni_map(vx_uni_lower, VX_LEN(vx_uni_lower), cp);
+    else {
+        m = vx_uni_map(vx_uni_upper, VX_LEN(vx_uni_upper), cp);
+        if (kind == VX_CASE_TITLE) {
+            for (int64_t i = 0; i < VX_LEN(vx_uni_title); i++) {
+                if (vx_uni_title[i][0] == (uint32_t)cp) m = (int32_t)vx_uni_title[i][1];
+            }
+        }
+    }
+    return vx_utf8_put(out, m);
+}
+
+// Maps the characters of [s] from byte [from] up to [to] to the case
+// [kind], writing them to [out], if not NULL; returns their byte length.
+// Bytes that aren't valid UTF-8 stay as they are.
+static int64_t vx_str_case_into(char *out, vx_str s, int64_t from, int64_t to, int kind) {
+    int64_t n = 0;
+    for (int64_t i = from; i < to;) {
+        unsigned char c = (unsigned char)s.ptr[i];
+        if (c < 0x80) {
+            if (kind == VX_CASE_LOWER ? c >= 'A' && c <= 'Z' : c >= 'a' && c <= 'z') c ^= 0x20;
+            if (out) out[n] = (char)c;
+            n++, i++;
+            continue;
+        }
+        int64_t w = vx_utf8_width(s, i);
+        int32_t cp = vx_utf8_decode(s, i, w);
+        if (cp < 0) {
+            if (out) memcpy(out + n, s.ptr + i, (size_t)w);
+            n += w;
+        } else {
+            n += vx_uni_case(out ? out + n : NULL, cp, kind);
+        }
+        i += w;
+    }
+    return n;
+}
+
+// Returns [s] with its first character mapped to the case [first] and the
+// rest to [rest], or left as they are when [rest] is -1.
+static vx_str vx_str_case(vx_str s, int first, int rest) {
+    int64_t w = s.len > 0 ? vx_utf8_width(s, 0) : 0;
+    vx_str tail = {s.ptr + w, s.len - w};
+    int64_t a = vx_str_case_into(NULL, s, 0, w, first);
+    int64_t b = rest < 0 ? tail.len : vx_str_case_into(NULL, tail, 0, tail.len, rest);
+    char *buf = vx_alloc_atomic((size_t)(a + b) + 1);
+    vx_str_case_into(buf, s, 0, w, first);
+    if (rest < 0) memcpy(buf + a, tail.ptr, (size_t)tail.len);
+    else vx_str_case_into(buf + a, tail, 0, tail.len, rest);
+    buf[a + b] = 0;
+    return (vx_str){buf, a + b};
+}
+
+// Returns [s] in upper case, with Unicode's full case mappings that need
+// no context, such as ß to SS.
+static vx_str vx_str_upper(vx_str s) { return vx_str_case(s, VX_CASE_UPPER, VX_CASE_UPPER); }
+
+// Returns [s] in lower case.
+static vx_str vx_str_lower(vx_str s) { return vx_str_case(s, VX_CASE_LOWER, VX_CASE_LOWER); }
+
+// Returns [s] with its first character in title case, which is upper case
+// for most letters.
+static vx_str vx_str_capitalize(vx_str s) { return vx_str_case(s, VX_CASE_TITLE, -1); }
+
+// Returns the grapheme cluster break property of [cp], or of a byte that
+// isn't valid UTF-8 when -1.
+static int vx_uni_gcb_of(int32_t cp) {
+    if (cp < 0) return VX_GCB_OTHER;
+    if (cp >= 0x20 && cp < 0x7F) return VX_GCB_OTHER;
+    if (cp >= 0xAC00 && cp <= 0xD7A3) return (cp - 0xAC00) % 28 == 0 ? VX_GCB_LV : VX_GCB_LVT;
+    int64_t lo = 0, hi = VX_LEN(vx_uni_gcb);
+    while (lo < hi) {
+        int64_t mid = (lo + hi) / 2;
+        if (vx_uni_gcb[mid][0] <= (uint32_t)cp) lo = mid + 1; else hi = mid;
+    }
+    return lo > 0 && (uint32_t)cp <= vx_uni_gcb[lo - 1][1] ? (int)vx_uni_gcb[lo - 1][2] : VX_GCB_OTHER;
+}
+
+// Reports whether a grapheme cluster goes on from a character with the
+// break property [prev] to one with [cur]. [pict] is 2 after an emoji, any
+// Extend and a ZWJ; [ri] counts the regional indicators before [cur].
+static bool vx_grapheme_joins(int prev, int cur, int pict, int ri) {
+    if (prev == VX_GCB_CR && cur == VX_GCB_LF) return true;
+    if (prev == VX_GCB_CR || prev == VX_GCB_LF || prev == VX_GCB_CONTROL) return false;
+    if (cur == VX_GCB_CR || cur == VX_GCB_LF || cur == VX_GCB_CONTROL) return false;
+    if (prev == VX_GCB_L && (cur == VX_GCB_L || cur == VX_GCB_V || cur == VX_GCB_LV || cur == VX_GCB_LVT)) return true;
+    if ((prev == VX_GCB_LV || prev == VX_GCB_V) && (cur == VX_GCB_V || cur == VX_GCB_T)) return true;
+    if ((prev == VX_GCB_LVT || prev == VX_GCB_T) && cur == VX_GCB_T) return true;
+    if (cur == VX_GCB_EXTEND || cur == VX_GCB_ZWJ || cur == VX_GCB_SPACINGMARK || prev == VX_GCB_PREPEND) return true;
+    if (pict == 2 && cur == VX_GCB_EXTENDED_PICTOGRAPHIC) return true;
+    return prev == VX_GCB_REGIONAL_INDICATOR && cur == VX_GCB_REGIONAL_INDICATOR && ri % 2 == 1;
+}
+
+// Returns the byte offset where the grapheme cluster starting at byte [i]
+// of [s] ends, following the rules of Unicode Standard Annex #29.
+static int64_t vx_grapheme_end(vx_str s, int64_t i) {
+    int64_t w = vx_utf8_width(s, i);
+    int prev = vx_uni_gcb_of(vx_utf8_decode(s, i, w));
+    // [pict] is 1 after an emoji and any Extend, 2 after a ZWJ that
+    // follows them.
+    int pict = prev == VX_GCB_EXTENDED_PICTOGRAPHIC, ri = prev == VX_GCB_REGIONAL_INDICATOR;
+    for (i += w; i < s.len; i += w) {
+        w = vx_utf8_width(s, i);
+        int cur = vx_uni_gcb_of(vx_utf8_decode(s, i, w));
+        if (!vx_grapheme_joins(prev, cur, pict, ri)) break;
+        if (cur == VX_GCB_EXTENDED_PICTOGRAPHIC) pict = 1;
+        else if (cur == VX_GCB_EXTEND && pict == 1) pict = 1;
+        else if (cur == VX_GCB_ZWJ && pict == 1) pict = 2;
+        else pict = 0;
+        ri = cur == VX_GCB_REGIONAL_INDICATOR ? ri + 1 : 0;
+        prev = cur;
+    }
+    return i;
+}
+
+// Returns the number of grapheme clusters, the characters a reader sees,
+// in [s].
+static int64_t vx_str_grapheme_count(vx_str s) {
+    int64_t n = 0;
+    for (int64_t i = 0; i < s.len; i = vx_grapheme_end(s, i)) n++;
+    return n;
 }
 
 // Returns the byte offset of [sub] in [s] from [from], or -1.
@@ -1476,24 +1654,15 @@ static vx_str vx_str_pad(vx_str s, int64_t width, vx_str fill, bool start, int l
     return (vx_str){buf, n};
 }
 
-// Returns the characters of [s] in reverse order.
+// Returns the grapheme clusters of [s] in reverse order, so accents and
+// emoji sequences stay whole.
 static vx_str vx_str_reversed(vx_str s) {
     char *buf = vx_alloc_atomic((size_t)s.len + 1);
     for (int64_t i = 0; i < s.len;) {
-        int64_t w = vx_utf8_width(s, i);
-        memcpy(buf + s.len - i - w, s.ptr + i, (size_t)w);
-        i += w;
+        int64_t j = vx_grapheme_end(s, i);
+        memcpy(buf + s.len - j, s.ptr + i, (size_t)(j - i));
+        i = j;
     }
-    buf[s.len] = 0;
-    return (vx_str){buf, s.len};
-}
-
-// Returns [s] with its first character upper case when it is a letter a-z.
-static vx_str vx_str_capitalize(vx_str s) {
-    if (s.len == 0 || s.ptr[0] < 'a' || s.ptr[0] > 'z') return s;
-    char *buf = vx_alloc_atomic((size_t)s.len + 1);
-    memcpy(buf, s.ptr, (size_t)s.len);
-    buf[0] = (char)(buf[0] - 32);
     buf[s.len] = 0;
     return (vx_str){buf, s.len};
 }
@@ -1875,6 +2044,18 @@ static vx_list *vx_str_chars(vx_str s) {
         int64_t j = i + vx_utf8_width(s, i);
         vx_str c = {s.ptr + i, j - i};
         vx_list_push(l, &c);
+        i = j;
+    }
+    return l;
+}
+
+// Returns the grapheme clusters of [s].
+static vx_list *vx_str_graphemes(vx_str s) {
+    vx_list *l = vx_list_new(sizeof(vx_str), 0, NULL);
+    for (int64_t i = 0; i < s.len;) {
+        int64_t j = vx_grapheme_end(s, i);
+        vx_str g = {s.ptr + i, j - i};
+        vx_list_push(l, &g);
         i = j;
     }
     return l;
