@@ -171,7 +171,7 @@ Goal: the compiler, `vex` and programs built with it run on Windows 10 and 11 (x
 
 - [x] **V-180** `vex` on Windows: paths, temporary folders, finding clang, `.exe` outputs, `run`, `build`, `test`, `doc` and `get`, and CRLF source files (M)
 - [x] **V-181** Runtime threads on Windows: isolates, channels and thread-local storage on Win32 (M)
-- [ ] **V-182** Async tasks and generators on Windows: switching stacks allocated with `VirtualAlloc`, with guard pages (L)
+- [x] **V-182** Async tasks and generators on Windows: switching stacks allocated with `VirtualAlloc`, with guard pages (L)
 - [ ] **V-183** Collector on Windows: heap memory from `VirtualAlloc`, thread stack bounds and saved registers for root scanning (M)
 - [ ] **V-184** Standard library on Windows: `vex:fs`, `vex:os` (arguments, environment, exit codes, console UTF-8), time, `vex:datetime` local offsets, and `BCryptGenRandom` for random seeds (M)
 - [ ] **V-185** Windows CI: every PR runs the suite and the sanitizer-free battery on `windows-latest` (S)
