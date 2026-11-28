@@ -362,12 +362,18 @@ func TestCryptoCOptions(t *testing.T) {
 		t.Errorf("a program without vex:crypto brings %v and links %v", opts.Files, opts.LinkArgs)
 	}
 	prog := load("import \"vex:crypto\"\nfn main() {}\n")
-	var names []string
-	for _, f := range prog.CCOptions().Files {
-		names = append(names, f.Name)
-	}
-	if got := strings.Join(names, " "); got != "system.c monocypher-ed25519.c monocypher-ed25519.h monocypher.c monocypher.h" {
-		t.Errorf("files %s", got)
+	for os, want := range map[string]string{
+		"macos": "cryptokit.swift system.c monocypher-ed25519.c monocypher-ed25519.h monocypher.c monocypher.h",
+		"linux": "system.c monocypher-ed25519.c monocypher-ed25519.h monocypher.c monocypher.h",
+	} {
+		prog.Target.OS = os
+		var names []string
+		for _, f := range prog.CCOptions().Files {
+			names = append(names, f.Name)
+		}
+		if got := strings.Join(names, " "); got != want {
+			t.Errorf("%s: files %s", os, got)
+		}
 	}
 	for os, want := range map[string]string{"macos": "-framework Security -framework CoreFoundation", "linux": "-lcrypto", "windows": ""} {
 		prog.Target.OS = os

@@ -1,5 +1,6 @@
 // The parts of vex:crypto that come from the operating system's own
-// cryptography library: CommonCrypto and Security on Apple systems, and
+// cryptography library: CommonCrypto, CryptoKit (through cryptokit.swift)
+// and Security on Apple systems, and
 // OpenSSL 3's libcrypto elsewhere. Each function returns 0 on success,
 // -1 when it fails or the input is rejected, and -2 when the system has
 // no provider yet. Kept apart from the generated C so system headers
@@ -67,14 +68,11 @@ __attribute__((unused)) static void vxc_wipe(void *p, size_t n) {
 #include <CommonCrypto/CommonKeyDerivation.h>
 #include <Security/Security.h>
 
-// AES-GCM in one call, from CommonCrypto (CommonCryptorSPI.h), available
-// since macOS 10.13 and iOS 11.
-extern CCCryptorStatus CCCryptorGCMOneshotEncrypt(CCAlgorithm alg, const void *key, size_t keyLength,
-    const void *iv, size_t ivLength, const void *aData, size_t aDataLength, const void *dataIn,
-    size_t dataInLength, void *cipherOut, void *tagOut, size_t tagLength);
-extern CCCryptorStatus CCCryptorGCMOneshotDecrypt(CCAlgorithm alg, const void *key, size_t keyLength,
-    const void *iv, size_t ivLen, const void *aData, size_t aDataLen, const void *dataIn,
-    size_t dataInLength, void *dataOut, const void *tagIn, size_t tagLength);
+// AES-GCM from CryptoKit, in cryptokit.swift.
+int vxc_ck_gcm_seal(const uint8_t *key, const uint8_t *iv, long ivlen, const uint8_t *aad, long aadlen,
+                    const uint8_t *in, long n, uint8_t *out, uint8_t *tag);
+int vxc_ck_gcm_open(const uint8_t *key, const uint8_t *iv, long ivlen, const uint8_t *aad, long aadlen,
+                    const uint8_t *in, long n, const uint8_t *tag, uint8_t *out);
 
 // CommonDigest takes 32-bit lengths, so longer input is fed in pieces.
 #define VXC_CHUNK ((size_t)1 << 30)
@@ -116,18 +114,12 @@ int vxc_pbkdf2_sha256(const uint8_t *pw, size_t pwlen, const uint8_t *salt, size
 
 int vxc_aes_gcm_seal(const uint8_t key[32], const uint8_t *iv, size_t ivlen, const uint8_t *aad, size_t aadlen,
                      const uint8_t *in, size_t n, uint8_t *out, uint8_t tag[16]) {
-    uint8_t spare[1];
-    CCCryptorStatus r = CCCryptorGCMOneshotEncrypt(kCCAlgorithmAES, key, 32, iv, ivlen, VXC_PTR(aad, aadlen), aadlen,
-                                                   VXC_PTR(in, n), n, n ? out : spare, tag, 16);
-    return r == kCCSuccess ? 0 : -1;
+    return vxc_ck_gcm_seal(key, iv, (long)ivlen, aad, (long)aadlen, in, (long)n, out, tag);
 }
 
 int vxc_aes_gcm_open(const uint8_t key[32], const uint8_t *iv, size_t ivlen, const uint8_t *aad, size_t aadlen,
                      const uint8_t *in, size_t n, const uint8_t tag[16], uint8_t *out) {
-    uint8_t spare[1];
-    CCCryptorStatus r = CCCryptorGCMOneshotDecrypt(kCCAlgorithmAES, key, 32, iv, ivlen, VXC_PTR(aad, aadlen), aadlen,
-                                                   VXC_PTR(in, n), n, n ? out : spare, tag, 16);
-    return r == kCCSuccess ? 0 : -1;
+    return vxc_ck_gcm_open(key, iv, (long)ivlen, aad, (long)aadlen, in, (long)n, tag, out);
 }
 
 // Returns the P-256 key held in [data] (a public key as 04||X||Y, or a
