@@ -2217,6 +2217,78 @@ static vx_str vx_float_fixed(double v, int64_t digits, int line) {
     return (vx_str){start, end - start};
 }
 
+// --- Format specs ---
+
+// The flags of a format spec, such as `{n:+,}`.
+enum { VX_FMT_PLUS = 1, VX_FMT_ALT = 2, VX_FMT_UPPER = 4, VX_FMT_COMMA = 8, VX_FMT_ZERO = 16 };
+
+// Returns the sign, [prefix] and [digits] of a number as one string, with
+// thousands separators in the leading digits and zeros after the prefix up
+// to [width] when [flags] ask for them.
+static vx_str vx_fmt_num(bool neg, const char *prefix, vx_str digits, int flags, int64_t width) {
+    int64_t lead = 0;
+    while (lead < digits.len && digits.ptr[lead] >= '0' && digits.ptr[lead] <= '9') lead++;
+    bool comma = (flags & VX_FMT_COMMA) && lead > 3;
+    char sign = neg ? '-' : (flags & VX_FMT_PLUS) ? '+' : 0;
+    int64_t plen = (int64_t)strlen(prefix);
+    int64_t n = (sign != 0) + plen + digits.len + (comma ? (lead - 1) / 3 : 0);
+    int64_t zeros = (flags & VX_FMT_ZERO) && width > n ? width - n : 0;
+    char *buf = vx_alloc_atomic((size_t)(n + zeros)), *p = buf;
+    if (sign) *p++ = sign;
+    memcpy(p, prefix, (size_t)plen);
+    p += plen;
+    memset(p, '0', (size_t)zeros);
+    p += zeros;
+    for (int64_t i = 0; i < digits.len; i++) {
+        if (comma && i > 0 && i < lead && (lead - i) % 3 == 0) *p++ = ',';
+        *p++ = digits.ptr[i];
+    }
+    return (vx_str){buf, n + zeros};
+}
+
+// Formats [v] in [base] for a format spec such as `{n:#x}` or `{n:+05}`.
+static vx_str vx_fmt_int(int64_t v, int base, int flags, int64_t width) {
+    const char *letters = flags & VX_FMT_UPPER ? "0123456789ABCDEF" : "0123456789abcdef";
+    char tmp[64];
+    int n = 0;
+    uint64_t u = v < 0 ? 0 - (uint64_t)v : (uint64_t)v;
+    do {
+        tmp[63 - n++] = letters[u % (uint64_t)base];
+        u /= (uint64_t)base;
+    } while (u);
+    const char *prefix = "";
+    if (flags & VX_FMT_ALT) prefix = base == 16 ? "0x" : base == 2 ? "0b" : "0o";
+    return vx_fmt_num(v < 0, prefix, (vx_str){tmp + 64 - n, n}, flags, width);
+}
+
+// Pads [s] with [fill] to [width] characters, keeping it on the side that
+// [align] names: '<', '>' or '^', where an odd padding leans right.
+static vx_str vx_fmt_pad(vx_str s, int64_t width, char align, const char *fill) {
+    int64_t chars = 0;
+    for (int64_t i = 0; i < s.len; i++) chars += ((unsigned char)s.ptr[i] & 0xC0) != 0x80;
+    if (chars >= width) return s;
+    int64_t pad = width - chars, left = align == '>' ? pad : align == '^' ? pad / 2 : 0;
+    int64_t flen = (int64_t)strlen(fill);
+    char *buf = vx_alloc_atomic((size_t)(s.len + pad * flen)), *p = buf;
+    for (int64_t i = 0; i < left; i++, p += flen) memcpy(p, fill, (size_t)flen);
+    memcpy(p, s.ptr, (size_t)s.len);
+    p += s.len;
+    for (int64_t i = left; i < pad; i++, p += flen) memcpy(p, fill, (size_t)flen);
+    return (vx_str){buf, s.len + pad * flen};
+}
+
+// Formats [v] for a format spec such as `{x:.2}` or `{x:+08,}`, with
+// [precision] digits after the point, rounded as by `toFixed`, or as
+// printed when it is negative. Nan and infinity pad with spaces.
+static vx_str vx_fmt_float(double v, int64_t precision, int flags, int64_t width) {
+    if (isnan(v) || isinf(v)) {
+        vx_str s = vx_fmt_num(v < 0, "", isnan(v) ? VX_LIT("nan") : VX_LIT("inf"), isnan(v) ? 0 : flags & VX_FMT_PLUS, 0);
+        return flags & VX_FMT_ZERO ? vx_fmt_pad(s, width, '>', " ") : s;
+    }
+    vx_str digits = precision < 0 ? vx_float_str(fabs(v)) : vx_float_fixed(fabs(v), precision, 0);
+    return vx_fmt_num(signbit(v), "", digits, flags, width);
+}
+
 static int64_t vx_float_to_int(double v, int line) {
     if (isnan(v) || v >= 9223372036854775808.0 || v < -9223372036854775808.0) {
         vx_str f = vx_float_str(v);

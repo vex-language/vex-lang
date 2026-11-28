@@ -292,6 +292,9 @@ func (c *checker) fold(e ast.Expr, t Type) any {
 			return basicConsts[m.Builtin]
 		}
 	case *ast.InterpolatedString:
+		if e.Specs != nil {
+			return nil
+		}
 		var b strings.Builder
 		for i, text := range e.Texts {
 			b.WriteString(text)

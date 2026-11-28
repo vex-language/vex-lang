@@ -2103,11 +2103,64 @@ func (g *gen) interpolated(e *ast.InterpolatedString) string {
 				parts = append(parts, "VX_LIT("+cQuote(text)+")")
 			}
 			if i < len(cs) {
-				parts = append(parts, show(g.info.Types[e.Exprs[i]], cs[i]))
+				t := g.info.Types[e.Exprs[i]]
+				if i < len(e.Specs) && e.Specs[i] != nil {
+					parts = append(parts, formatted(e.Specs[i], t, cs[i]))
+				} else {
+					parts = append(parts, show(t, cs[i]))
+				}
 			}
 		}
 		return fmt.Sprintf("vx_str_join(%d, (vx_str[]){%s})", len(parts), strings.Join(parts, ", "))
 	})
+}
+
+// Returns the code that formats [x], of type [t], as format spec [s] asks.
+func formatted(s *ast.FormatSpec, t types.Type, x string) string {
+	numeric := t == types.Int || t == types.Float
+	code := show(t, x)
+	if numeric && s.Numeric() {
+		flags := []string{}
+		for _, f := range []struct {
+			on   bool
+			name string
+		}{{s.Plus, "PLUS"}, {s.Alt, "ALT"}, {s.Type == 'X', "UPPER"}, {s.Comma, "COMMA"}, {s.Zero, "ZERO"}} {
+			if f.on {
+				flags = append(flags, "VX_FMT_"+f.name)
+			}
+		}
+		fl := "0"
+		if len(flags) > 0 {
+			fl = strings.Join(flags, " | ")
+		}
+		if t == types.Int && s.Precision < 0 {
+			base := map[byte]int{0: 10, 'x': 16, 'X': 16, 'b': 2, 'o': 8}[s.Type]
+			code = fmt.Sprintf("vx_fmt_int(%s, %d, %s, %d)", x, base, fl, s.Width)
+		} else {
+			if t == types.Int {
+				x = "(double)(" + x + ")"
+			}
+			code = fmt.Sprintf("vx_fmt_float(%s, %d, %s, %d)", x, s.Precision, fl, s.Width)
+		}
+		if s.Zero {
+			return code
+		}
+	}
+	if s.Width == 0 {
+		return code
+	}
+	align := s.Align
+	if align == 0 {
+		align = '<'
+		if numeric {
+			align = '>'
+		}
+	}
+	fill := s.Fill
+	if fill == "" {
+		fill = " "
+	}
+	return fmt.Sprintf("vx_fmt_pad(%s, %d, '%c', %s)", code, s.Width, align, cQuote(fill))
 }
 
 // Returns the position in the source of each bound argument of [e], so
