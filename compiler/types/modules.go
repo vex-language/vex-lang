@@ -3,6 +3,7 @@ package types
 import (
 	"fmt"
 	"sort"
+	"strings"
 
 	"github.com/vex-language/vex-lang/compiler/ast"
 	"github.com/vex-language/vex-lang/compiler/diag"
@@ -69,6 +70,11 @@ type unit struct {
 	mod     *Module
 	file    *diag.File
 	imports map[string]*Module
+
+	// The import declarations by the name they give, and the names the
+	// file uses, for warnings about unused imports.
+	decls map[string]*ast.Import
+	used  map[string]bool
 }
 
 // Records the units of [clone], a copy of the struct or enum [orig] made
@@ -273,15 +279,18 @@ func CheckProgram(prog *modules.Program) (*Info, error) {
 		m := mods[pm]
 		c.info.Modules = append(c.info.Modules, m)
 		for i, f := range pm.Files {
-			u := &unit{mod: m, file: f, imports: map[string]*Module{}}
+			u := &unit{mod: m, file: f, imports: map[string]*Module{}, decls: map[string]*ast.Import{}}
 			for name, imp := range pm.Imports[f] {
 				u.imports[name] = mods[imp.Module]
+				u.decls[name] = imp.Decl
 			}
 			if core != nil && m != core {
 				u.imports[coreKey] = core
 			}
 			tree := pm.Trees[i]
 			qualify(tree, u.imports)
+			u.used = moduleUses(tree)
+			c.files = append(c.files, u)
 			for _, d := range tree.Decls {
 				c.register(d, u)
 				c.decls = append(c.decls, d)
@@ -653,4 +662,43 @@ func (c *checker) fileTable() {
 			}
 		}
 	}
+}
+
+// Returns the imported modules that [tree] names, as in `math.sqrt` or
+// `models.User`.
+func moduleUses(tree *ast.File) map[string]bool {
+	used := map[string]bool{}
+	ast.Inspect(tree, func(n ast.Node) bool {
+		switch n := n.(type) {
+		case *ast.Ident:
+			if n.Module != "" {
+				used[n.Module] = true
+			}
+		case *ast.NamedType:
+			if n.Module != "" {
+				used[n.Module] = true
+			}
+		}
+		return true
+	})
+	return used
+}
+
+// Warns about the imports of project files that are never used. The
+// standard library's own files are left alone.
+func (c *checker) warnUnusedImports() {
+	saved := c.file
+	for _, u := range c.files {
+		if strings.HasPrefix(u.mod.Path, "vex:") {
+			continue
+		}
+		for name, d := range u.decls {
+			if u.used[name] {
+				continue
+			}
+			c.file = u.file
+			c.warnAt(d, "remove this import", "'%s' is imported but never used", d.Path)
+		}
+	}
+	c.file = saved
 }

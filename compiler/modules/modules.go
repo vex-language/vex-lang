@@ -212,6 +212,11 @@ func loadFS(fsys fs.FS, root, shown string, isDir, tests bool) (*Program, error)
 		l.resolveImports(l.stdModule(CoreName, nil))
 	}
 	l.takeTests()
+	for i, m := range l.prog.Modules {
+		for _, f := range m.Files {
+			f.Module = i
+		}
+	}
 	if len(l.errs) > 0 {
 		return l.prog, l.errs
 	}

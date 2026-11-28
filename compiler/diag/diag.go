@@ -57,10 +57,14 @@ func (l List) Error() string {
 	return fmt.Sprintf("%s (and %d more errors)", l[0].Error(), len(l)-1)
 }
 
-// Sorts the list by file, then by position in the file.
+// Sorts the list by module, the root module first, then by file and by
+// position in the file.
 func (l List) Sort() {
 	sort.SliceStable(l, func(i, j int) bool {
 		if a, b := l[i].File, l[j].File; a != b && a != nil && b != nil {
+			if a.Module != b.Module {
+				return a.Module < b.Module
+			}
 			return a.Name < b.Name
 		}
 		return l[i].Pos.Offset < l[j].Pos.Offset
@@ -71,6 +75,10 @@ func (l List) Sort() {
 type File struct {
 	Name string
 	Src  string
+
+	// The place of the file's module in its program, 0 for the root
+	// module, so problems are listed module by module.
+	Module int
 
 	lineStarts []int
 }

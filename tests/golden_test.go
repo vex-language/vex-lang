@@ -13,6 +13,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"sort"
 	"strings"
 	"testing"
 
@@ -138,6 +139,28 @@ func TestExamples(t *testing.T) {
 // An expected error, written in the source as `// error: LINE:COL: message`.
 var expectRE = regexp.MustCompile(`(?m)^\s*// error: (\d+:\d+): (.*)$`)
 
+// Orders the [sources] of the project at [path] as errors are listed:
+// the root module first, then module by module, by name within each.
+func sortByModule(path string, sources []string) {
+	prog, _ := modules.Load(path)
+	if prog == nil {
+		return
+	}
+	order := map[string]int{}
+	for _, m := range prog.Modules {
+		for _, f := range m.Files {
+			order[filepath.Clean(f.Name)] = f.Module
+		}
+	}
+	sort.SliceStable(sources, func(i, j int) bool {
+		a, b := order[filepath.Clean(sources[i])], order[filepath.Clean(sources[j])]
+		if a != b {
+			return a < b
+		}
+		return sources[i] < sources[j]
+	})
+}
+
 // Checks that each tests/errors/*.vx, and each project in tests/errors,
 // fails with exactly the errors listed in its comments, in order. In a
 // project, each error is listed in the file it is in.
@@ -159,6 +182,7 @@ func TestErrors(t *testing.T) {
 					}
 					return nil
 				})
+				sortByModule(path, sources)
 			}
 			var want []string
 			for _, p := range sources {

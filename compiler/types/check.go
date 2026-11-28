@@ -76,6 +76,7 @@ type checker struct {
 	// The declarations of every module, and where each one lives.
 	decls    []ast.Decl
 	units    map[ast.Node]*unit
+	files    []*unit
 	root     *Module
 	rootUnit *unit
 
@@ -188,10 +189,12 @@ func (c *checker) run() (*Info, error) {
 		}()
 		c.declareError()
 		c.collect()
+		c.exposures()
 		c.bodies()
 	}()
 	c.fileTable()
 	c.warnUnused(0)
+	c.warnUnusedImports()
 	if len(c.errs) > 0 {
 		c.errs = dedupe(c.errs)
 		c.errs.Sort()
@@ -1010,10 +1013,15 @@ func (c *checker) genericInst(te *ast.NamedType, g *genericStruct, args []Type) 
 // Removes repeated diagnostics, which instances of generic code can
 // report more than once.
 func dedupe(errs diag.List) diag.List {
-	seen := map[string]bool{}
+	type key struct {
+		file *diag.File
+		pos  diag.Pos
+		msg  string
+	}
+	seen := map[key]bool{}
 	var out diag.List
 	for _, d := range errs {
-		key := fmt.Sprintf("%d:%d:%s", d.Pos.Line, d.Pos.Col, d.Message)
+		key := key{d.File, d.Pos, d.Message}
 		if !seen[key] {
 			seen[key] = true
 			out = append(out, d)

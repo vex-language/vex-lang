@@ -1,6 +1,9 @@
 package diag
 
-import "testing"
+import (
+	"strings"
+	"testing"
+)
 
 func TestPosOf(t *testing.T) {
 	f := NewFile("a.vx", "let a = 1\nlet é = \"x\"\n")
@@ -64,5 +67,25 @@ func TestListError(t *testing.T) {
 	l.Sort()
 	if l[0].Message != "b" {
 		t.Errorf("Sort did not order by position")
+	}
+}
+
+func TestSortByModule(t *testing.T) {
+	root := &File{Name: "app/main.vx"}
+	lib := &File{Name: "app/a/lib.vx", Module: 2}
+	util := &File{Name: "app/z/util.vx", Module: 1}
+	l := List{
+		{File: lib, Pos: Pos{Offset: 0}, Message: "lib"},
+		{File: util, Pos: Pos{Offset: 5}, Message: "util 2"},
+		{File: root, Pos: Pos{Offset: 9}, Message: "main"},
+		{File: util, Pos: Pos{Offset: 1}, Message: "util 1"},
+	}
+	l.Sort()
+	var got []string
+	for _, d := range l {
+		got = append(got, d.Message)
+	}
+	if g := strings.Join(got, ", "); g != "main, util 1, util 2, lib" {
+		t.Errorf("got %s", g)
 	}
 }

@@ -1,0 +1,49 @@
+struct Secret {
+    v: int
+}
+
+enum Mode {
+    fast
+    slow
+}
+
+interface Hidden {}
+
+typedef Ids = [int]
+
+pub fn make() -> Secret => Secret(v: 1)
+pub fn take(s: [Secret?]) {}
+fn fine() -> Secret => Secret(v: 2)
+
+pub struct Car {
+    pub mode: Mode
+    spare: Mode = Mode.fast
+
+    pub fn secret() -> Secret => Secret(v: 3)
+    fn quiet() -> Secret => Secret(v: 4)
+}
+
+pub enum Shape {
+    blob(s: Secret)
+}
+
+pub interface Shown: Hidden {
+    fn ids() -> Ids
+}
+
+pub typedef Pair = (Secret, Secret)
+
+struct Private {
+    pub s: Secret
+}
+
+fn main() {}
+
+// error: 14:18: pub function 'make' exposes private struct 'Secret'
+// error: 15:17: pub function 'take' exposes private struct 'Secret'
+// error: 19:15: pub field 'mode' of Car exposes private enum 'Mode'
+// error: 22:24: pub method 'secret' of Car exposes private struct 'Secret'
+// error: 27:13: case 'blob' of pub enum Shape exposes private struct 'Secret'
+// error: 30:22: pub interface 'Shown' exposes private interface 'Hidden'
+// error: 31:17: method 'ids' of pub interface Shown exposes private typedef 'Ids'
+// error: 34:21: pub typedef 'Pair' exposes private struct 'Secret'
