@@ -133,6 +133,8 @@ echo 'export PATH="'"$PWD"'/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
+Then run `vex doctor` to check the tools Vex builds with: the C compiler, git for `vex get`, and, for phone apps, Xcode and the Android SDK, NDK and JDK. It says what is missing and how to install it, and never installs anything itself; `vex doctor -v` shows where each tool was found.
+
 **Usage**
 
 ```sh
@@ -149,6 +151,7 @@ vex build --debug app.vx    # -O0 -g, keeping the generated C as app.c for a deb
 vex build --traces app.vx   # runtime errors list the calls that led to them
 vex run --sanitize=address,undefined app.vx  # stop at memory errors and undefined behaviour
 vex get https://github.com/ann/charts  # add a package from git and lock it in package.lock
+vex doctor                  # check the C compiler, git, Xcode and Android tools
 vex version
 ```
 
@@ -571,7 +574,7 @@ To compare speed with Go, `bench/run.sh` builds the programs in [bench](bench) i
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await and streams, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 79 of 89 tasks; next are the P1 items |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await and streams, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 80 of 89 tasks; next are the P1 items |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |
