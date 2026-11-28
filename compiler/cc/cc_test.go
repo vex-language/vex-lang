@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -67,6 +68,22 @@ func TestFiles(t *testing.T) {
 		{Name: "seven.c", Text: []byte("#include \"seven.h\"\nint seven(void) { return 7; }\n")},
 	}}
 	if err := CompileWith("#include \"seven.h\"\nint main(void) { return seven() - 7; }\n", out, opts); err != nil {
+		t.Fatal(err)
+	}
+	if err := exec.Command(out).Run(); err != nil {
+		t.Errorf("running the program: %v", err)
+	}
+}
+
+func TestSwiftFiles(t *testing.T) {
+	if _, err := exec.LookPath("swiftc"); err != nil || runtime.GOOS != "darwin" {
+		t.Skip("needs swiftc on macOS")
+	}
+	out := filepath.Join(t.TempDir(), "out")
+	opts := Options{Files: []File{
+		{Name: "seven.swift", Text: []byte("@_cdecl(\"seven\")\npublic func seven() -> Int32 { 7 }\n")},
+	}}
+	if err := CompileWith("int seven(void);\nint main(void) { return seven() - 7; }\n", out, opts); err != nil {
 		t.Fatal(err)
 	}
 	if err := exec.Command(out).Run(); err != nil {
