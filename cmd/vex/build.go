@@ -48,13 +48,13 @@ func loadWith(tests bool, target string, stderr io.Writer) (*modules.Program, *t
 	return prog, info, exitOK
 }
 
-// Translates the program at [target] to C. Returns the exit code to use
-// when it fails.
-func translate(target string, stderr io.Writer) (string, *modules.Program, int) {
-	return translateWith(false, target, stderr)
+// Translates the program at [target] to C, with stack traces when
+// [traces] is set. Returns the exit code to use when it fails.
+func translate(target string, traces bool, stderr io.Writer) (string, *modules.Program, int) {
+	return translateWith(false, target, traces, stderr)
 }
 
-func translateWith(tests bool, target string, stderr io.Writer) (string, *modules.Program, int) {
+func translateWith(tests bool, target string, traces bool, stderr io.Writer) (string, *modules.Program, int) {
 	prog, info, code := loadWith(tests, target, stderr)
 	if code != exitOK {
 		return "", nil, code
@@ -63,7 +63,7 @@ func translateWith(tests bool, target string, stderr io.Writer) (string, *module
 	if prog.Name == "" {
 		name = filepath.Base(name)
 	}
-	return codegen.Generate(info, name), prog, exitOK
+	return codegen.GenerateWith(info, name, codegen.Options{Traces: traces}), prog, exitOK
 }
 
 // Returns the program named on the command line, or the current folder.
@@ -79,7 +79,7 @@ func runEmitC(args []string, stdout, stderr io.Writer) int {
 		fmt.Fprintln(stderr, "Usage: vex emit-c [file or folder]")
 		return exitUsage
 	}
-	src, _, code := translate(target(args), stderr)
+	src, _, code := translate(target(args), true, stderr)
 	if code != exitOK {
 		return code
 	}
@@ -120,9 +120,10 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 	fs := flag.NewFlagSet("build", flag.ContinueOnError)
 	fs.SetOutput(stderr)
 	out := fs.String("o", "", "output file")
+	traces := fs.Bool("traces", false, "list the calls that led to a runtime error")
 	mode := addModeFlags(fs)
 	fs.Usage = func() {
-		fmt.Fprintln(stderr, "Usage: vex build [file or folder] [-o output] [--debug] [--sanitize=list]")
+		fmt.Fprintln(stderr, "Usage: vex build [file or folder] [-o output] [--traces] [--debug] [--sanitize=list]")
 	}
 	// Accept the flag after the file name too: vex build app.vx -o app.
 	var files []string
@@ -141,7 +142,7 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	path := target(files)
-	src, prog, code := translate(path, stderr)
+	src, prog, code := translate(path, *traces || *mode.debug, stderr)
 	if code != exitOK {
 		return code
 	}
@@ -205,7 +206,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 	if len(args) > 0 && args[0] == "--" {
 		args = args[1:]
 	}
-	src, prog, code := translate(target(program), stderr)
+	src, prog, code := translate(target(program), true, stderr)
 	if code != exitOK {
 		return code
 	}
@@ -285,7 +286,7 @@ func runTest(args []string, stdout, stderr io.Writer) int {
 		fs.Usage()
 		return exitUsage
 	}
-	src, prog, code := translateWith(true, target(files), stderr)
+	src, prog, code := translateWith(true, target(files), true, stderr)
 	if code != exitOK {
 		return code
 	}

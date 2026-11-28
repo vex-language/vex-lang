@@ -48,6 +48,16 @@ type gen struct {
 	// are frozen.
 	constMode bool
 
+	// Set when functions keep frames for stack traces.
+	traces bool
+
+	// The name shown in stack traces for the function being generated, set
+	// while it has a frame that its calls record their lines in.
+	frameName string
+
+	// The names of local functions, by the closure that makes each one.
+	localNames map[*ast.FuncLit]string
+
 	// The temporaries pattern variables are stored in while their pattern
 	// is tested.
 	patTemps map[*types.Var]string
@@ -127,12 +137,25 @@ type gen struct {
 	jsonDefs      strings.Builder
 }
 
-// Returns the C source of the program described by [info]. [srcName] is
-// the file name shown in runtime errors.
+// Options choose what the generated program carries.
+type Options struct {
+	// Whether runtime errors list the calls that led to them. Each call
+	// then records itself, which slows down programs made of many small
+	// calls.
+	Traces bool
+}
+
+// Returns the C source of the program described by [info], with stack
+// traces. [srcName] is the file name shown in runtime errors.
 func Generate(info *types.Info, srcName string) string {
-	g := &gen{info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{}, throwingValues: map[*types.Func]bool{},
+	return GenerateWith(info, srcName, Options{Traces: true})
+}
+
+// Like [Generate], with the choices in [opts].
+func GenerateWith(info *types.Info, srcName string, opts Options) string {
+	g := &gen{traces: opts.Traces, info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{}, throwingValues: map[*types.Func]bool{},
 		opts: map[string]*types.Optional{}, recs: map[string]*types.Record{}, recvs: map[ast.Expr]string{}, chaining: map[ast.Expr]bool{},
-		builds: map[ast.Expr]string{}, fills: map[ast.Expr]fill{}, litNames: map[*ast.FuncLit]string{}, codecs: map[string]bool{},
+		builds: map[ast.Expr]string{}, fills: map[ast.Expr]fill{}, litNames: map[*ast.FuncLit]string{}, localNames: map[*ast.FuncLit]string{}, codecs: map[string]bool{},
 		ifResults: map[*ast.IfExpr]string{}}
 	g.collectOptionals()
 	for _, t := range info.Types {
@@ -185,6 +208,9 @@ func Generate(info *types.Info, srcName string) string {
 
 	var out strings.Builder
 	g.b, g.ind = &out, 0
+	if g.traces {
+		g.line("#define VX_TRACES 1")
+	}
 	g.b.WriteString(runtime)
 	g.line("")
 	g.line("// --- Program ---")
@@ -280,14 +306,14 @@ func Generate(info *types.Info, srcName string) string {
 		g.line("    vx_future *f = sp_fn_main();")
 		g.line("    vx_loop();")
 		if main.Throws != nil {
-			g.line("    if (f->state == 2) vx_uncaught(%s);", errorMessage(info, main.Throws, "f->err"))
+			g.line("    if (f->state == 2) vx_uncaught(%s, f->err);", errorMessage(info, main.Throws, "f->err"))
 		} else {
 			g.line("    (void)f;")
 		}
 	case main != nil && main.Throws != nil:
 		g.line("    void *err = NULL;")
 		g.line("    fn_main(&err);")
-		g.line("    if (err) vx_uncaught(%s);", errorMessage(info, main.Throws, "err"))
+		g.line("    if (err) vx_uncaught(%s, err);", errorMessage(info, main.Throws, "err"))
 		g.line("    vx_loop();")
 	default:
 		g.line("    fn_main();")
@@ -621,6 +647,43 @@ func (g *gen) selfRef() string {
 func (g *gen) enter(b *strings.Builder) {
 	g.b, g.ind = b, 0
 	g.vals, g.boxes, g.used, g.tmp, g.self = map[*types.Var]string{}, map[*types.Var]string{}, map[string]bool{}, 0, nil
+	g.frameName = ""
+}
+
+// Starts the frame of the function being generated, which stack traces
+// show as [name].
+func (g *gen) enterFrame(name string) {
+	if !g.traces {
+		return
+	}
+	g.frameName = name
+	g.line("VX_ENTER(%s);", cQuote(name))
+}
+
+// Returns [code], a call at [line], recording the line in the frame of the
+// function being generated first.
+func (g *gen) atLine(line int, code string) string {
+	if g.frameName == "" {
+		return code
+	}
+	return fmt.Sprintf("(vx_fr.line = %d, %s)", line, code)
+}
+
+// Returns the name of [f] in stack traces, such as `Point.distance`.
+func traceName(f *types.Func) string {
+	switch {
+	case f.Decl.Test != "":
+		return "test " + strconv.Quote(f.Decl.Test)
+	case f.Owner != nil:
+		return f.Owner.Name + "." + f.Name
+	case f.Enum != nil:
+		return f.Enum.Name + "." + f.Name
+	case f.Iface != nil:
+		return f.Iface.Name + "." + f.Name
+	case f.Recv != nil:
+		return f.Recv.String() + "." + f.Name
+	}
+	return f.Name
 }
 
 // Returns a fresh name for a temporary value.
@@ -733,6 +796,7 @@ func (g *gen) function(f *types.Func) {
 	g.line("")
 	g.line("static %s {", g.signature(f, true))
 	g.ind++
+	g.enterFrame(traceName(f))
 	if e := f.Decl.ExprBody; e != nil {
 		if f.Result == types.Void || types.IsPanic(e) {
 			g.line("%s;", g.expr(e))
@@ -1164,7 +1228,11 @@ func (g *gen) emitStmt(s ast.Stmt) {
 	case *ast.LocalFuncStmt:
 		g.localFunc(s)
 	case *ast.ThrowStmt:
-		g.line("*vx_err = %s;", g.expr(s.Value))
+		if g.traces {
+			g.line("*vx_err = vx_throw(%s, %d);", g.expr(s.Value), g.lineOf(s))
+		} else {
+			g.line("*vx_err = %s;", g.expr(s.Value))
+		}
 		g.line("%s%s", g.leaving(), zeroReturn(g.result))
 	case *ast.BreakStmt:
 		g.jump(s.Label, false)
@@ -1500,7 +1568,7 @@ func (g *gen) assign(s *ast.AssignStmt) {
 		prev := g.temp()
 		g.line("%s = %s;", decl(t, prev), target)
 		store(value)
-		g.line("%s(%s, %s);", funcName(observer), recv, prev)
+		g.line("%s;", g.atLine(g.lineOf(s), funcName(observer)+"("+recv+", "+prev+")"))
 	} else {
 		store(value)
 	}
@@ -1520,11 +1588,11 @@ func (g *gen) indexSet(s *ast.AssignStmt, x *ast.IndexExpr, set *types.Func) {
 	value := g.expr(s.Value)
 	if op, compound := compoundOps[s.Op]; compound {
 		old := g.temp()
-		g.line("%s = %s;", decl(t, old), g.memberCall(g.info.Operators[x], rt, recv, idx))
+		g.line("%s = %s;", decl(t, old), g.atLine(g.lineOf(s), g.memberCall(g.info.Operators[x], rt, recv, idx)))
 		g.line("%s = %s;", decl(g.valueType(s), v), value)
 		value = g.compound(s, op, t, old, v)
 	}
-	g.line("%s;", g.memberCall(set, rt, recv, idx, value))
+	g.line("%s;", g.atLine(g.lineOf(s), g.memberCall(set, rt, recv, idx, value)))
 	g.ind--
 	g.line("}")
 }
@@ -1537,7 +1605,7 @@ func (g *gen) setProperty(s *ast.AssignStmt, recv string, rt types.Type, p *type
 	var old string
 	if compound {
 		old = g.temp()
-		setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, old), g.memberCall(p.Get, rt, recv)))
+		setup = append(setup, fmt.Sprintf("%s = %s;", decl(t, old), g.atLine(g.lineOf(s), g.memberCall(p.Get, rt, recv))))
 	}
 	v := g.temp()
 	setup = append(setup, fmt.Sprintf("%s = %s;", decl(g.valueType(s), v), g.expr(s.Value)))
@@ -1550,7 +1618,7 @@ func (g *gen) setProperty(s *ast.AssignStmt, recv string, rt types.Type, p *type
 	for _, l := range setup {
 		g.line("%s", l)
 	}
-	g.line("%s;", g.memberCall(p.Set, rt, recv, value))
+	g.line("%s;", g.atLine(g.lineOf(s), g.memberCall(p.Set, rt, recv, value)))
 	g.ind--
 	g.line("}")
 }
@@ -1579,7 +1647,7 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 	}
 
 	outer, ind, vals, boxes, used, tmp, self, rng := g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self, g.rng
-	result, throws, tries, frames := g.result, g.throws, g.tries, g.frames
+	result, throws, tries, frames, frameName := g.result, g.throws, g.tries, g.frames, g.frameName
 	g.frames = nil
 	var body strings.Builder
 	g.enter(&body)
@@ -1600,6 +1668,14 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 	g.line("")
 	g.line("static %s {", sig)
 	g.ind++
+	switch {
+	case g.localNames[e] != "":
+		g.enterFrame(g.localNames[e])
+	case frameName != "":
+		g.enterFrame("closure in " + frameName)
+	default:
+		g.enterFrame("closure")
+	}
 	if len(caps) > 0 {
 		g.line("struct %s *_env = env_;", env)
 	}
@@ -1629,7 +1705,7 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 	g.ind--
 	g.line("}")
 	g.b, g.ind, g.vals, g.boxes, g.used, g.tmp, g.self, g.rng = outer, ind, vals, boxes, used, tmp, self, rng
-	g.result, g.throws, g.tries, g.frames = result, throws, tries, frames
+	g.result, g.throws, g.tries, g.frames, g.frameName = result, throws, tries, frames, frameName
 
 	if len(caps) > 0 {
 		fmt.Fprintf(&g.lamDecls, "struct %s {", env)
@@ -1845,7 +1921,7 @@ func (g *gen) value(e ast.Expr) string {
 			}
 			return g.selfRef() + "->f_" + u.Name
 		case *types.Property:
-			return g.memberCall(u.Get, g.selfType(), g.selfRef())
+			return g.atLine(g.lineOf(e), g.memberCall(u.Get, g.selfType(), g.selfRef()))
 		case *types.SelfMember:
 			return g.expr(u.Expr)
 		case *types.Func:
@@ -1899,7 +1975,7 @@ func (g *gen) value(e ast.Expr) string {
 		})
 	case *ast.UnaryExpr:
 		if f := g.info.Operators[e]; f != nil {
-			return g.memberCall(f, g.info.Types[e.X], g.expr(e.X))
+			return g.atLine(g.lineOf(e), g.memberCall(f, g.info.Types[e.X], g.expr(e.X)))
 		}
 		if types.IsMinInt(e) && t == types.Int {
 			return "INT64_MIN"
@@ -1943,7 +2019,7 @@ func (g *gen) value(e ast.Expr) string {
 		}
 		if f := g.info.Operators[e]; f != nil {
 			return g.ordered([]ast.Expr{e.X, e.Y}, func(cs []string) string {
-				return g.operator(e.Op, f, operand, cs[0], cs[1])
+				return g.atLine(g.lineOf(e), g.operator(e.Op, f, operand, cs[0], cs[1]))
 			})
 		}
 		if operand == types.Int && g.rng != nil && g.rng.safe(e.Op, e.X, e.Y) {
@@ -1970,7 +2046,7 @@ func (g *gen) value(e ast.Expr) string {
 		}
 		if f := g.info.Operators[e]; f != nil {
 			return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
-				return g.memberCall(f, g.info.Types[e.X], cs[0], cs[1])
+				return g.atLine(g.lineOf(e), g.memberCall(f, g.info.Types[e.X], cs[0], cs[1]))
 			})
 		}
 		if g.info.Types[e.Index] == types.Range {
@@ -2050,7 +2126,7 @@ func (g *gen) value(e ast.Expr) string {
 			return fmt.Sprintf("(%s).%s", x, recordField(m.RecordField))
 		}
 		if m.Property != nil {
-			return g.memberCall(m.Property.Get, g.info.Types[e.X], x)
+			return g.atLine(g.lineOf(e), g.memberCall(m.Property.Get, g.info.Types[e.X], x))
 		}
 		if m.Field != nil {
 			if wrapped(m.Field.Owner) != nil {
@@ -2122,7 +2198,7 @@ func (g *gen) valueType(s *ast.AssignStmt) types.Type {
 // [k], to the old value [old] of type [t] and the assigned value [v].
 func (g *gen) compound(s *ast.AssignStmt, k lexer.Kind, t types.Type, old, v string) string {
 	if f := g.info.Operators[s]; f != nil {
-		return g.memberCall(f, t, old, v)
+		return g.atLine(g.lineOf(s), g.memberCall(f, t, old, v))
 	}
 	if t == types.Int && g.rng != nil && g.rng.safe(k, s.Target, s.Value) {
 		return unchecked(k, old, v)
@@ -2288,14 +2364,18 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 	switch c.Kind {
 	case types.FuncCall, types.StaticCall:
 		return g.orderedBy(c.Args, rank, func(cs []string) string {
-			return g.callee(e, c.Func) + "(" + g.args(e, cs) + ")"
+			return g.atLine(line, g.callee(e, c.Func)+"("+g.args(e, cs)+")")
 		})
 	case types.ConstructorCall:
 		if wrapped(c.Struct) != nil {
 			return g.expr(c.Args[0])
 		}
 		return g.orderedBy(c.Args, rank, func(cs []string) string {
-			return "new_" + structName(c.Struct) + "(" + strings.Join(cs, ", ") + ")"
+			code := "new_" + structName(c.Struct) + "(" + strings.Join(cs, ", ") + ")"
+			if c.Struct.Init != nil {
+				code = g.atLine(line, code)
+			}
+			return code
 		})
 	case types.CopyCall:
 		return g.copyCall(c, rank)
@@ -2308,22 +2388,22 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 	case types.MethodCall:
 		if c.Recv == nil {
 			return g.orderedBy(c.Args, rank, func(cs []string) string {
-				return g.callee(e, c.Func) + "(" + g.args(e, append([]string{g.selfRef()}, cs...)) + ")"
+				return g.atLine(line, g.callee(e, c.Func)+"("+g.args(e, append([]string{g.selfRef()}, cs...))+")")
 			})
 		}
 		return g.orderedBy(append([]ast.Expr{c.Recv}, c.Args...), append([]int{-1}, rank...), func(cs []string) string {
-			return g.callee(e, c.Func) + "(" + g.args(e, cs) + ")"
+			return g.atLine(line, g.callee(e, c.Func)+"("+g.args(e, cs)+")")
 		})
 	case types.InterfaceCall:
-		return g.ifaceCall(e, c, rank)
+		return g.atLine(line, g.ifaceCall(e, c, rank))
 	case types.BuiltinCall:
 		switch c.Builtin {
 		case "all", "any", "run":
-			return g.asyncBuiltin(e, c)
+			return g.atLine(line, g.asyncBuiltin(e, c))
 		case "isolate.run", "isolate.spawn":
-			return g.isolateCall(e, c)
+			return g.atLine(line, g.isolateCall(e, c))
 		case "time.timeout":
-			return g.timeoutCall(e, c)
+			return g.atLine(line, g.timeoutCall(e, c))
 		case "Channel":
 			return "vx_chan_new()"
 		case "Set":
@@ -2331,15 +2411,15 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 		case "StreamController":
 			return "vx_stream_new(" + valueSize(g.info.Types[e].(*types.Stream).Elem) + ")"
 		}
-		return g.builtin(c, g.info.Types[e], line)
+		return g.atLine(line, g.builtin(c, g.info.Types[e], line))
 	case types.MemberBuiltinCall:
-		return g.memberBuiltin(e, c, line)
+		return g.atLine(line, g.memberBuiltin(e, c, line))
 	case types.ValueCall:
 		ft := g.info.Types[c.Callee].(*types.FuncType)
 		if g.info.Spawns[e] {
 			spawn := g.valueSpawner(ft)
 			return g.ordered(append([]ast.Expr{c.Callee}, c.Args...), func(cs []string) string {
-				return spawn + "(" + strings.Join(cs, ", ") + ")"
+				return g.atLine(line, spawn+"("+strings.Join(cs, ", ")+")")
 			})
 		}
 		fp := fnPtrType(ft)
@@ -2352,7 +2432,7 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 			if g.info.Throwing[e] != nil {
 				args += ", &" + g.tries[len(g.tries)-1].err
 			}
-			return fmt.Sprintf("({ vx_fn %s = %s; ((%s)%s.fn)(%s.env%s); })", f, cs[0], fp, f, f, args)
+			return fmt.Sprintf("({ vx_fn %s = %s; %s; })", f, cs[0], g.atLine(line, fmt.Sprintf("((%s)%s.fn)(%s.env%s)", fp, f, f, args)))
 		})
 	}
 	panic("codegen: unknown call kind")
@@ -2593,6 +2673,7 @@ func cQuote(s string) string {
 // box exists before the closure is made, so the body can call it.
 func (g *gen) localFunc(s *ast.LocalFuncStmt) {
 	v := g.info.Defs[s.Decl.Name]
+	g.localNames[s.Lit] = s.Decl.Name.Name
 	if !v.Boxed() {
 		g.bindVar(v, g.expr(s.Lit))
 		return

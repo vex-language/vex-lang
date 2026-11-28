@@ -15,10 +15,10 @@ func (g *gen) iterableLoop(s *ast.ForStmt, it *types.Interface) {
 	itv, o, k := g.temp(), g.temp(), g.temp()
 	g.line("{")
 	g.ind++
-	g.line("void *%s = %s;", itv, g.memberCall(it.Method("iterator"), it, g.expr(s.Iter)))
+	g.line("void *%s = %s;", itv, g.atLine(g.lineOf(s), g.memberCall(it.Method("iterator"), it, g.expr(s.Iter))))
 	g.line("for (int64_t %s = 0;; %s++) {", k, k)
 	g.ind++
-	g.line("%s = %s;", decl(opt, o), g.memberCall(next, iter, itv))
+	g.line("%s = %s;", decl(opt, o), g.atLine(g.lineOf(s), g.memberCall(next, iter, itv)))
 	g.line("if (!%s) break;", present(opt, o))
 	if s.Index != nil {
 		g.line("int64_t %s = %s;", g.declare(g.info.Defs[s.Index]), k)

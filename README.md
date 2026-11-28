@@ -146,6 +146,7 @@ vex doc vex:json Json       # print one declaration's signature and docs
 vex run                     # run the project in this folder (with a package.toml)
 vex run app.vx one two      # arguments after the program go to it (os.args())
 vex build --debug app.vx    # -O0 -g, keeping the generated C as app.c for a debugger
+vex build --traces app.vx   # runtime errors list the calls that led to them
 vex run --sanitize=address,undefined app.vx  # stop at memory errors and undefined behaviour
 vex get https://github.com/ann/charts  # add a package from git and lock it in package.lock
 vex version
@@ -570,7 +571,7 @@ To compare speed with Go, `bench/run.sh` builds the programs in [bench](bench) i
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await and streams, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 77 of 89 tasks; next are the P1 items |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await and streams, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 78 of 89 tasks; next are the P1 items |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |

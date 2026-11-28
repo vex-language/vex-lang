@@ -56,8 +56,10 @@ func init() {
 		{"run", "[flags] [file or folder] [-- args]", "Compile and run a program", runRun,
 			"Flags, before the program:\n" + modeHelp},
 		{"build", "[file or folder] [-o out] [flags]", "Build a native executable", runBuild,
-			"Flags:\n  -o out            where to write the program (default: its name)\n" + modeHelp +
-				"\nWith --debug, the generated C is kept next to the program as <out>.c, so a\ndebugger can step through it.\n"},
+			"Flags:\n  -o out            where to write the program (default: its name)\n" +
+				"  --traces          list the calls that led to a runtime error; on with --debug\n" + modeHelp +
+				"\nWith --debug, the generated C is kept next to the program as <out>.c, so a\ndebugger can step through it.\n" +
+				"\nRuntime errors show their source line. Stack traces, on for vex run and vex\ntest, cost time in programs made of many small calls, so a build leaves them\nout unless --traces or --debug is given.\n"},
 		{"emit-c", "[file or folder]", "Print the generated C code", runEmitC, ""},
 		{"check", "[file or folder]", "Check a program for errors", runCheck, ""},
 		{"test", "[file or folder] [flags]", "Run the program's tests", runTest,
