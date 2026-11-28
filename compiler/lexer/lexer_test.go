@@ -232,6 +232,26 @@ func TestAutomaticStatementEnds(t *testing.T) {
 	}
 }
 
+func TestCRLFKeepsPositions(t *testing.T) {
+	src := "fn main() {\n    let s = \"a\" + f(x)\n    // note\n    let t = \"\"\"\n        b\n        \"\"\"\n}\n"
+	lf, err := Tokenize(diag.NewFile("t.vx", src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	crlf, err := Tokenize(diag.NewFile("t.vx", strings.ReplaceAll(src, "\n", "\r\n")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(lf) != len(crlf) {
+		t.Fatalf("%d tokens with LF, %d with CRLF", len(lf), len(crlf))
+	}
+	for i := range lf {
+		if lf[i].Kind != crlf[i].Kind || lf[i].Value != crlf[i].Value || lf[i].Pos.String() != crlf[i].Pos.String() {
+			t.Errorf("token %d: %s %q at %s with LF, %s %q at %s with CRLF", i, lf[i].Kind, lf[i].Value, lf[i].Pos, crlf[i].Kind, crlf[i].Value, crlf[i].Pos)
+		}
+	}
+}
+
 func TestPositions(t *testing.T) {
 	toks, err := Tokenize(diag.NewFile("t.vx", "fn main() {\n\tlet s = \"é\" + x\n}"))
 	if err != nil {
