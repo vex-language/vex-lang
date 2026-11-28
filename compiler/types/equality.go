@@ -28,7 +28,7 @@ func isMarker(te *ast.NamedType) bool {
 // Reports whether the struct asked for == by listing `Equatable` or
 // `Hashable`.
 func (s *Struct) Equatable() bool {
-	return s.Decl != nil && (declares(s.Decl.Interfaces, "Equatable") || declares(s.Decl.Interfaces, "Hashable"))
+	return s.Decl != nil && (declares(s.Decl.Interfaces, "Equatable") || declares(s.Decl.Interfaces, "Hashable") || s.DerivesOrder())
 }
 
 // Reports whether the struct listed `Hashable`.
@@ -74,6 +74,10 @@ func (c *checker) checkEquality() {
 	}
 	for _, s := range structs {
 		if s == c.info.Error || s.generic != nil && !s.abstract || !s.Equatable() {
+			continue
+		}
+		if s.DerivesOrder() && !declares(s.Decl.Interfaces, "Equatable") && !declares(s.Decl.Interfaces, "Hashable") {
+			// Checked with the order, which needs ==.
 			continue
 		}
 		c.checkEqualFields(s.Decl.Name.Name, s.Decl.Name, s.Fields, s.Operator("==") != nil, s.Hashable(), s.Methods)
@@ -144,6 +148,9 @@ func equalHint(t Type, marker string) string {
 func keyHint(t Type) string {
 	switch t := t.(type) {
 	case *Struct:
+		if t.Underlying() != nil {
+			return fmt.Sprintf("list Hashable on it: %s: Hashable", t.header())
+		}
 		return fmt.Sprintf("list Hashable on it: struct %s: Hashable", t.Name)
 	case *Enum:
 		return fmt.Sprintf("list Hashable on it: enum %s: Hashable", t.Name)
@@ -173,7 +180,9 @@ func (c *checker) ownHashWithParams() bool {
 // Reports whether values of [t] are references, which `===` can compare.
 func reference(t Type) bool {
 	switch t := t.(type) {
-	case *Struct, *List, *Map, *Set, *Interface, *Handle:
+	case *Struct:
+		return t.Underlying() == nil
+	case *List, *Map, *Set, *Interface, *Handle:
 		return true
 	case *Enum:
 		return !t.Simple()

@@ -543,7 +543,7 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 	}
 	x := c.expr(e.X, operandWant)
 	equality := e.Op == lexer.Eq || e.Op == lexer.NotEq
-	if s, ok := x.(*Struct); ok && !(equality && s.Operator("==") == nil && s.Equatable()) {
+	if s, ok := x.(*Struct); ok && !derivedOperator(s, e.Op) {
 		return c.binaryOperator(e, s)
 	}
 	if en, ok := x.(*Enum); ok && enumOperator(en, e.Op) {
@@ -676,6 +676,16 @@ func interpolationFix(e *ast.BinaryExpr) string {
 	return `"{` + name.Name + "}" + s.Value + `"`
 }
 
+// Reports whether [op] on values of struct [s] comes from the fields
+// rather than from an operator [s] defines: == from Equatable, and the
+// order of an extension type that lists Comparable.
+func derivedOperator(s *Struct, op lexer.Kind) bool {
+	if op == lexer.Eq || op == lexer.NotEq {
+		return s.Operator("==") == nil && s.Equatable()
+	}
+	return comparison(op) && s.Operator("<") == nil && s.DerivesOrder()
+}
+
 func comparison(k lexer.Kind) bool {
 	switch k {
 	case lexer.Eq, lexer.NotEq, lexer.Lt, lexer.LtEq, lexer.Gt, lexer.GtEq:
@@ -732,6 +742,9 @@ func ordered(t Type) bool {
 	case *TypeParam:
 		return t.Has("Comparable")
 	case *Struct:
+		if t.DerivesOrder() {
+			return t.Underlying() != nil && ordered(t.Underlying())
+		}
 		return t.Operator("<") != nil && t.Operator("==") != nil
 	case *Enum:
 		if t.Operator("<") != nil {

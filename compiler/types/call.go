@@ -884,7 +884,9 @@ func (c *checker) castCall(e *ast.CallExpr, m *ast.MemberExpr, l *List) Type {
 func sortable(t Type) bool {
 	switch t := t.(type) {
 	case *Struct:
-		return t.Operator("<") != nil
+		if !t.DerivesOrder() {
+			return t.Operator("<") != nil
+		}
 	case *Enum:
 		if t.Operator("<") != nil {
 			return true

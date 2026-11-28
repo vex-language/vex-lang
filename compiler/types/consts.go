@@ -242,7 +242,7 @@ func (c *checker) constExpr(e ast.Expr) bool {
 		}
 		return all(e.Keys) && all(e.Values)
 	case *ast.CallExpr:
-		if call := c.info.Calls[e]; call != nil && call.Kind == CaseCall {
+		if call := c.info.Calls[e]; call != nil && (call.Kind == CaseCall || call.Kind == ConstructorCall && call.Struct.Underlying() != nil) {
 			for _, a := range e.Args {
 				if !c.constExpr(a.Value) {
 					return false
