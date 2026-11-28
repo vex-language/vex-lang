@@ -26,7 +26,7 @@ func (c *checker) declareInterface(d *ast.InterfaceDecl) {
 		c.genIfaces[d.Name.Name] = &genericIface{decl: d, insts: map[string]*Interface{}}
 		return
 	}
-	i := &Interface{Name: d.Name.Name, Module: c.mod, Decl: d, Index: len(c.info.Interfaces)}
+	i := &Interface{Name: d.Name.Name, Module: c.mod, Decl: d, Sealed: d.Sealed, Index: len(c.info.Interfaces)}
 	c.interfaces[i.Name] = i
 	c.info.Interfaces = append(c.info.Interfaces, i)
 }
@@ -69,7 +69,7 @@ func (c *checker) instIface(g *genericIface, args []Type, at ast.Node) *Interfac
 		return nil
 	}
 	defer c.enter(g.decl)()
-	i := &Interface{Name: g.decl.Name.Name + "<" + typeList(args) + ">", Module: c.mod, Base: g.decl.Name.Name, Args: args, Decl: g.decl, generic: g, abstract: abstract}
+	i := &Interface{Name: g.decl.Name.Name + "<" + typeList(args) + ">", Module: c.mod, Base: g.decl.Name.Name, Args: args, Decl: g.decl, Sealed: g.decl.Sealed, generic: g, abstract: abstract}
 	if !abstract {
 		i.Decl = ast.Clone(g.decl)
 		c.register(i.Decl, c.units[g.decl])
@@ -153,6 +153,7 @@ func (c *checker) ifaceMembers(i *Interface) {
 				c.errorAt(te, "", "%s is listed twice", j.Name)
 				continue
 			}
+			c.checkSealed(te, j, i.Module, "interface "+i.Name, false)
 			i.Supers = append(i.Supers, j)
 		}
 		i.constraint = declConstraintOnly(i.Decl)
@@ -299,6 +300,9 @@ type conformer struct {
 	// The type, which `Self` in the requirements stands for.
 	typ Type
 
+	// The module that declares the type.
+	mod *Module
+
 	// Set for instances of generic types, which are checked through their
 	// generic form, so mismatches are reported in terms of its type
 	// parameters.
@@ -313,6 +317,7 @@ func (c *checker) conformances(s *Struct) {
 		field: func(name string) *Field { return s.Field(name) },
 		owns:  func(m *Func) bool { return m.Owner == s },
 		typ:   s,
+		mod:   s.Module,
 		quiet: s.generic != nil && !s.abstract,
 	})
 }
@@ -325,6 +330,7 @@ func (c *checker) enumConformances(e *Enum) {
 		owns:  func(m *Func) bool { return m.Enum == e },
 		quiet: e.generic != nil && !e.abstract,
 		typ:   e,
+		mod:   e.Module,
 	})
 }
 
@@ -349,6 +355,7 @@ func (c *checker) conform(t conformer) {
 		}
 		listed = append(listed, i)
 		c.ifaceMembers(i)
+		c.checkSealed(te, i, t.mod, t.kind+" "+t.name, t.quiet)
 		for _, j := range i.All() {
 			c.ifaceMembers(j)
 			if slices.Contains(*t.ifaces, j) {
@@ -362,6 +369,25 @@ func (c *checker) conform(t conformer) {
 	}
 	if !t.quiet {
 		c.extClashes(*t.ifaces, *t.methods, t.owns)
+	}
+}
+
+// Reports an error at [te] when [i], or an interface it extends, is sealed
+// in a module other than [mod], where [what] is declared.
+func (c *checker) checkSealed(te *ast.NamedType, i *Interface, mod *Module, what string, quiet bool) {
+	if quiet {
+		return
+	}
+	for _, j := range i.All() {
+		if j.Sealed && j.Module != mod {
+			hint := fmt.Sprintf("move %s into %s, or use an interface that isn't sealed", what, j.Module)
+			if j != i {
+				c.errorAt(te, hint, "%s extends %s, which is sealed, so only types in %s can implement it", i, j, j.Module)
+			} else {
+				c.errorAt(te, hint, "%s is sealed, so only types in %s can implement it", j, j.Module)
+			}
+			return
+		}
 	}
 }
 
