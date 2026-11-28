@@ -1,0 +1,20 @@
+import "lib"
+
+struct Mine: lib.Result {}
+
+interface More: lib.Result {}
+
+struct Fine: lib.Plain {}
+
+struct Sneaky: lib.Wider {}
+
+fn show(r: lib.Result) -> string => match r {
+    o: lib.Ok => "{o.value}"
+}
+
+fn main() {}
+
+// error: 3:14: lib.Result is sealed, so only types in lib can implement it
+// error: 5:17: lib.Result is sealed, so only types in lib can implement it
+// error: 9:16: lib.Wider extends lib.Result, which is sealed, so only types in lib can implement it
+// error: 11:37: match doesn't handle 'lib.Hidden'

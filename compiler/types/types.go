@@ -67,6 +67,10 @@ type Interface struct {
 	// The interfaces it extends directly.
 	Supers []*Interface
 
+	// Whether only structs and enums of its own module implement it, so a
+	// match can list them all.
+	Sealed bool
+
 	// The interface's position in [Info.Interfaces].
 	Index int
 

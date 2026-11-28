@@ -37,7 +37,10 @@ type patRow struct {
 // Reduces [p], which tests a value of type [t], for coverage checks.
 func (c *checker) lower(p ast.Pattern, t Type) *spat {
 	if target := c.info.PatternTests[p]; target != nil {
-		// Interfaces are open, so a type test never covers every value.
+		if ms := c.sealedMembers(t); ms != nil {
+			return c.lowerSealed(p, target, ms)
+		}
+		// Other interfaces are open, so a type test never covers every value.
 		// Tests that accept every value of the type repeat each other.
 		key := "type " + target.String()
 		if cp, ok := p.(*ast.CasePattern); ok && len(cp.Args) > 0 {
@@ -74,18 +77,7 @@ func (c *checker) lower(p ast.Pattern, t Type) *spat {
 			return &spat{kind: sCtor, key: cs.Name, args: args}
 		}
 		if s := c.info.PatternStructs[p]; s != nil {
-			args := wilds(len(s.Fields))
-			for _, a := range p.Args {
-				if a.Name == nil {
-					continue
-				}
-				for j, f := range s.Fields {
-					if f.Name == a.Name.Name {
-						args[j] = c.lower(a.Pattern, f.Type)
-					}
-				}
-			}
-			return &spat{kind: sCtor, key: "struct", args: args}
+			return c.lowerStruct(p, s)
 		}
 	case *ast.RecordPattern:
 		r, ok := t.(*Record)
@@ -148,6 +140,22 @@ func (c *checker) lower(p ast.Pattern, t Type) *spat {
 	return wild
 }
 
+// Reduces the struct pattern [p] on a value of struct [s].
+func (c *checker) lowerStruct(p *ast.CasePattern, s *Struct) *spat {
+	args := wilds(len(s.Fields))
+	for _, a := range p.Args {
+		if a.Name == nil {
+			continue
+		}
+		for j, f := range s.Fields {
+			if f.Name == a.Name.Name {
+				args[j] = c.lower(a.Pattern, f.Type)
+			}
+		}
+	}
+	return &spat{kind: sCtor, key: "struct", args: args}
+}
+
 func wilds(n int) []*spat {
 	out := make([]*spat, n)
 	for i := range out {
@@ -183,8 +191,18 @@ func (c *checker) exhaust() exhauster { return exhauster{c} }
 
 // Returns the constructors of [t], or nil when it has too many to list.
 // For lists the lengths that matter come from the patterns in [col].
-func ctors(t Type, col []*spat) []ctor {
+func (e exhauster) ctors(t Type, col []*spat) []ctor {
 	switch t := t.(type) {
+	case *Interface:
+		ms := e.c.sealedMembers(t)
+		if ms == nil {
+			return nil
+		}
+		out := make([]ctor, len(ms))
+		for i, m := range ms {
+			out[i] = ctor{key: memberKey(m), types: []Type{m}}
+		}
+		return out
 	case *Enum:
 		out := make([]ctor, len(t.Cases))
 		for i, cs := range t.Cases {
@@ -313,7 +331,7 @@ func (e exhauster) missing(rows []patRow, ts []Type) []string {
 		col[i] = r.pats[0]
 		any = any || r.pats[0].kind != sWild
 	}
-	ks := ctors(ts[0], col)
+	ks := e.ctors(ts[0], col)
 	if !any || ks == nil {
 		var rest []patRow
 		for _, r := range rows {
@@ -355,7 +373,7 @@ func (e exhauster) useful(rows []patRow, q []*spat, ts []Type) bool {
 	for _, r := range rows {
 		col = append(col, r.pats[0])
 	}
-	ks := ctors(ts[0], col)
+	ks := e.ctors(ts[0], col)
 	// A wildcard over rows that all start with wildcards needs only the
 	// rest of the columns. Expanding it into each constructor would never
 	// end for a type that contains itself.
@@ -408,6 +426,12 @@ func allWild(rows []patRow) bool {
 
 // Shows a value built by [k] from [args], for messages.
 func show(t Type, k ctor, args []string) string {
+	if strings.HasPrefix(k.key, "type ") {
+		if args[0] == "_" {
+			return k.types[0].String()
+		}
+		return args[0]
+	}
 	switch k.key {
 	case "record", "struct":
 		var parts []string

@@ -1,0 +1,153 @@
+// Sealed interfaces: a closed set of types that match checks exhaustively.
+sealed interface Result {
+    fn label() -> string => "result"
+}
+
+struct Ok: Result {
+    value: int
+}
+
+struct Failed: Result {
+    message: string
+    fn label() -> string => "failed"
+}
+
+struct Loading: Result {}
+
+fn show(r: Result) -> string => match r {
+    Ok(:value) => "got {value}"
+    f: Failed => f.message
+    Loading() => "..."
+}
+
+fn describe(r: Result) {
+    match r {
+        Ok(value: 0) => println("zero")
+        Ok(:value) when value < 0 => println("negative")
+        Ok(:value) => println("positive {value}")
+        Failed(:message) => println("failed: {message}")
+        l: Loading => println("loading {l.label()}")
+    }
+}
+
+// A nested hierarchy: Shape's members include those of its sealed
+// sub-interface Round.
+sealed interface Shape {
+    fn area() -> float
+}
+
+sealed interface Round: Shape {
+    fn radius() -> float
+}
+
+struct Circle: Round {
+    r: float
+    fn area() -> float => 3.0 * r * r
+    fn radius() -> float => r
+}
+
+struct Ring: Round {
+    outer: float
+    inner: float
+    fn area() -> float => 3.0 * (outer * outer - inner * inner)
+    fn radius() -> float => outer
+}
+
+struct Square: Shape {
+    side: float
+    fn area() -> float => side * side
+}
+
+enum Blob: Shape {
+    tiny
+    big
+    fn area() -> float => match self {
+        tiny => 1.0
+        big => 100.0
+    }
+}
+
+fn kind(s: Shape) -> string => match s {
+    round: Round => "round of radius {round.radius()}"
+    Square(:side) => "square {side}"
+    b: Blob => "blob {b}"
+}
+
+fn roundKind(r: Round) -> string {
+    return match r {
+        Circle() => "circle"
+        Ring(:inner) => "ring {inner}"
+    }
+}
+
+fn tag(r: Result) -> string {
+    match r {
+        Ok() || Loading() => return "fine"
+        Failed() => return "bad"
+    }
+}
+
+sealed interface Token<T> {}
+
+struct Word: Token<string> {
+    text: string
+}
+
+struct Mark: Token<string> {}
+
+fn spell(t: Token<string>) -> string => match t {
+    w: Word => w.text
+    Mark() => "!"
+}
+
+sealed interface Expr {}
+
+struct Num: Expr {
+    v: int
+}
+
+struct Add: Expr {
+    l: Expr
+    r: Expr
+}
+
+struct Neg: Expr {
+    e: Expr
+}
+
+fn eval(e: Expr) -> int => match e {
+    Num(:v) => v
+    Add(:l, :r) => eval(l) + eval(r)
+    Neg(e: Num(:v)) => -v
+    Neg(:e) => -eval(e)
+}
+
+fn pair(e: Expr, flag: bool) -> int => match (e, flag) {
+    (Num(), true) => 1
+    (Num(), false) => 2
+    (Add(), _) => 3
+    (Neg(), true) => 4
+    (Neg(), false) => 5
+}
+
+fn main() {
+    let results: [Result] = [Ok(value: 3), Failed(message: "boom"), Loading()]
+    for r in results {
+        println(show(r), r.label(), tag(r))
+    }
+    describe(Ok(value: 0))
+    describe(Ok(value: -2))
+    describe(Ok(value: 5))
+    describe(Failed(message: "nope"))
+    describe(Loading())
+
+    let shapes: [Shape] = [Circle(r: 1), Ring(outer: 2, inner: 1), Square(side: 3), Blob.big]
+    for s in shapes {
+        println(kind(s), s.area())
+    }
+    println(roundKind(Circle(r: 2)), roundKind(Ring(outer: 3, inner: 2)))
+    println(spell(Word(text: "hi")), spell(Mark()))
+    println(eval(Add(l: Num(v: 2), r: Neg(e: Neg(e: Num(v: 5))))), pair(Neg(e: Num(v: 1)), false))
+    let sealed = 1
+    println(sealed)
+}

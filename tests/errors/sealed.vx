@@ -1,0 +1,77 @@
+// Mistakes with sealed interfaces.
+sealed interface Result {}
+
+struct Ok: Result {
+    value: int
+}
+
+struct Failed: Result {
+    message: string
+}
+
+struct Loading: Result {}
+
+interface Open {}
+
+struct Door: Open {}
+
+sealed interface Bag {}
+
+struct Box<T>: Bag {
+    item: T
+}
+
+fn missingOne(r: Result) -> string => match r {
+    Ok(:value) => "got {value}"
+    f: Failed => f.message
+}
+
+fn missingTwo(r: Result) {
+    match r {
+        Loading() => println("...")
+    }
+}
+
+fn guarded(r: Result) -> int => match r {
+    Ok(:value) when value > 0 => value
+    Failed() => 0
+    Loading() => 0
+}
+
+fn partial(r: Result) -> int => match r {
+    Ok(value: 0) => 0
+    Failed() => 1
+    Loading() => 2
+}
+
+fn extra(r: Result) -> int => match r {
+    Ok() => 0
+    Failed() => 1
+    Loading() => 2
+    _ => 3
+}
+
+fn twice(r: Result) -> int => match r {
+    Loading() => 0
+    l: Loading => 1
+    _ => 2
+}
+
+fn open(o: Open) -> int => match o {
+    d: Door => 1
+}
+
+fn generic(b: Bag) -> int => match b {
+    x: Box<int> => 1
+}
+
+fn main() {}
+
+// error: 24:39: match doesn't handle 'Loading'
+// error: 30:5: match doesn't handle 'Ok' and 'Failed'
+// error: 35:33: match doesn't handle 'Ok'
+// error: 41:33: match doesn't handle 'Ok'
+// error: 51:5: this arm is never reached: earlier arms match everything it does
+// error: 56:5: l: Loading is already handled on line 55
+// error: 60:28: match doesn't handle every Open value
+// error: 64:30: match doesn't handle every Bag value

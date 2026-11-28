@@ -408,6 +408,9 @@ enum Suit: Drawable, Store<Suit> {
     get name -> string => "suit"
 }
 fn largest<T: Ordered<T> & Equatable>(xs: [T]) -> T? => nil
+pub sealed interface Result: Shape {}
+sealed interface Tree<T> {}
+fn sealed(sealed: int) -> int => sealed
 `
 	f, errs := parse(t, src)
 	if errs != nil {
@@ -420,6 +423,9 @@ fn largest<T: Ordered<T> & Equatable>(xs: [T]) -> T? => nil
 		"(interface Store<T: Hashable>: Sized, m.Named (get size -> int) (set size param value: int) (fn get param key: string -> T?))",
 		`(enum Suit: Drawable, Store<Suit> case hearts (get name -> string (=> "suit")))`,
 		"(fn largest<T: Ordered<T> & Equatable> param xs: [T] -> T? (=> nil))",
+		"pub sealed interface Result: Shape",
+		"sealed interface Tree<T>",
+		"(fn sealed param sealed: int -> int (=> sealed))",
 	}
 	for i, d := range f.Decls {
 		if got := ast.Sexpr(d); got != want[i] {
@@ -828,6 +834,7 @@ func TestErrors(t *testing.T) {
 		{"code at top level", "println(1)", "1:1", "expected 'fn', 'struct', 'enum' or 'interface', found 'println'", "code goes inside a function, e.g. fn main() { ... }"},
 		{"top-level variable without value", "var x: int", "1:11", "'var x' needs a value", "give it a starting value, e.g. var x: int = ..."},
 		{"static without member", "struct S {\n    static x = 1\n}", "2:12", "expected 'fn', 'const', 'let' or 'var' after 'static', found 'x'", ""},
+		{"sealed struct", "sealed struct S {}", "1:8", "only interfaces can be sealed", "seal an interface and list it after ':' in each struct"},
 		{"static at top level", "static fn f() {}", "1:1", "'static' is only allowed inside a struct", "use static fn inside a struct"},
 		{"keyword as name", "fn for() {}", "1:4", "expected a function name, found 'for'", "for is a keyword; choose another name"},
 		{"parameter without type", "fn f(a) {}", "1:7", "parameter 'a' needs a type", "write it as a: int"},
