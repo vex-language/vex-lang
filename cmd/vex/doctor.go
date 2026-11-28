@@ -271,7 +271,7 @@ func (d *doctor) sections() []*section {
 // which ask to install the Command Line Tools when they're missing
 // instead of running.
 func (d *doctor) stub(path string) bool {
-	return d.sys.goos() == "darwin" && d.devDir == "" && strings.HasPrefix(path, "/usr/bin/")
+	return d.sys.goos() == "darwin" && d.devDir == "" && strings.HasPrefix(filepath.ToSlash(path), "/usr/bin/")
 }
 
 func (d *doctor) vex() *section {
