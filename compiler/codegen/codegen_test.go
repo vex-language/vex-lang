@@ -1260,6 +1260,9 @@ fn main() {
 
 // A heap that shrinks gives its empty pages back to the system.
 func TestMemoryGoesBack(t *testing.T) {
+	if strings.Contains(os.Getenv("VEX_CFLAGS"), "sanitize") {
+		t.Skip("sanitizer stack frames keep stale pointers that the stack scan treats as live")
+	}
 	exe := build(t, `struct Blob {
     id: int
     name: string
