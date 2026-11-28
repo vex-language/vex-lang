@@ -54,3 +54,16 @@ public func vxcGcmOpen(
         return -1
     }
 }
+
+@_cdecl("vxc_ck_hkdf_sha256")
+public func vxcHkdfSha256(
+    _ ikm: UnsafePointer<UInt8>?, _ ikmlen: Int, _ salt: UnsafePointer<UInt8>?, _ saltlen: Int,
+    _ info: UnsafePointer<UInt8>?, _ infolen: Int, _ out: UnsafeMutablePointer<UInt8>, _ n: Int
+) -> Int32 {
+    guard n > 0, n <= 255 * 32 else { return -1 }
+    let key = HKDF<SHA256>.deriveKey(inputKeyMaterial: SymmetricKey(data: view(ikm, ikmlen)), salt: view(salt, saltlen),
+                                     info: view(info, infolen), outputByteCount: n)
+    guard key.bitCount == n * 8 else { return -1 }
+    copy(key, to: out)
+    return 0
+}

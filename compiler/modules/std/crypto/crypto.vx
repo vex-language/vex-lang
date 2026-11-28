@@ -3,9 +3,9 @@
 ///
 /// Nothing here is a primitive of its own. ChaCha20-Poly1305, BLAKE2b,
 /// SHA-512, Argon2id, X25519 and Ed25519 come from Monocypher, built into
-/// the program; SHA-256, AES-GCM, PBKDF2 and P-256 come from the system's
-/// provider: CommonCrypto and Security on Apple systems, and OpenSSL 3's
-/// libcrypto on Linux. Keys have their own types, so a key can't be
+/// the program; SHA-256, HKDF-SHA-256, AES-GCM, PBKDF2 and P-256 come
+/// from the system's provider: CommonCrypto, CryptoKit and Security on
+/// Apple systems, and OpenSSL 3's libcrypto on Linux. Keys have their own types, so a key can't be
 /// passed where data is expected, and printing one never shows it.
 
 extern fn cError() -> string as "vx_crypto_error"

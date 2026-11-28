@@ -15,6 +15,8 @@ int vxc_sha256(const uint8_t *data, size_t n, uint8_t out[32]);
 int vxc_sha1(const uint8_t *data, size_t n, uint8_t out[20]);
 int vxc_md5(const uint8_t *data, size_t n, uint8_t out[16]);
 int vxc_hmac_sha256(const uint8_t *key, size_t keylen, const uint8_t *data, size_t n, uint8_t out[32]);
+int vxc_hkdf_sha256(const uint8_t *ikm, size_t ikmlen, const uint8_t *salt, size_t saltlen,
+                    const uint8_t *info, size_t infolen, uint8_t *out, size_t n);
 int vxc_pbkdf2_sha256(const uint8_t *pw, size_t pwlen, const uint8_t *salt, size_t saltlen,
                       uint32_t rounds, uint8_t *out, size_t outlen);
 int vxc_aes_gcm_seal(const uint8_t key[32], const uint8_t *iv, size_t ivlen, const uint8_t *aad, size_t aadlen,
@@ -109,36 +111,11 @@ static vx_list *vx_crypto_hmac_sha512(vx_list *key, vx_list *d) {
     return out;
 }
 
-// HKDF (RFC 5869) over the provider's HMAC-SHA-256: extract a key from
-// [ikm] with [salt], then expand it with [info] to [size] bytes.
 static vx_list *vx_crypto_hkdf_sha256(vx_list *ikm, vx_list *salt, vx_list *info, int64_t size) {
     if (size < 1 || size > 255 * 32) return vx_crypto_fail("needs a size from 1 to 8160 bytes");
-    uint8_t zeros[32] = {0}, prk[32], t[32];
-    const uint8_t *s = salt->len ? VX_CB(salt) : zeros;
-    int rc = vxc_hmac_sha256(s, salt->len ? VX_CN(salt) : 32, VX_CB(ikm), VX_CN(ikm), prk);
     vx_list *out = vx_crypto_new((size_t)size);
-    // Each block is HMAC(prk, previous block || info || counter).
-    size_t cap = 32 + VX_CN(info) + 1;
-    uint8_t *buf = malloc(cap);
-    if (!buf) rc = -1;
-    size_t done = 0, tlen = 0;
-    for (uint8_t i = 1; rc == 0 && done < (size_t)size; i++) {
-        memcpy(buf, t, tlen);
-        if (info->len) memcpy(buf + tlen, VX_CB(info), VX_CN(info));
-        buf[tlen + VX_CN(info)] = i;
-        rc = vxc_hmac_sha256(prk, 32, buf, tlen + VX_CN(info) + 1, t);
-        tlen = 32;
-        size_t k = (size_t)size - done < 32 ? (size_t)size - done : 32;
-        memcpy(VX_CB(out) + done, t, k);
-        done += k;
-    }
-    if (buf) {
-        crypto_wipe(buf, cap);
-        free(buf);
-    }
-    crypto_wipe(prk, sizeof prk);
-    crypto_wipe(t, sizeof t);
-    return vx_crypto_result(rc, out);
+    return vx_crypto_result(vxc_hkdf_sha256(VX_CB(ikm), VX_CN(ikm), VX_CB(salt), VX_CN(salt), VX_CB(info), VX_CN(info),
+                                            VX_CB(out), (size_t)size), out);
 }
 
 static vx_list *vx_crypto_hkdf_sha512(vx_list *ikm, vx_list *salt, vx_list *info, int64_t size) {

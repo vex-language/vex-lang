@@ -68,11 +68,13 @@ __attribute__((unused)) static void vxc_wipe(void *p, size_t n) {
 #include <CommonCrypto/CommonKeyDerivation.h>
 #include <Security/Security.h>
 
-// AES-GCM from CryptoKit, in cryptokit.swift.
+// AES-GCM and HKDF from CryptoKit, in cryptokit.swift.
 int vxc_ck_gcm_seal(const uint8_t *key, const uint8_t *iv, long ivlen, const uint8_t *aad, long aadlen,
                     const uint8_t *in, long n, uint8_t *out, uint8_t *tag);
 int vxc_ck_gcm_open(const uint8_t *key, const uint8_t *iv, long ivlen, const uint8_t *aad, long aadlen,
                     const uint8_t *in, long n, const uint8_t *tag, uint8_t *out);
+int vxc_ck_hkdf_sha256(const uint8_t *ikm, long ikmlen, const uint8_t *salt, long saltlen,
+                       const uint8_t *info, long infolen, uint8_t *out, long n);
 
 // CommonDigest takes 32-bit lengths, so longer input is fed in pieces.
 #define VXC_CHUNK ((size_t)1 << 30)
@@ -120,6 +122,11 @@ int vxc_aes_gcm_seal(const uint8_t key[32], const uint8_t *iv, size_t ivlen, con
 int vxc_aes_gcm_open(const uint8_t key[32], const uint8_t *iv, size_t ivlen, const uint8_t *aad, size_t aadlen,
                      const uint8_t *in, size_t n, const uint8_t tag[16], uint8_t *out) {
     return vxc_ck_gcm_open(key, iv, (long)ivlen, aad, (long)aadlen, in, (long)n, tag, out);
+}
+
+int vxc_hkdf_sha256(const uint8_t *ikm, size_t ikmlen, const uint8_t *salt, size_t saltlen,
+                    const uint8_t *info, size_t infolen, uint8_t *out, size_t n) {
+    return vxc_ck_hkdf_sha256(ikm, (long)ikmlen, salt, (long)saltlen, info, (long)infolen, out, (long)n);
 }
 
 // Returns the P-256 key held in [data] (a public key as 04||X||Y, or a
@@ -218,6 +225,7 @@ int vxc_p256_sign(const uint8_t priv[97], const uint8_t *msg, size_t n, uint8_t 
 #include <openssl/crypto.h>
 #include <openssl/evp.h>
 #include <openssl/hmac.h>
+#include <openssl/kdf.h>
 #include <openssl/param_build.h>
 
 static int vxc_digest(const EVP_MD *md, const uint8_t *data, size_t n, uint8_t *out) {
@@ -242,6 +250,23 @@ int vxc_pbkdf2_sha256(const uint8_t *pw, size_t pwlen, const uint8_t *salt, size
     int r = PKCS5_PBKDF2_HMAC(VXC_PTR(pw, pwlen), (int)pwlen, VXC_PTR(salt, saltlen), (int)saltlen,
                               (int)rounds, EVP_sha256(), (int)outlen, out);
     return r == 1 ? 0 : -1;
+}
+
+int vxc_hkdf_sha256(const uint8_t *ikm, size_t ikmlen, const uint8_t *salt, size_t saltlen,
+                    const uint8_t *info, size_t infolen, uint8_t *out, size_t n) {
+    EVP_KDF *kdf = EVP_KDF_fetch(NULL, "HKDF", NULL);
+    EVP_KDF_CTX *ctx = kdf ? EVP_KDF_CTX_new(kdf) : NULL;
+    EVP_KDF_free(kdf);
+    if (!ctx) return -1;
+    OSSL_PARAM params[5], *p = params;
+    *p++ = OSSL_PARAM_construct_utf8_string(OSSL_KDF_PARAM_DIGEST, "SHA256", 0);
+    *p++ = OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_KEY, (void *)VXC_PTR(ikm, ikmlen), ikmlen);
+    if (saltlen) *p++ = OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_SALT, (void *)salt, saltlen);
+    if (infolen) *p++ = OSSL_PARAM_construct_octet_string(OSSL_KDF_PARAM_INFO, (void *)info, infolen);
+    *p = OSSL_PARAM_construct_end();
+    int ok = EVP_KDF_derive(ctx, out, n, params) == 1;
+    EVP_KDF_CTX_free(ctx);
+    return ok ? 0 : -1;
 }
 
 // EVP lengths are ints, so longer input is fed in pieces.
@@ -380,6 +405,8 @@ int vxc_md5(const uint8_t *data, size_t n, uint8_t *out) { return -2; }
 int vxc_hmac_sha256(const uint8_t *key, size_t keylen, const uint8_t *data, size_t n, uint8_t *out) { return -2; }
 int vxc_pbkdf2_sha256(const uint8_t *pw, size_t pwlen, const uint8_t *salt, size_t saltlen,
                       uint32_t rounds, uint8_t *out, size_t outlen) { return -2; }
+int vxc_hkdf_sha256(const uint8_t *ikm, size_t ikmlen, const uint8_t *salt, size_t saltlen,
+                    const uint8_t *info, size_t infolen, uint8_t *out, size_t n) { return -2; }
 int vxc_aes_gcm_seal(const uint8_t *key, const uint8_t *iv, size_t ivlen, const uint8_t *aad, size_t aadlen,
                      const uint8_t *in, size_t n, uint8_t *out, uint8_t *tag) { return -2; }
 int vxc_aes_gcm_open(const uint8_t *key, const uint8_t *iv, size_t ivlen, const uint8_t *aad, size_t aadlen,
