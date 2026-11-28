@@ -1,0 +1,23 @@
+// Printing to standard error with eprint, eprintln and os.stderr.
+import "vex:os"
+
+struct Point {
+    x: int
+    y: int
+}
+
+fn main() {
+    println("to standard output")
+    eprintln("warning:", 3, "files skipped", [1, 2], Point(x: 1, y: 2))
+    eprint("no line break, ")
+    eprint("then one")
+    eprintln()
+    os.stderr.write("written ")
+    os.stderr.writeln("with a writer")
+    os.stderr.writeln()
+    os.stdout.write("standard output ")
+    os.stdout.writeln("through a writer")
+    os.stdout.flush()
+    os.stderr.flush()
+    println("done")
+}

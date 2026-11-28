@@ -11,6 +11,8 @@ extern fn cRun(command: string) -> int as "vx_os_run"
 extern fn cOutput(command: string) -> string? as "vx_os_output"
 extern fn cLastStatus() -> int as "vx_os_status_of_last"
 extern fn cError() -> string as "vx_os_error"
+extern fn cWrite(fd: int, text: string) as "vx_os_write"
+extern fn cFlush(fd: int) as "vx_os_flush"
 
 /// Returns the arguments the program was started with, without the
 /// program's own name.
@@ -67,6 +69,33 @@ pub fn output(command: string) throws -> string {
     }
     return text
 }
+
+/// A stream of text the program writes to: [stdout] or [stderr].
+pub struct Writer {
+    fd: int
+
+    /// Writes [text] as it is.
+    pub fn write(text: string) {
+        cWrite(fd, text)
+    }
+
+    /// Writes [text] and a line break.
+    pub fn writeln(text: string = "") {
+        cWrite(fd, text + "\n")
+    }
+
+    /// Sends text that is waiting in a buffer on to the terminal or file.
+    pub fn flush() {
+        cFlush(fd)
+    }
+}
+
+/// The program's standard output, where `print` writes.
+pub let stdout = Writer(fd: 1)
+
+/// The program's standard error, for messages about problems, where
+/// `eprint` writes.
+pub let stderr = Writer(fd: 2)
 
 /// An operating system a program can be built for. `os.target` is the one
 /// the program is built for.

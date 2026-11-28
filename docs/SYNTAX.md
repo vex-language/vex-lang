@@ -1244,7 +1244,7 @@ fn helper() { }                         // private to models
   - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, or [`Bytes`](#bytes) with `readBytes`, `writeBytes` and `appendBytes`, and failures throw an `Error` naming the path and the reason
   - `vex:json`: `encode`, `decode`, `parse` and `write`, and the `Json` and `JsonError` enums (see [JSON](#json))
   - `vex:isolate`: `run` and `spawn`, which start work on other cores (see Isolates), and `cores()`
-  - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status), and `target` and `arch`, the system the program is built for (see [Platform conditionals](#platform-conditionals))
+  - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status), `stdout` and `stderr`, writers with `write(text)`, `writeln(text)` and `flush()`, and `target` and `arch`, the system the program is built for (see [Platform conditionals](#platform-conditionals))
 
 ```swift
 import "vex:fs"
@@ -2112,6 +2112,7 @@ $ vex test
 | Name | Description |
 |---|---|
 | `print(a, b, ...)` / `println(...)` | Print values separated by spaces |
+| `eprint(...)` / `eprintln(...)` | Print to standard error, for warnings and problems, in the same way |
 | `input(prompt)` | Read a line from standard input; the prompt is optional |
 | `int(x)`, `float(x)`, `str(x)` | Convert between types; `int` and `float` ignore spaces around the number, and stop the program if the text isn't one |
 | `int.parse(s)`, `float.parse(s)` | Parse text that may not be a number, giving `int?` and `float?`: `int.parse(field.text) ?? 0`. `int.parse(s, radix: 16)` reads other bases from 2 to 36 |

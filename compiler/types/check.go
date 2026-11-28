@@ -21,7 +21,7 @@ var builtinTypes = map[string]Type{"int": Int, "float": Float, "bool": Bool, "st
 
 // Names of the built-in functions.
 var builtinFuncs = map[string]bool{
-	"print": true, "println": true, "input": true, "panic": true,
+	"print": true, "println": true, "eprint": true, "eprintln": true, "input": true, "panic": true,
 	"assert": true, "str": true, "int": true, "float": true, "expect": true,
 }
 

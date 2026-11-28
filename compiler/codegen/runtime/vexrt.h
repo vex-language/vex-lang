@@ -2654,6 +2654,17 @@ static void vx_print(bool newline, int n, const vx_str *parts) {
     if (newline) fputc('\n', stdout);
 }
 
+// Prints like vx_print, to standard error. Standard output is flushed
+// first, so the two keep their order in a terminal.
+static void vx_eprint(bool newline, int n, const vx_str *parts) {
+    fflush(stdout);
+    for (int i = 0; i < n; i++) {
+        if (i > 0) fputc(' ', stderr);
+        fwrite(parts[i].ptr, 1, (size_t)parts[i].len, stderr);
+    }
+    if (newline) fputc('\n', stderr);
+}
+
 // Reads one line from standard input without its line break; "" at the end
 // of input.
 static vx_str vx_input(vx_str prompt) {
@@ -2716,6 +2727,18 @@ static int vx_argc;
 static char **vx_argv;
 
 static const char *vx_os_error(void) { return strerror(vx_errno); }
+
+// Writes [text] to standard output when [fd] is 1, or standard error.
+static void vx_os_write(int64_t fd, vx_str text) {
+    if (fd == 1) {
+        vx_write(text);
+        return;
+    }
+    fflush(stdout);
+    fwrite(text.ptr, 1, (size_t)text.len, stderr);
+}
+
+static void vx_os_flush(int64_t fd) { fflush(fd == 1 ? stdout : stderr); }
 
 // Returns the bytes of the file at [path], or a string with a null pointer
 // on failure.
