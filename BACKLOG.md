@@ -152,7 +152,7 @@ Goal: the language features real apps need before any UI work.
 
 ### Runtime and libraries
 - [x] **V-109** JSON encode/decode built in, no codegen step (L)
-- [ ] **V-132** Bytes: a type for binary data, and reading and writing binary files (M)
+- [x] **V-132** Bytes: a type for binary data, and reading and writing binary files (M)
 - [x] **V-115** Print values through one growing buffer; deeply nested values print in quadratic time today (S)
 - [ ] **V-116** Unicode-aware strings: `upper`/`lower` beyond A–Z, and counting visible characters (grapheme clusters) (M)
 - [ ] **V-111** GC stage 2: precise roots and object layouts (L)
