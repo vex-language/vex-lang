@@ -1070,6 +1070,25 @@ static void vx_release_pages(bool major) {
     }
 }
 
+// Zeroes the stack just below the caller. Calls that have returned leave
+// pointers there, which the collector's own frames would otherwise keep in
+// slots they never write, and the stack scan would take as live.
+__attribute__((noinline))
+static void vx_clear_stack(void) {
+    char pad[4096];
+    memset(pad, 0, sizeof pad);
+    __asm__ volatile("" : : "r"(pad) : "memory");
+}
+
+static void vx_collect_now(void);
+
+// Collects garbage, on a stack cleared of stale pointers below this frame.
+__attribute__((noinline))
+static void vx_collect(void) {
+    vx_clear_stack();
+    vx_collect_now();
+}
+
 // Collects garbage. Objects that survive stay marked, which makes them old:
 // a minor collection marks only from the roots and the old objects written
 // since, so it doesn't trace the old objects again. A major collection
@@ -1077,7 +1096,8 @@ static void vx_release_pages(bool major) {
 // have doubled since the last one, or after 16 minor collections in a row
 // in which they grew by less than a quarter, so that old objects that died
 // are found even when the old objects stop growing.
-static void vx_collect(void) {
+__attribute__((noinline))
+static void vx_collect_now(void) {
     if (!vx_stack_base) return;
     vx_gc_count++;
     vx_gc_total += vx_heap_bytes - vx_h.gc_base;
