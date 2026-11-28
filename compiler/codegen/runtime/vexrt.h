@@ -75,7 +75,8 @@ static const char *const *vx_files = vx_main_src;
 // `vex test` runs each test in a child process, so a runtime error fails
 // only that test. The child prints why it failed; [vx_test_marked] lives in
 // memory shared with the parent, which prints the line for a test that
-// passed or crashed.
+// passed or crashed. On Windows, which can't fork, the child is the
+// program started again, told the test to run in VEX_TEST_CHILD.
 
 static const char *vx_test_name;   // the test this process runs, or NULL
 static int *vx_test_marked;        // set once the test is reported as failed
@@ -6190,13 +6191,58 @@ static int64_t vx_cores(void) {
     return n > 0 ? n : 1;
 }
 
+#ifdef _WIN32
+// Runs test [i] of [fns] in a child process, which shares [*marked], and
+// returns its exit status, or -1 when it can't start.
+static int64_t vx_test_child(int i, HANDLE marked) {
+    char spec[64];
+    snprintf(spec, sizeof spec, "%d:%llu", i, (unsigned long long)(uintptr_t)marked);
+    SetEnvironmentVariableA("VEX_TEST_CHILD", spec);
+    STARTUPINFOW si = {.cb = sizeof si, .dwFlags = STARTF_USESTDHANDLES};
+    si.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    si.hStdOutput = GetStdHandle(STD_OUTPUT_HANDLE);
+    si.hStdError = GetStdHandle(STD_ERROR_HANDLE);
+    PROCESS_INFORMATION pi;
+    wchar_t exe[32768];
+    DWORD len = GetModuleFileNameW(NULL, exe, 32768);
+    bool started = len > 0 && len < 32768 && CreateProcessW(exe, GetCommandLineW(), NULL, NULL, TRUE, 0, NULL, NULL, &si, &pi);
+    SetEnvironmentVariableA("VEX_TEST_CHILD", NULL);
+    if (!started) return -1;
+    DWORD code = 1;
+    WaitForSingleObject(pi.hProcess, INFINITE);
+    GetExitCodeProcess(pi.hProcess, &code);
+    CloseHandle(pi.hThread);
+    CloseHandle(pi.hProcess);
+    return code;
+}
+#endif
+
 // Runs the [n] tests [fns], named [names], whose names contain the text
 // given as the program's first argument, and prints a summary. Returns the
 // exit status: 1 when a test failed.
 static int vx_test_run(int n, const char *const names[], void (*const fns[])(void)) {
     const char *filter = vx_argc > 1 ? vx_argv[1] : "";
+#ifdef _WIN32
+    const char *child = getenv("VEX_TEST_CHILD");
+    if (child) {
+        int i = atoi(child);
+        HANDLE h = (HANDLE)(uintptr_t)strtoull(strchr(child, ':') + 1, NULL, 10);
+        vx_test_marked = MapViewOfFile(h, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(int));
+        if (!vx_test_marked || i < 0 || i >= n) return 1;
+        vx_test_name = names[i];
+        fns[i]();
+        vx_loop();
+        fflush(stdout);
+        _exit(*vx_test_marked ? 1 : 0);
+    }
+    SECURITY_ATTRIBUTES inherit = {.nLength = sizeof inherit, .bInheritHandle = TRUE};
+    HANDLE shared = CreateFileMappingW(INVALID_HANDLE_VALUE, &inherit, PAGE_READWRITE, 0, sizeof(int), NULL);
+    vx_test_marked = shared ? MapViewOfFile(shared, FILE_MAP_ALL_ACCESS, 0, 0, sizeof(int)) : NULL;
+    if (!vx_test_marked) vx_out_of_memory();
+#else
     vx_test_marked = mmap(NULL, sizeof(int), PROT_READ | PROT_WRITE, MAP_SHARED | MAP_ANON, -1, 0);
     if (vx_test_marked == MAP_FAILED) vx_out_of_memory();
+#endif
     int ran = 0, failed = 0;
     for (int i = 0; i < n; i++) {
         if (!strstr(names[i], filter)) continue;
@@ -6204,6 +6250,26 @@ static int vx_test_run(int n, const char *const names[], void (*const fns[])(voi
         *vx_test_marked = 0;
         fflush(stdout);
         fflush(stderr);
+#ifdef _WIN32
+        int64_t code = vx_test_child(i, shared);
+        if (code < 0) {
+            fprintf(stderr, "error: can't start the test: Windows error %lu\n", GetLastError());
+            return 1;
+        }
+        if (code == 0 && !*vx_test_marked) {
+            printf("\u2713 %s\n", names[i]);
+            continue;
+        }
+        failed++;
+        if (!*vx_test_marked) {
+            printf("\u2717 %s\n", names[i]);
+            if (code >= 0xC0000000) {
+                printf("  crashed with exception 0x%08llX\n", (unsigned long long)code);
+            } else {
+                printf("  stopped with exit status %lld\n", (long long)code);
+            }
+        }
+#else
         pid_t pid = fork();
         if (pid < 0) {
             perror("fork");
@@ -6231,6 +6297,7 @@ static int vx_test_run(int n, const char *const names[], void (*const fns[])(voi
                 printf("  stopped with exit status %d\n", WEXITSTATUS(status));
             }
         }
+#endif
     }
     if (ran == 0) {
         printf(*filter ? "no tests match '%s'\n" : "no tests\n", filter);
