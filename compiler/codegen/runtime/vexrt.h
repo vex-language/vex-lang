@@ -1,5 +1,10 @@
 // Runtime library compiled into every Vex program.
 
+#ifdef _WIN32
+// Windows 10 and later.
+#define _WIN32_WINNT 0x0A00
+#endif
+
 #include <ctype.h>
 #include <errno.h>
 #include <inttypes.h>
@@ -416,6 +421,25 @@ static void vx_bounds(uintptr_t lo, uintptr_t hi) {
 }
 
 // Gives the objects of [pg] to class [cls], which allocates them in order.
+// Returns the memory of a new page, aligned to its size, or NULL.
+static char *vx_page_memory(void) {
+#ifdef _WIN32
+    // Windows hands out memory in blocks of 64 KB, aligned to that size.
+    return VirtualAlloc(NULL, VX_PAGE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+#else
+    void *p;
+    return posix_memalign(&p, VX_PAGE_SIZE, VX_PAGE_SIZE) == 0 ? p : NULL;
+#endif
+}
+
+static void vx_page_memory_free(char *p) {
+#ifdef _WIN32
+    VirtualFree(p, 0, MEM_RELEASE);
+#else
+    free(p);
+#endif
+}
+
 static void vx_page_format(vx_page *pg, int cls, bool atomic) {
     pg->size = vx_class_size[cls];
     pg->count = (uint32_t)(VX_PAGE_SIZE / pg->size);
@@ -435,7 +459,7 @@ static void vx_page_new(int cls, bool atomic) {
     }
     vx_h.page_scan = vx_pages_len + 1;
     vx_page *pg = calloc(1, sizeof(vx_page));
-    if (!pg || posix_memalign((void **)&pg->start, VX_PAGE_SIZE, VX_PAGE_SIZE) != 0) vx_out_of_memory();
+    if (!pg || !(pg->start = vx_page_memory())) vx_out_of_memory();
     if (vx_pages_len == vx_pages_cap) vx_pages = vx_grow(vx_pages, &vx_pages_cap, sizeof(vx_page *));
     vx_pages[vx_pages_len++] = pg;
     if (vx_pages_len * 2 > vx_page_table_cap) {
@@ -979,6 +1003,13 @@ static void vx_gc_report(void) {
 // Starts the collector of the running thread; [base] is the top of the
 // stack to scan.
 static void vx_gc_thread_init(void *base) {
+#ifdef _WIN32
+    // A frame address on Windows can point into the middle of the frame's
+    // locals, so the scan starts at the top of the thread's stack.
+    ULONG_PTR lo, hi;
+    GetCurrentThreadStackLimits(&lo, &hi);
+    base = (void *)hi;
+#endif
     vx_stack_base = base;
     vx_main_task.top = base;
     vx_cur = &vx_main_task;
@@ -5698,7 +5729,7 @@ static void vx_idle(void) {
 // Frees the heap of the running thread when its isolate ends.
 static void vx_heap_free(void) {
     for (size_t i = 0; i < vx_pages_len; i++) {
-        free(vx_pages[i]->start);
+        vx_page_memory_free(vx_pages[i]->start);
         free(vx_pages[i]);
     }
     for (size_t i = 0; i < vx_larges_len; i++) free(vx_larges[i]);
