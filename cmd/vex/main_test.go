@@ -345,6 +345,38 @@ test "crashes" {
 	}
 }
 
+// A build leaves stack traces out unless asked; vex run keeps them.
+func TestBuildTraces(t *testing.T) {
+	needCC(t)
+	path := writeFile(t, "fn half(n: int) -> int {\n    return 10 / n\n}\n\nfn main() {\n    println(half(0))\n}\n")
+	at := "--> " + path + ":2\n"
+	trace := "  at half (" + path + ":2)\n  at main (" + path + ":6)\n"
+	out := filepath.Join(t.TempDir(), "app")
+	for _, tt := range []struct {
+		flags []string
+		trace bool
+	}{{nil, false}, {[]string{"--traces"}, true}, {[]string{"--debug"}, true}} {
+		args := append([]string{"build", path, "-o", out}, tt.flags...)
+		if code, _, errOut := runCLI(args...); code != exitOK {
+			t.Fatalf("build %v: code %d, stderr %q", tt.flags, code, errOut)
+		}
+		var errOut bytes.Buffer
+		cmd := exec.Command(out)
+		cmd.Stderr = &errOut
+		cmd.Run()
+		want := "error: division by zero\n " + at
+		if tt.trace {
+			want += trace
+		}
+		if errOut.String() != want {
+			t.Errorf("build %v: stderr %q, want %q", tt.flags, errOut.String(), want)
+		}
+	}
+	if code, _, errOut := runCLI("run", path); code != 1 || !strings.HasSuffix(errOut, trace) {
+		t.Errorf("run: code %d, stderr %q", code, errOut)
+	}
+}
+
 func TestBuildModes(t *testing.T) {
 	needCC(t)
 	path := writeFile(t, "import \"vex:os\"\nfn main() {\n    println(\"hi\", os.args())\n}\n")
@@ -372,7 +404,7 @@ func TestBuildModes(t *testing.T) {
 		}
 	}
 	code, stdout, _ = runCLI("help", "build")
-	for _, want := range []string{"--debug", "--sanitize=list", "VEX_CFLAGS", "<out>.c"} {
+	for _, want := range []string{"--debug", "--sanitize=list", "--traces", "VEX_CFLAGS", "<out>.c"} {
 		if code != exitOK || !strings.Contains(stdout, want) {
 			t.Errorf("help build lacks %q:\n%s", want, stdout)
 		}
