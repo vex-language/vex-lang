@@ -53,7 +53,7 @@ Before the collector, the first program leaked all 387 MB it allocated.
 
 Binary trees of depth 18 (about 67 million short-lived nodes beside one long-lived tree) take 0.26 s and 42 MB: Kotlin on the JVM takes 0.28 s and 438 MB, Dart 0.35 s and 78 MB, Go 1.26 s and 45 MB. Minor collections are what make the difference: before them it took 0.45 s.
 
-Precise object layouts cost the binary-trees benchmark of `bench/` about 7% in cycles: its nodes hold nothing but pointers, so it pays for setting the layout bits on each allocation and gains nothing. The hash maps benchmark runs about 5% faster, since the hashes and sequence numbers in map entries are no longer read, and the other benchmarks stay within 2%.
+Precise object layouts cost the binary-trees benchmark of `bench/` about 7% in cycles: its nodes hold nothing but pointers, so it pays for setting the layout bits on each allocation and gains nothing. The other benchmarks stay within about 2%; hash maps and sorting, whose map entries and strings hold numbers next to pointers, often come out slightly faster, since those numbers are no longer read.
 
 ## Next stages
 
