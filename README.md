@@ -133,6 +133,8 @@ echo 'export PATH="'"$PWD"'/bin:$PATH"' >> ~/.zshrc
 source ~/.zshrc
 ```
 
+Then run `vex doctor` to check the tools Vex builds with: the C compiler, git for `vex get`, and, for phone apps, Xcode and the Android SDK, NDK and JDK. It says what is missing and how to install it, and never installs anything itself; `vex doctor -v` shows where each tool was found.
+
 **Usage**
 
 ```sh
@@ -149,6 +151,7 @@ vex build --debug app.vx    # -O0 -g, keeping the generated C as app.c for a deb
 vex build --traces app.vx   # runtime errors list the calls that led to them
 vex run --sanitize=address,undefined app.vx  # stop at memory errors and undefined behaviour
 vex get https://github.com/ann/charts  # add a package from git and lock it in package.lock
+vex doctor                  # check the C compiler, git, Xcode and Android tools
 vex version
 ```
 
