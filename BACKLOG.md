@@ -133,7 +133,7 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-163** Control flow: `defer`, labelled `break`/`continue`, `repeat { } while` (M)
 - [x] **V-164** Ranges as values: a `Range` type with `contains`, `step` and `reversed`, and list slicing `xs[1..3]` (M)
 - [x] **V-165** Iteration: an `Iterable<T>` interface that `for in` accepts, and generators with `yield`; shares machinery with V-148 (L)
-- [ ] **V-166** Enum reflection: `Type.cases`, `.name`, raw values `enum C: int { red = 1 }` with `C(rawValue:)` returning an optional, `==` on enums with data, operators on enums (M)
+- [x] **V-166** Enum reflection: `Type.cases`, `.name`, raw values `enum C: int { red = 1 }` with `C(rawValue:)` returning an optional, `==` on enums with data, operators on enums (M)
 - [x] **V-167** Interfaces: static requirements, `Self`, generic methods and extensions of interfaces; needed for typed JSON (V-109) (L)
 - [x] **V-168** Custom printing: a `toString()` method used by `println`, `str` and interpolation (S)
 - [x] **V-169** Local named functions, recursive ones included (S)
