@@ -396,8 +396,11 @@ func (c *checker) constructPrivate(e *ast.CallExpr, s *Struct) bool {
 			}
 		}
 		if f.Default == nil {
-			c.errorAt(e.Fn, fmt.Sprintf("give '%s' a default or mark it pub, or add a pub static fn that creates it", f.Name),
-				"%s can't be created outside %s because field '%s' is private", s, s.Module, f.Name)
+			hint := fmt.Sprintf("give '%s' a default or mark it pub, or add a pub static fn that creates it", f.Name)
+			if strings.HasPrefix(s.Module.Path, "vex:") {
+				hint = fmt.Sprintf("use a function of %s that makes one", s.Module)
+			}
+			c.errorAt(e.Fn, hint, "%s can't be created outside %s because field '%s' is private", s, s.Module, f.Name)
 			return true
 		}
 	}
