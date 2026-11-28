@@ -27,6 +27,15 @@ func (c *checker) expr(e ast.Expr, want Type) Type {
 	t := c.exprType(e, hint)
 	t = c.throwingRef(e, t, hint)
 	c.info.Types[e] = t
+	switch {
+	case hint == nil || t == Invalid:
+	case convertible(hint, t):
+		c.info.Converts[e] = hint
+		t = hint
+	case opt && convertible(want, t):
+		c.info.Converts[e] = want
+		return want
+	}
 	if opt && t != Invalid && t != Void {
 		if _, isOpt := t.(*Optional); !isOpt && assignableType(o.Elem, t) {
 			c.info.Wraps[e] = o

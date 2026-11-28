@@ -515,6 +515,42 @@ func assignableType(want, got Type) bool {
 	return ok && implements(got, i)
 }
 
+// Reports whether a [got] list or map can be used where a [want] one is
+// expected by copying it with each element converted, as a [Circle] can be
+// used as a [Shape]. Nested lists and maps convert the same way.
+func convertible(want, got Type) bool {
+	if Identical(want, got) {
+		return false
+	}
+	switch w := want.(type) {
+	case *List:
+		g, ok := got.(*List)
+		return ok && elemConverts(w.Elem, g.Elem)
+	case *Map:
+		g, ok := got.(*Map)
+		return ok && Identical(w.Key, g.Key) && elemConverts(w.Value, g.Value)
+	case *Optional:
+		g, ok := got.(*Optional)
+		return ok && convertible(w.Elem, g.Elem)
+	}
+	return false
+}
+
+// Reports whether an element of type [got] converts implicitly to [want]
+// inside a copied list or map.
+func elemConverts(want, got Type) bool {
+	if assignableType(want, got) {
+		return true
+	}
+	if o, ok := want.(*Optional); ok {
+		if g, ok := got.(*Optional); ok {
+			return elemConverts(o.Elem, g.Elem)
+		}
+		return elemConverts(o.Elem, got)
+	}
+	return convertible(want, got)
+}
+
 // Returns the interfaces whose members are available on a value of type
 // [t]: an interface and those it extends, or those a type parameter
 // requires.

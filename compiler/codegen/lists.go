@@ -179,3 +179,62 @@ func (g *gen) listProperty(e *ast.MemberExpr, name string, l *types.List, x stri
 	}
 	return ""
 }
+
+// Returns [x], the C code of [e], converted to the type the checker chose
+// for it when a list or map is used as one with other element types.
+func (g *gen) converted(e ast.Expr, x string) string {
+	if to := g.info.Converts[e]; to != nil {
+		return g.convert(to, g.info.Types[e], x)
+	}
+	return x
+}
+
+// Returns C code converting [x], a value of [from], to [to]. Lists and maps
+// are copied, so the original can't be changed through the copy.
+func (g *gen) convert(to, from types.Type, x string) string {
+	if types.Identical(to, from) {
+		return x
+	}
+	switch t := to.(type) {
+	case *types.Optional:
+		f, ok := from.(*types.Optional)
+		if !ok {
+			return wrapOpt(t, g.convert(t.Elem, from, x))
+		}
+		tmp := g.temp()
+		return fmt.Sprintf("({ %s = %s; %s ? %s : (%s){0}; })", decl(f, tmp), x, present(f, tmp),
+			wrapOpt(t, g.convert(t.Elem, f.Elem, unwrap(f, tmp))), ctype(t))
+	case *types.List, *types.Map:
+		return g.convertFunc(to, from) + "(" + x + ")"
+	}
+	// Interface values and functions share their C value.
+	return x
+}
+
+// Returns the name of a C function copying a list or map of [from] into
+// one of [to], converting each element. Each is generated once.
+func (g *gen) convertFunc(to, from types.Type) string {
+	name := "conv_" + mangle(from) + "__" + mangle(to)
+	if g.codecs[name] {
+		return name
+	}
+	g.codecs[name] = true
+	var body string
+	switch t := to.(type) {
+	case *types.List:
+		f := from.(*types.List)
+		v := g.convert(t.Elem, f.Elem, fmt.Sprintf("((%s *)src->data)[i]", ctype(f.Elem)))
+		body = fmt.Sprintf("vx_list *l = %s; for (int64_t i = 0; i < src->len; i++) %s; return l;",
+			newList(t.Elem, "0", "src->len", "NULL"), push(t.Elem, "l", v))
+		fmt.Fprintf(&g.codecDefs, "static vx_list *%s(vx_list *src) { %s }\n", name, body)
+	case *types.Map:
+		f := from.(*types.Map)
+		v := g.convert(t.Value, f.Value, fmt.Sprintf("(*(%s *)(e + src->voff))", ctype(f.Value)))
+		body = fmt.Sprintf("vx_map *m = vx_map_new(src->kind, src->ksz, sizeof(%s)); m->khash = src->khash; m->keq = src->keq; "+
+			"for (int64_t i = 0; i < src->used; i++) { char *e = VX_MAP_ENTRY(src, i); if (VX_MAP_SEQ(e) == 0) continue; "+
+			"%s = %s; *(%s *)vx_map_set(m, e + VX_MAP_KEY) = v; } return m;",
+			ctype(t.Value), decl(t.Value, "v"), v, ctype(t.Value))
+		fmt.Fprintf(&g.codecDefs, "static vx_map *%s(vx_map *src) { %s }\n", name, body)
+	}
+	return name
+}

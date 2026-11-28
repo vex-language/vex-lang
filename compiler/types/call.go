@@ -459,8 +459,13 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 		c.errorAt(m.Name, c.narrowHint(m.X, hint), "%s has no method '%s'", recv, name)
 		return Invalid
 	}
+	if len(e.TypeArgs) > 0 && name != "cast" && builtinGeneric(recv, name) {
+		c.errorAt(e.TypeArgs[0], "remove the <...>", "'%s' is not generic, so it takes no type arguments", name)
+	}
 	if l, ok := recv.(*List); ok {
 		switch name {
+		case "cast":
+			return c.castCall(e, m, l)
 		case "map":
 			return c.mapCall(e, m, l)
 		case "flatMap":
@@ -841,6 +846,35 @@ func (c *checker) mapCall(e *ast.CallExpr, m *ast.MemberExpr, l *List) Type {
 	return &List{Elem: ft.Result}
 }
 
+// Reports whether [name] is a built-in method of [recv], which takes no
+// type arguments unless it is a list's `cast`.
+func builtinGeneric(recv Type, name string) bool {
+	if _, ok := recv.(*List); ok && (name == "map" || name == "flatMap" || name == "reduce") {
+		return true
+	}
+	return builtinMember(recv, name) != nil
+}
+
+// Checks `list.cast<T>()`, a copy of the list with each element converted
+// to T, which must be a type every element converts to implicitly.
+func (c *checker) castCall(e *ast.CallExpr, m *ast.MemberExpr, l *List) Type {
+	if len(e.TypeArgs) != 1 || len(e.Args) > 0 || e.Trailing != nil {
+		c.checkArgs(e)
+		c.errorAt(m.Name, "e.g. circles.cast<Shape>()", "cast takes 1 type argument and no arguments")
+		return Invalid
+	}
+	to := c.resolveType(e.TypeArgs[0])
+	if to == Invalid || l.Elem == Invalid {
+		return Invalid
+	}
+	if !elemConverts(to, l.Elem) {
+		c.errorAt(e.TypeArgs[0], elementHint(to, l.Elem, "list"), "can't cast a list of %s to a list of %s", l.Elem, to)
+		return Invalid
+	}
+	c.info.Calls[e] = &Call{Kind: MemberBuiltinCall, Builtin: "cast", Recv: m.X}
+	return &List{Elem: to}
+}
+
 // Reports whether lists of [t] can be sorted without an order given: [t]
 // is ordered, or a struct that defines `<`.
 func sortable(t Type) bool {
@@ -1045,7 +1079,7 @@ func builtinMemberNames(recv Type) []string {
 	if _, ok := recv.(*List); ok {
 		return []string{"len", "first", "last", "isEmpty", "push", "pop", "insert", "remove", "removeWhere", "clear",
 			"contains", "indexOf", "find", "any", "all", "filter", "map", "flatMap", "reduce",
-			"sort", "sorted", "reversed", "min", "max", "sum", "join", "slice", "copy"}
+			"sort", "sorted", "reversed", "min", "max", "sum", "join", "slice", "copy", "cast"}
 	}
 	if _, ok := recv.(*Map); ok {
 		return []string{"len", "isEmpty", "keys", "values", "entries", "contains", "remove", "copy",

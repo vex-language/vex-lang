@@ -832,6 +832,11 @@ type Info struct {
 	// passed as an int?; each is stored as a present value.
 	Wraps map[ast.Expr]*Optional
 
+	// Lists and maps used where one with other element types is expected,
+	// such as a [Circle] passed as a [Shape], with the type each becomes.
+	// Each is copied with its elements converted.
+	Converts map[ast.Expr]Type
+
 	// Names of functions that don't throw, used as values where a
 	// throwing function is expected.
 	ThrowingRefs map[ast.Expr]bool

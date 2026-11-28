@@ -1,0 +1,38 @@
+// Lists and maps whose elements don't convert, and misuses of cast.
+interface Shape {
+    fn area() -> float
+}
+struct Circle: Shape {
+    r: float
+    fn area() -> float => 3.0 * r * r
+}
+struct Box { w: int }
+fn total(xs: [Shape]) -> float => 0.0
+fn main() {
+    let cs = [Circle(r: 1)]
+    let shapes: [Shape] = cs
+    let back: [Circle] = shapes
+    let floats: [float] = [1, 2].copy()
+    total([Box(w: 1)].copy())
+    let boxes: [string: Shape] = ["a": Box(w: 1)].copy()
+    let keys: [int: Shape] = ["a": Circle(r: 1)].copy()
+    let down = shapes.cast<Circle>()
+    let nums = [1].cast<float>()
+    let none = cs.cast()
+    let args = cs.cast<Shape>(1)
+    let copied = cs.copy<int>()
+    let mapped = cs.map<int>(fn(c) => 1)
+    println(back, floats, boxes, keys, down, nums, none, args, copied, mapped)
+}
+
+// error: 14:26: expected [Circle], found [Shape]
+// error: 15:27: expected [float], found [int]
+// error: 16:11: argument 'xs': expected [Shape], found [Box]
+// error: 17:34: expected [string: Shape], found [string: Box]
+// error: 18:30: expected [int: Shape], found [string: Circle]
+// error: 19:28: can't cast a list of Shape to a list of Circle
+// error: 20:25: can't cast a list of int to a list of float
+// error: 21:19: cast takes 1 type argument and no arguments
+// error: 22:19: cast takes 1 type argument and no arguments
+// error: 23:26: 'copy' is not generic, so it takes no type arguments
+// error: 24:25: 'map' is not generic, so it takes no type arguments

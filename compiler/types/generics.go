@@ -150,6 +150,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 	i.Captures = map[*ast.FuncLit][]*Var{}
 	i.CaseValues = map[ast.Expr]*Case{}
 	i.Wraps = map[ast.Expr]*Optional{}
+	i.Converts = map[ast.Expr]Type{}
 	i.ThrowingRefs = map[ast.Expr]bool{}
 	i.Elements = map[*ast.ExprStmt]ast.Expr{}
 	i.IfValues = map[*ast.ExprStmt]*ast.IfExpr{}
@@ -184,7 +185,7 @@ func (c *checker) scratch(keepErrors bool, f func()) {
 			i.Warnings = saved.Warnings
 		}
 		i.Types, i.Uses, i.Defs, i.Calls, i.Members = saved.Types, saved.Uses, saved.Defs, saved.Calls, saved.Members
-		i.Selves, i.Captures, i.CaseValues, i.Wraps = saved.Selves, saved.Captures, saved.CaseValues, saved.Wraps
+		i.Selves, i.Captures, i.CaseValues, i.Wraps, i.Converts = saved.Selves, saved.Captures, saved.CaseValues, saved.Wraps, saved.Converts
 		i.TypeTests, i.PatternTests = saved.TypeTests, saved.PatternTests
 		i.Elements, i.IfValues, i.Spawns, i.ThrowingRefs, i.TearOffs = saved.Elements, saved.IfValues, saved.Spawns, saved.ThrowingRefs, saved.TearOffs
 		i.Iterables = saved.Iterables
