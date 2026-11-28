@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>shapes</title>
+<style>
+:root {
+  --bg: #ffffff; --fg: #1f2328; --muted: #59636e; --line: #d1d9e0;
+  --code-bg: #f6f8fa; --link: #0969da; --accent: #8250df;
+}
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #0d1117; --fg: #e6edf3; --muted: #9198a1; --line: #3d444d;
+    --code-bg: #151b23; --link: #4493f8; --accent: #ab7df8;
+  }
+}
+* { box-sizing: border-box; }
+body {
+  margin: 0; background: var(--bg); color: var(--fg);
+  font: 16px/1.6 -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+}
+main { max-width: 52rem; margin: 0 auto; padding: 1.5rem 1rem 4rem; }
+a { color: var(--link); text-decoration: none; }
+a:hover { text-decoration: underline; }
+nav { font-size: .9rem; color: var(--muted); margin-bottom: 1rem; }
+h1 { font-size: 2rem; margin: .5rem 0; }
+h2 { font-size: 1.4rem; margin-top: 2.5rem; padding-bottom: .3rem; border-bottom: 1px solid var(--line); }
+h3 { font-size: 1.15rem; margin: 2rem 0 .4rem; }
+h4 { font-size: 1rem; }
+code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace; font-size: .875rem; }
+code { background: var(--code-bg); padding: .1em .3em; border-radius: 4px; }
+pre { background: var(--code-bg); padding: .75rem 1rem; border-radius: 6px; overflow-x: auto; line-height: 1.45; }
+pre code { background: none; padding: 0; }
+pre.sig { border-left: 3px solid var(--accent); margin: .4rem 0; white-space: pre-wrap; }
+.import { color: var(--muted); }
+.anchor { color: var(--muted); margin-left: .4rem; font-weight: normal; visibility: hidden; }
+h3:hover .anchor, .member:hover .anchor { visibility: visible; }
+.members { margin-left: 1.25rem; }
+.member { margin-top: 1rem; }
+.member > .doc { margin-left: .25rem; }
+.doc p { margin: .5rem 0; }
+blockquote { margin: .5rem 0; padding-left: 1rem; border-left: 3px solid var(--line); color: var(--muted); }
+ul.toc, ul.modules { padding-left: 1.25rem; }
+ul.toc li, ul.modules li { margin: .2rem 0; }
+.summary { color: var(--muted); }
+</style>
+</head>
+<body>
+<main>
+<nav><a href="index.html">Index</a></nav>
+<h1>shapes</h1>
+<pre class="import"><code>import &#34;shapes&#34;</code></pre>
+<div class="doc">
+<p>Flat shapes and their areas.</p>
+<p>Every shape implements <a href="#Shape"><code>Shape</code></a>; <a href="#describe"><code>describe</code></a> prints one, and <a href="#Kind"><code>Kind</code></a>
+tells them apart.</p>
+</div>
+<h2>Contents</h2>
+<ul class="toc">
+<li><a href="#Shape">Shape</a> <span class="summary">— A shape with an area.</span></li>
+<li><a href="#Kind">Kind</a> <span class="summary">— The kinds of shape.</span></li>
+<li><a href="#Circle">Circle</a> <span class="summary">— A circle, centred anywhere.</span></li>
+<li><a href="#Square">Square</a> <span class="summary">— A square with sides of length <a href="#Square.side"><code>side</code></a>.</span></li>
+<li><a href="#Pair">Pair</a> <span class="summary">— Pairs of values.</span></li>
+<li><a href="#extension-float">extension float</a> <span class="summary">— More ways to look at a float.</span></li>
+<li><a href="#describe">describe</a> <span class="summary">— Returns a line naming the <code>shape</code> and its area, rounded to <code>digits</code> places; mentions <code>Triangle</code>, which doesn&#39;t exist.</span></li>
+<li><a href="#pi">pi</a> <span class="summary">— The ratio of a circle&#39;s circumference to its diameter.</span></li>
+<li><a href="#described">described</a> <span class="summary">— How many shapes have been described so far.</span></li>
+</ul>
+<h2>Types</h2>
+<section id="Shape">
+<h3>Shape<a class="anchor" href="#Shape">#</a></h3>
+<pre class="sig"><code>interface Shape</code></pre>
+<div class="doc">
+<p>A shape with an area.</p>
+</div>
+<div class="members">
+<div class="member" id="Shape.area">
+<pre class="sig"><code>fn area() -&gt; float</code><a class="anchor" href="#Shape.area">#</a></pre>
+<div class="doc">
+<p>Returns the area, in square units.</p>
+</div>
+</div>
+<div class="member" id="Shape.kind">
+<pre class="sig"><code>get kind -&gt; Kind</code><a class="anchor" href="#Shape.kind">#</a></pre>
+<div class="doc">
+<p>The kind of shape this is.</p>
+</div>
+</div>
+</div>
+</section>
+<section id="Kind">
+<h3>Kind<a class="anchor" href="#Kind">#</a></h3>
+<pre class="sig"><code>enum Kind</code></pre>
+<div class="doc">
+<p>The kinds of shape.</p>
+</div>
+<div class="members">
+<div class="member" id="Kind.round">
+<pre class="sig"><code>round</code><a class="anchor" href="#Kind.round">#</a></pre>
+<div class="doc">
+<p>A <a href="#Circle"><code>Circle</code></a>.</p>
+</div>
+</div>
+<div class="member" id="Kind.angular">
+<pre class="sig"><code>angular(corners: int)</code><a class="anchor" href="#Kind.angular">#</a></pre>
+<div class="doc">
+<p>A <a href="#Square"><code>Square</code></a>, or any other shape with corners.</p>
+</div>
+</div>
+<div class="member" id="Kind.hasCorners">
+<pre class="sig"><code>get hasCorners -&gt; bool</code><a class="anchor" href="#Kind.hasCorners">#</a></pre>
+<div class="doc">
+<p>Reports whether the shape has corners; see <a href="#Kind.angular"><code>angular</code></a>.</p>
+</div>
+</div>
+</div>
+</section>
+<section id="Circle">
+<h3>Circle<a class="anchor" href="#Circle">#</a></h3>
+<pre class="sig"><code>struct Circle: Shape</code></pre>
+<div class="doc">
+<p>A circle, centred anywhere.</p>
+<ul>
+<li>The area grows with the square of <a href="#Circle.radius"><code>radius</code></a>.</li>
+<li>Its <a href="#Circle.kind"><code>kind</code></a> is always <a href="#Kind.round"><code>Kind.round</code></a>.</li>
+</ul>
+<pre><code>let c = Circle(radius: 2.0)
+println(c.area())</code></pre>
+</div>
+<div class="members">
+<div class="member" id="Circle.radius">
+<pre class="sig"><code>radius: float</code><a class="anchor" href="#Circle.radius">#</a></pre>
+<div class="doc">
+<p>The distance from the centre to the edge.</p>
+</div>
+</div>
+<div class="member" id="Circle.name">
+<pre class="sig"><code>let name: string = &#34;circle&#34;</code><a class="anchor" href="#Circle.name">#</a></pre>
+</div>
+<div class="member" id="Circle.area">
+<pre class="sig"><code>fn area() -&gt; float</code><a class="anchor" href="#Circle.area">#</a></pre>
+<div class="doc">
+<p>Returns <strong>pi</strong> times the radius squared, see <a href="#pi"><code>pi</code></a>.</p>
+</div>
+</div>
+<div class="member" id="Circle.kind">
+<pre class="sig"><code>get kind -&gt; Kind</code><a class="anchor" href="#Circle.kind">#</a></pre>
+</div>
+<div class="member" id="Circle.unit">
+<pre class="sig"><code>static fn unit() -&gt; Circle</code><a class="anchor" href="#Circle.unit">#</a></pre>
+<div class="doc">
+<p>Returns a circle of <a href="#Circle.radius"><code>radius</code></a> 1.</p>
+</div>
+</div>
+</div>
+</section>
+<section id="Square">
+<h3>Square<a class="anchor" href="#Square">#</a></h3>
+<pre class="sig"><code>struct Square: Shape</code></pre>
+<div class="doc">
+<p>A square with sides of length <a href="#Square.side"><code>side</code></a>.</p>
+</div>
+<div class="members">
+<div class="member" id="Square.side">
+<pre class="sig"><code>side: float</code><a class="anchor" href="#Square.side">#</a></pre>
+</div>
+<div class="member" id="Square.area">
+<pre class="sig"><code>fn area() -&gt; float</code><a class="anchor" href="#Square.area">#</a></pre>
+</div>
+<div class="member" id="Square.kind">
+<pre class="sig"><code>get kind -&gt; Kind</code><a class="anchor" href="#Square.kind">#</a></pre>
+</div>
+</div>
+</section>
+<section id="Pair">
+<h3>Pair<a class="anchor" href="#Pair">#</a></h3>
+<pre class="sig"><code>typedef Pair&lt;T&gt; = (T, T)</code></pre>
+<div class="doc">
+<p>Pairs of values.</p>
+</div>
+</section>
+<h2>Extensions</h2>
+<section id="extension-float">
+<h3>extension float<a class="anchor" href="#extension-float">#</a></h3>
+<pre class="sig"><code>extension float</code></pre>
+<div class="doc">
+<p>More ways to look at a float.</p>
+</div>
+<div class="members">
+<div class="member" id="extension-float.squared">
+<pre class="sig"><code>fn squared() -&gt; float</code><a class="anchor" href="#extension-float.squared">#</a></pre>
+<div class="doc">
+<p>Returns the value squared.</p>
+</div>
+</div>
+</div>
+</section>
+<h2>Functions</h2>
+<section id="describe">
+<h3>describe<a class="anchor" href="#describe">#</a></h3>
+<pre class="sig"><code>fn describe(shape: Shape, digits: int = 2) -&gt; string</code></pre>
+<div class="doc">
+<p>Returns a line naming the <code>shape</code> and its area, rounded to <code>digits</code>
+places; mentions <code>Triangle</code>, which doesn&#39;t exist.</p>
+</div>
+</section>
+<h2>Constants and variables</h2>
+<section id="pi">
+<h3>pi<a class="anchor" href="#pi">#</a></h3>
+<pre class="sig"><code>const pi = 3.14159</code></pre>
+<div class="doc">
+<p>The ratio of a circle&#39;s circumference to its diameter.</p>
+</div>
+</section>
+<section id="described">
+<h3>described<a class="anchor" href="#described">#</a></h3>
+<pre class="sig"><code>var described: int</code></pre>
+<div class="doc">
+<p>How many shapes have been described so far.</p>
+</div>
+</section>
+</main>
+</body>
+</html>

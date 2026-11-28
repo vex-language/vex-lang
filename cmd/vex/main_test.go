@@ -378,3 +378,49 @@ func TestBuildModes(t *testing.T) {
 		}
 	}
 }
+
+func TestDoc(t *testing.T) {
+	path := writeFile(t, "/// Adds [a] and [b].\npub fn add(a: int, b: int) -> int => a + b\n\nfn main() {}\n")
+	code, out, errOut := runCLI("doc", path, "add")
+	if want := "fn add(a: int, b: int) -> int\n\n    Adds [a] and [b].\n"; code != exitOK || out != want {
+		t.Errorf("doc add: code %d, output %q, stderr %q", code, out, errOut)
+	}
+	code, out, _ = runCLI("doc", "--text", path)
+	if code != exitOK || !strings.HasPrefix(out, "module main\n\nFunctions:\n    fn add(a: int, b: int) -> int\n") {
+		t.Errorf("doc --text: code %d, output %q", code, out)
+	}
+	code, _, errOut = runCLI("doc", path, "sub")
+	if code != exitError || !strings.Contains(errOut, "no public declaration called 'sub'") {
+		t.Errorf("doc sub: code %d, stderr %q", code, errOut)
+	}
+	dir := filepath.Join(t.TempDir(), "site")
+	code, out, errOut = runCLI("doc", path, "-o", dir)
+	if code != exitOK || !strings.HasPrefix(out, "Wrote the documentation of 1 module") {
+		t.Fatalf("doc -o: code %d, output %q, stderr %q", code, out, errOut)
+	}
+	page, err := os.ReadFile(filepath.Join(dir, "main.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(page), "<pre class=\"sig\"><code>fn add(a: int, b: int) -&gt; int</code></pre>") {
+		t.Errorf("page:\n%s", page)
+	}
+	if _, err := os.Stat(filepath.Join(dir, "index.html")); err != nil {
+		t.Error(err)
+	}
+}
+
+func TestDocStd(t *testing.T) {
+	code, out, errOut := runCLI("doc", "vex:math", "abs")
+	if code != exitOK || !strings.HasPrefix(out, "fn abs(x: int) -> int\n") {
+		t.Errorf("doc vex:math abs: code %d, output %q, stderr %q", code, out, errOut)
+	}
+	code, _, errOut = runCLI("doc", "vex:nothing")
+	if code != exitError || !strings.Contains(errOut, "unknown module 'vex:nothing'") {
+		t.Errorf("doc vex:nothing: code %d, stderr %q", code, errOut)
+	}
+	code, _, _ = runCLI("doc", "a", "b", "c")
+	if code != exitUsage {
+		t.Errorf("doc a b c: code %d", code)
+	}
+}

@@ -63,6 +63,7 @@ func init() {
 		{"test", "[file or folder] [flags]", "Run the program's tests", runTest,
 			"Flags:\n  -filter text      run only the tests whose names contain text\n" + modeHelp},
 		{"get", "[flags] [repo[@version]]...", "Add dependencies and lock their versions", runGet, getHelp},
+		{"doc", "[path] [name]", "Show or write the API documentation", runDoc, docHelp},
 		{"ast", "<file>", "Print the syntax tree of a source file", runAST, ""},
 		{"tokens", "<file>", "Print the tokens of a source file", runTokens, ""},
 		{"version", "", "Print the Vex version", runVersion, ""},

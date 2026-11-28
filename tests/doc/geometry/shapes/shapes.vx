@@ -1,0 +1,86 @@
+/// Flat shapes and their areas.
+///
+/// Every shape implements [Shape]; [describe] prints one, and [Kind]
+/// tells them apart.
+
+/// The ratio of a circle's circumference to its diameter.
+pub const pi = 3.14159
+
+/// How many shapes have been described so far.
+pub var described = 0
+
+/// A shape with an area.
+pub interface Shape {
+    /// Returns the area, in square units.
+    fn area() -> float
+
+    /// The kind of shape this is.
+    get kind -> Kind
+}
+
+/// The kinds of shape.
+pub enum Kind {
+    /// A [Circle].
+    round
+    /// A [Square], or any other shape with corners.
+    angular(corners: int)
+
+    /// Reports whether the shape has corners; see [angular].
+    pub get hasCorners -> bool => match self {
+        round => false
+        _ => true
+    }
+}
+
+/// A circle, centred anywhere.
+///
+/// - The area grows with the square of [radius].
+/// - Its [kind] is always [Kind.round].
+///
+/// ```
+/// let c = Circle(radius: 2.0)
+/// println(c.area())
+/// ```
+pub struct Circle: Shape {
+    /// The distance from the centre to the edge.
+    pub radius: float
+    pub let name: string = "circle"
+
+    /// Returns **pi** times the radius squared, see [pi].
+    pub fn area() -> float => pi * radius * radius
+
+    pub get kind -> Kind => Kind.round
+
+    /// Returns a circle of [radius] 1.
+    pub static fn unit() -> Circle => Circle(radius: 1.0)
+}
+
+/// A square with sides of length [side].
+pub struct Square: Shape {
+    pub side: float
+    hidden: int = 0
+
+    pub fn area() -> float => side * side
+
+    pub get kind -> Kind => Kind.angular(corners: 4)
+
+    fn secret() -> int => hidden
+}
+
+/// Returns a line naming the [shape] and its area, rounded to [digits]
+/// places; mentions [Triangle], which doesn't exist.
+pub fn describe(shape: Shape, digits: int = 2) -> string {
+    described += 1
+    return "{shape.kind.hasCorners} {shape.area().toFixed(digits)}"
+}
+
+/// Pairs of values.
+pub typedef Pair<T> = (T, T)
+
+/// More ways to look at a float.
+pub extension float {
+    /// Returns the value squared.
+    fn squared() -> float => self * self
+}
+
+fn helper() -> int => 0

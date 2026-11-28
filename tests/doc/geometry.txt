@@ -1,0 +1,86 @@
+module geometry
+
+    Prints the areas of a few shapes.
+
+    See [shapes.Shape] and [shapes.Circle.area] for the shapes it uses.
+
+Functions:
+    fn main()
+
+module shapes // import "shapes"
+
+    Flat shapes and their areas.
+
+    Every shape implements [Shape]; [describe] prints one, and [Kind]
+    tells them apart.
+
+Types:
+    interface Shape
+    enum Kind
+    struct Circle: Shape
+    struct Square: Shape
+    typedef Pair<T> = (T, T)
+
+Extensions:
+    extension float
+
+Functions:
+    fn describe(shape: Shape, digits: int = 2) -> string
+
+Constants and variables:
+    const pi = 3.14159
+    var described: int
+
+--- shapes.Circle
+struct Circle: Shape
+
+    A circle, centred anywhere.
+
+    - The area grows with the square of [radius].
+    - Its [kind] is always [Kind.round].
+
+    ```
+    let c = Circle(radius: 2.0)
+    println(c.area())
+    ```
+
+    radius: float
+        The distance from the centre to the edge.
+
+    let name: string = "circle"
+
+    fn area() -> float
+        Returns **pi** times the radius squared, see [pi].
+
+    get kind -> Kind
+
+    static fn unit() -> Circle
+        Returns a circle of [radius] 1.
+--- Kind
+enum Kind
+
+    The kinds of shape.
+
+    round
+        A [Circle].
+
+    angular(corners: int)
+        A [Square], or any other shape with corners.
+
+    get hasCorners -> bool
+        Reports whether the shape has corners; see [angular].
+--- Kind.hasCorners
+get hasCorners -> bool
+
+    Reports whether the shape has corners; see [angular].
+--- describe
+fn describe(shape: Shape, digits: int = 2) -> string
+
+    Returns a line naming the [shape] and its area, rounded to [digits]
+    places; mentions [Triangle], which doesn't exist.
+--- Square.area
+fn area() -> float
+--- pi
+const pi = 3.14159
+
+    The ratio of a circle's circumference to its diameter.

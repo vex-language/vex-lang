@@ -37,6 +37,18 @@ type lexer struct {
 	toks   []Token
 	errs   diag.List
 	interp []interpolation
+	docs   []Doc
+}
+
+// A block of `///` doc comments on consecutive lines, each alone on its
+// line.
+type Doc struct {
+	// The lines of the first and last comment.
+	Line, EndLine int
+
+	// The comment text without the slashes and one following space, its
+	// lines joined with `\n`.
+	Text string
 }
 
 // Returns the tokens of [f], always ending with an [EOF] token.
@@ -44,12 +56,19 @@ type lexer struct {
 // Lexing continues after an error so several problems can be reported at
 // once; the returned error is a [diag.List].
 func Tokenize(f *diag.File) ([]Token, error) {
+	toks, _, err := Scan(f)
+	return toks, err
+}
+
+// Returns the tokens of [f] like [Tokenize], and its doc comments in
+// source order.
+func Scan(f *diag.File) ([]Token, []Doc, error) {
 	l := &lexer{file: f, src: f.Src}
 	l.run()
 	if len(l.errs) > 0 {
-		return l.toks, l.errs
+		return l.toks, l.docs, l.errs
 	}
-	return l.toks, nil
+	return l.toks, l.docs, nil
 }
 
 func (l *lexer) run() {
@@ -228,9 +247,32 @@ func (l *lexer) nextLineStartsWithDot(from int) bool {
 }
 
 func (l *lexer) skipLineComment() {
+	start := l.pos
 	for l.pos < len(l.src) && l.src[l.pos] != '\n' {
 		l.pos++
 	}
+	text := l.src[start:l.pos]
+	if !strings.HasPrefix(text, "///") || strings.HasPrefix(text, "////") || !l.aloneOnLine(start) {
+		return
+	}
+	text = strings.TrimSuffix(strings.TrimPrefix(text[3:], " "), "\r")
+	line := l.file.PosOf(start).Line
+	if n := len(l.docs); n > 0 && l.docs[n-1].EndLine == line-1 {
+		l.docs[n-1].EndLine = line
+		l.docs[n-1].Text += "\n" + text
+		return
+	}
+	l.docs = append(l.docs, Doc{Line: line, EndLine: line, Text: text})
+}
+
+// Reports whether only spaces come before offset [at] on its line.
+func (l *lexer) aloneOnLine(at int) bool {
+	for i := at - 1; i >= 0 && l.src[i] != '\n'; i-- {
+		if c := l.src[i]; c != ' ' && c != '\t' {
+			return false
+		}
+	}
+	return true
 }
 
 // Skips a `/* */` comment, which may nest. A comment spanning lines acts

@@ -59,6 +59,10 @@ type File struct {
 	// Problems that don't stop the program from building, such as a
 	// needless `;`.
 	Warnings diag.List
+
+	// The `///` comment at the top of the file, before any code and not
+	// directly above a declaration, which describes the module.
+	Doc string
 }
 
 // A name, such as a variable, function, field or type name.
@@ -80,6 +84,9 @@ type ExternTypeDecl struct {
 	Pub   bool
 	Name  *Ident
 	CName string
+
+	// The `///` comment above the declaration, without the slashes.
+	Doc string
 }
 
 // A function or method: `fn add(a: int, b: int) -> int { ... }`.
@@ -125,6 +132,9 @@ type FuncDecl struct {
 	// The name of the test this function runs, for the function a
 	// [TestDecl] stands for; empty otherwise.
 	Test string
+
+	// The `///` comment above the declaration, without the slashes.
+	Doc string
 }
 
 // A test block: `test "adds numbers" { ... }`. `vex test` runs it as [Fn],
@@ -188,6 +198,9 @@ type StructDecl struct {
 	// Set for `extension type Name(value: T) { ... }`, a distinct type
 	// whose one field is its whole value.
 	Extension bool
+
+	// The `///` comment above the declaration, without the slashes.
+	Doc string
 }
 
 // A type parameter of a generic function or struct: `T` or
@@ -228,6 +241,9 @@ type Field struct {
 	// Set for `private(set) name: T`, which only the struct's own methods
 	// can change.
 	PrivateSet bool
+
+	// The `///` comment above the declaration, without the slashes.
+	Doc string
 }
 
 // An enum: a value that is one of several cases, each of which may carry
@@ -245,6 +261,9 @@ type EnumDecl struct {
 	Cases      []*EnumCase
 	Methods    []*FuncDecl
 	Consts     []*ConstDecl
+
+	// The `///` comment above the declaration, without the slashes.
+	Doc string
 }
 
 // An extension: `extension string { ... }` adds methods, properties and
@@ -257,6 +276,9 @@ type ExtensionDecl struct {
 	Type       TypeExpr
 	Methods    []*FuncDecl
 	Consts     []*ConstDecl
+
+	// The `///` comment above the declaration, without the slashes.
+	Doc string
 }
 
 // A type alias: `typedef Name = Type`, or with type parameters
@@ -267,6 +289,9 @@ type TypeAliasDecl struct {
 	Name       *Ident
 	TypeParams []*TypeParam
 	Type       TypeExpr
+
+	// The `///` comment above the declaration, without the slashes.
+	Doc string
 }
 
 // A constant: `const name: type = value` at the top level, or `static
@@ -283,6 +308,9 @@ type ConstDecl struct {
 	Name    *Ident
 	Type    TypeExpr
 	Value   Expr
+
+	// The `///` comment above the declaration, without the slashes.
+	Doc string
 }
 
 // An interface: methods and properties that implementing structs and
@@ -300,6 +328,9 @@ type InterfaceDecl struct {
 	// The interfaces it extends: `interface Shape: Drawable`.
 	Supers  []*NamedType
 	Methods []*FuncDecl
+
+	// The `///` comment above the declaration, without the slashes.
+	Doc string
 }
 
 // An enum case: `circle(radius: float)` or `empty`.
@@ -312,6 +343,9 @@ type EnumCase struct {
 
 	// The raw value written after `=`, as in `red = 1`, or nil.
 	Value Expr
+
+	// The `///` comment above the declaration, without the slashes.
+	Doc string
 }
 
 func (*FuncDecl) declNode()       {}

@@ -141,6 +141,8 @@ vex test                    # run the tests of the project in this folder
 vex run hello.vx            # compile and run
 vex build hello.vx -o hello # build a standalone native binary
 vex emit-c hello.vx         # print the generated C
+vex doc                     # write HTML API docs from /// comments to doc/
+vex doc vex:json Json       # print one declaration's signature and docs
 vex run                     # run the project in this folder (with a package.toml)
 vex run app.vx one two      # arguments after the program go to it (os.args())
 vex build --debug app.vx    # -O0 -g, keeping the generated C as app.c for a debugger
@@ -566,7 +568,7 @@ go test ./compiler/codegen ./tests
 | Phase | Version | Goal | State |
 |---|---|---|---|
 | 1 | v0.1 | Core language: lexer, parser, type checker, C backend, CLI | Done |
-| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await and streams, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 74 of 89 tasks; next are the P1 items |
+| 2 | v0.2 | Enums and `match`, optionals, errors, closures, generics, interfaces, maps, modules, C interop, async/await and streams, isolates, records, patterns, constants, type aliases, multi-line and raw strings, extensions, tear-offs, operator overloading, builder blocks, properties, standard library | In progress: 75 of 89 tasks; next are the P1 items |
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |
