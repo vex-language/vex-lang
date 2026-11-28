@@ -14,6 +14,7 @@ import (
 	"github.com/vex-language/vex-lang/compiler/cc"
 	"github.com/vex-language/vex-lang/compiler/codegen"
 	"github.com/vex-language/vex-lang/compiler/modules"
+	"github.com/vex-language/vex-lang/compiler/packages"
 	"github.com/vex-language/vex-lang/compiler/types"
 )
 
@@ -21,13 +22,17 @@ import (
 // folder, reporting any problems to [stderr]. Returns the exit code to
 // use when it fails.
 func load(target string, stderr io.Writer) (*modules.Program, *types.Info, int) {
-	return loadWith(modules.Load, target, stderr)
+	return loadWith(false, target, stderr)
 }
 
-// Loads and checks the program at [target] with [loadFn], which is
-// [modules.Load] or [modules.LoadTests].
-func loadWith(loadFn func(string) (*modules.Program, error), target string, stderr io.Writer) (*modules.Program, *types.Info, int) {
-	prog, err := loadFn(target)
+// Loads and checks the program at [target] like [load], with its tests
+// when [tests] is set.
+func loadWith(tests bool, target string, stderr io.Writer) (*modules.Program, *types.Info, int) {
+	pkgs, err := packages.Resolve(target, stderr)
+	if err != nil {
+		return nil, nil, report(nil, err, stderr)
+	}
+	prog, err := modules.LoadWith(target, modules.Options{Tests: tests, Packages: pkgs})
 	if prog != nil {
 		warn(prog.Warnings(), stderr)
 	}
@@ -46,11 +51,11 @@ func loadWith(loadFn func(string) (*modules.Program, error), target string, stde
 // Translates the program at [target] to C. Returns the exit code to use
 // when it fails.
 func translate(target string, stderr io.Writer) (string, *modules.Program, int) {
-	return translateWith(modules.Load, target, stderr)
+	return translateWith(false, target, stderr)
 }
 
-func translateWith(loadFn func(string) (*modules.Program, error), target string, stderr io.Writer) (string, *modules.Program, int) {
-	prog, info, code := loadWith(loadFn, target, stderr)
+func translateWith(tests bool, target string, stderr io.Writer) (string, *modules.Program, int) {
+	prog, info, code := loadWith(tests, target, stderr)
 	if code != exitOK {
 		return "", nil, code
 	}
@@ -280,7 +285,7 @@ func runTest(args []string, stdout, stderr io.Writer) int {
 		fs.Usage()
 		return exitUsage
 	}
-	src, prog, code := translateWith(modules.LoadTests, target(files), stderr)
+	src, prog, code := translateWith(true, target(files), stderr)
 	if code != exitOK {
 		return code
 	}
