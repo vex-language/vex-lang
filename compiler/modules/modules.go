@@ -551,6 +551,18 @@ func safeName(s string) string {
 	return s
 }
 
+// Returns the names of the standard library's modules, such as `json`.
+func StdModules() []string {
+	var names []string
+	all, _ := fs.ReadDir(stdFS, "std")
+	for _, e := range all {
+		if e.IsDir() {
+			names = append(names, e.Name())
+		}
+	}
+	return names
+}
+
 // Reports whether the standard library has a module called [name].
 func IsStd(name string) bool {
 	if !validName.MatchString(name) {
