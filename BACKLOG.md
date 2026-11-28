@@ -161,7 +161,7 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-171** `Set<T>` of Hashable values, with literals, `insert`, `remove`, `contains`, `union`, `intersection` and `subtracting` (M)
 - [x] **V-172** Map helpers: `isEmpty`, `getOrPut`, `update`, `filter`, `mapValues`, `entries` (S)
 - [x] **V-173** String helpers: `isEmpty`, `lastIndexOf`, `count`, a `split` limit, `padStart`/`padEnd`, `reversed`, `capitalize`, and `vex:strings` functions as methods (S)
-- [ ] **V-174** Format specs in interpolation: `"{x:.2}"`, `"{n:04}"`, `"{n:x}"` (M)
+- [x] **V-174** Format specs in interpolation: `"{x:.2}"`, `"{n:04}"`, `"{n:x}"` (M)
 - [ ] **V-175** Standard library: `vex:random`, `vex:datetime` (`now`, `Duration`, ISO 8601, calendar fields), `eprintln` and `os.stderr`, and `vex:regex` (L)
 
 ---
