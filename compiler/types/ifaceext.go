@@ -11,7 +11,11 @@ import (
 // signatures are resolved once the interfaces' own members are.
 func (c *checker) declareIfaceExt(d *ast.ExtensionDecl, i *Interface) {
 	if i.generic != nil || i.Args != nil {
-		c.errorAt(d.Type, "give the interface a default method instead", "extensions of generic interfaces aren't supported yet")
+		name := i.Base
+		if name == "" {
+			name = i.Name
+		}
+		c.errorAt(d.Type, fmt.Sprintf("write extension %s { ... }; its methods can use the interface's own type parameters", name), "an extension of a generic interface names it without type arguments")
 		return
 	}
 	if len(d.Consts) > 0 {
