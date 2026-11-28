@@ -105,7 +105,7 @@ func (r *ranges) of(e ast.Expr) interval {
 				}
 			}
 			switch r.info.Types[e.X].(type) {
-			case *types.List, *types.Map:
+			case *types.List, *types.Map, *types.Set:
 				return interval{0, math.MaxInt64}
 			}
 		}

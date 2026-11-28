@@ -411,7 +411,7 @@ func ctype(t types.Type) string {
 	switch t := t.(type) {
 	case *types.List:
 		return "vx_list *"
-	case *types.Map:
+	case *types.Map, *types.Set:
 		return "vx_map *"
 	case *types.Interface, *types.Handle:
 		return "void *"
@@ -489,6 +489,8 @@ func mangle(t types.Type) string {
 		return "L_" + mangle(t.Elem)
 	case *types.Map:
 		return "M_" + mangle(t.Key) + "_" + mangle(t.Value)
+	case *types.Set:
+		return "Q_" + mangle(t.Elem)
 	case *types.Interface:
 		return ifaceName(t)
 	case *types.Struct:
@@ -728,6 +730,11 @@ func (g *gen) needRepr(t types.Type) {
 			g.needRepr(t.Key)
 			g.needRepr(t.Value)
 		}
+	case *types.Set:
+		if _, ok := g.reprs[mangle(t)]; !ok {
+			g.reprs[mangle(t)] = t
+			g.needRepr(t.Elem)
+		}
 	case *types.Interface:
 		g.reprs[mangle(t)] = t
 	case *types.Struct:
@@ -774,7 +781,7 @@ func (g *gen) reprNames() []string {
 // strings quoted.
 func repr(t types.Type, x string) string {
 	switch t := t.(type) {
-	case *types.List, *types.Map, *types.Struct, *types.Enum, *types.Optional, *types.Interface, *types.Record:
+	case *types.List, *types.Map, *types.Set, *types.Struct, *types.Enum, *types.Optional, *types.Interface, *types.Record:
 		return fmt.Sprintf("repr_%s(%s)", mangle(t), x)
 	case *types.FuncType:
 		return "VX_LIT(" + cQuote("<"+t.String()+">") + ")"
@@ -878,6 +885,8 @@ func (g *gen) repr(name string, t types.Type) {
 		g.line("    (*(const vx_desc **)v)->wr(b, v);")
 	case *types.Record:
 		g.recordRepr(t)
+	case *types.Set:
+		g.setRepr(t)
 	case *types.Map:
 		g.line("    if (v->len == 0) {")
 		g.line("        vx_buf_add(b, VX_LIT(\"[:]\"));")
@@ -1277,6 +1286,10 @@ func (g *gen) forStmt(s *ast.ForStmt) {
 	// loop can't make it endless; removed items end it early.
 	if m, ok := g.info.Types[s.Iter].(*types.Map); ok {
 		g.mapLoop(s, m)
+		return
+	}
+	if set, ok := g.info.Types[s.Iter].(*types.Set); ok {
+		g.setLoop(s, set)
 		return
 	}
 	elem := g.info.Defs[s.Elem]
@@ -1805,6 +1818,9 @@ func (g *gen) value(e ast.Expr) string {
 	case *ast.TypeTest:
 		return g.typeTest(e)
 	case *ast.ListLit:
+		if s, ok := t.(*types.Set); ok {
+			return g.setLit(e, s)
+		}
 		if e.Body != nil {
 			return g.collection(e, e.Body, t)
 		}
@@ -1980,6 +1996,9 @@ func (g *gen) value(e ast.Expr) string {
 				return "((" + x + ").len == 0)"
 			}
 			return "vx_str_len(" + x + ")"
+		}
+		if _, ok := g.info.Types[e.X].(*types.Set); ok && m.Builtin == "isEmpty" {
+			return "(" + x + "->len == 0)"
 		}
 		if g.info.Types[e.X] == types.Range {
 			switch m.Builtin {
@@ -2231,6 +2250,8 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 			return g.timeoutCall(e, c)
 		case "Channel":
 			return "vx_chan_new()"
+		case "Set":
+			return g.newSetCall(e, c)
 		case "StreamController":
 			return "vx_stream_new(" + valueSize(g.info.Types[e].(*types.Stream).Elem) + ")"
 		}
@@ -2350,6 +2371,9 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 				return "vx_range_reversed(" + cs[0] + ")"
 			}
 			return fmt.Sprintf("vx_range_list(%s, %d)", cs[0], line)
+		}
+		if s, ok := recv.(*types.Set); ok {
+			return g.setCall(e, c, s, cs, line)
 		}
 		if m, ok := recv.(*types.Map); ok {
 			k := g.temp()

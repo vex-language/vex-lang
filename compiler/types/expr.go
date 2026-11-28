@@ -92,6 +92,9 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		}
 		return c.mapLit(e, want)
 	case *ast.ListLit:
+		if s, ok := want.(*Set); ok {
+			return c.setLit(e, s)
+		}
 		if e.Body != nil {
 			return c.collection(e, e.Body, want, false)
 		}
@@ -547,7 +550,7 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 		return c.binaryOperator(e, en)
 	}
 	switch x.(type) {
-	case *Struct, *List, *Map, *Optional:
+	case *Struct, *List, *Map, *Set, *Optional:
 		if equality {
 			operandWant = x
 		}
@@ -750,6 +753,8 @@ func comparable(t Type) bool {
 		return comparable(t.Elem)
 	case *Map:
 		return comparable(t.Value)
+	case *Set:
+		return true
 	case *Optional:
 		return comparable(t.Elem)
 	case *TypeParam:
@@ -1028,6 +1033,18 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		case "entries":
 			c.info.Members[e] = &Member{Builtin: "entries"}
 			return &List{Elem: mapEntry(x)}
+		}
+	case *Set:
+		switch name {
+		case "len":
+			c.info.Members[e] = &Member{Builtin: "len"}
+			return Int
+		case "isEmpty":
+			c.info.Members[e] = &Member{Builtin: "isEmpty"}
+			return Bool
+		case "size", "count", "length":
+			c.errorAt(e.Name, "read .len", "%s has no member '%s'", x, name)
+			return Invalid
 		}
 	}
 	if x == String {

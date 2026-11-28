@@ -774,6 +774,10 @@ func (c *checker) typeOf(te ast.TypeExpr) Type {
 			c.errorAt(te, "write its value type, e.g. Channel<int>", "Channel needs a type argument")
 			return Invalid
 		}
+		if te.Name == "Set" && c.builtinSet() {
+			c.errorAt(te, "write its element type, e.g. Set<int>", "Set needs a type argument")
+			return Invalid
+		}
 		if streamName(te.Name) && c.structs[te.Name] == nil && c.enums[te.Name] == nil && c.interfaces[te.Name] == nil && c.handles[te.Name] == nil {
 			c.errorAt(te, "write its value type, e.g. "+te.Name+"<int>", "%s needs a type argument", te.Name)
 			return Invalid
@@ -992,6 +996,9 @@ func (c *checker) genericType(te *ast.NamedType) Type {
 	}
 	if streamName(te.Name) && c.genStructs[te.Name] == nil && c.genEnums[te.Name] == nil && c.genIfaces[te.Name] == nil {
 		return c.streamType(te, te.Name, te.Args)
+	}
+	if te.Name == "Set" && c.builtinSet() {
+		return c.setType(te, te.Args)
 	}
 	args := c.typeArgs(te)
 	if g := c.genEnums[te.Name]; g != nil {
@@ -1517,6 +1524,11 @@ func (c *checker) forLoop(s *ast.ForStmt, body func()) {
 		switch t := t.(type) {
 		case *List:
 			elem = t.Elem
+		case *Set:
+			elem = t.Elem
+			if s.Index != nil {
+				c.errorAt(s.Index, "write for x in set", "a set has no index")
+			}
 		case *Map:
 			if s.Pattern != nil {
 				c.errorAt(s.Pattern, "write for key, value in map", "a map loop takes the key and the value as two names, not a pattern")

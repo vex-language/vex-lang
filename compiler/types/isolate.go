@@ -70,6 +70,8 @@ func unsendable(t Type, seen map[Type]bool) string {
 			return bad
 		}
 		return unsendable(t.Value, seen)
+	case *Set:
+		return unsendable(t.Elem, seen)
 	case *Optional:
 		return unsendable(t.Elem, seen)
 	case *Channel:

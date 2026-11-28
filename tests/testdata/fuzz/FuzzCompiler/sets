@@ -1,0 +1,2 @@
+go test fuzz v1
+string("fn main() {\n    var s: Set<string> = [\"b\", \"a\"]\n    s.insert(\"c\")\n    s.remove(\"b\")\n    let t = Set([1, 2, 2]).union([3]).intersection(Set([2, 3])).subtracting([3])\n    println(s, s.len, s.isEmpty, s.contains(\"a\"), t, t.isSubset(of: [2]), t == [2], t.toList())\n    for x in s { print(x) }\n}\n")

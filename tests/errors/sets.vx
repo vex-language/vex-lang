@@ -1,0 +1,48 @@
+/// Misused sets: items that can't be hashed, wrong items and members.
+struct P {
+    x: int
+}
+
+const small: Set<int> = [1, 2]
+
+fn main() {
+    let a: Set<float> = [1.5]
+    let b: Set<P> = []
+    let c: Set = [1]
+    let d = Set<int, string>()
+    let e = Set()
+    let f: Set<int> = [1, 2, 1]
+    var s = Set([1, 2])
+    s.add(3)
+    s.insert("x")
+    println(s.union(["a"]), s.intersection(5), s.isSubset([1]), s.subtracting(other: [1]))
+    println(s[0], s.size, s.len())
+    for i, x in s { }
+    small.insert(3)
+    let g = Set(1, 2)
+    let h = Set([1.5])
+    let xs = [1]
+    println(s == xs, s < s)
+}
+
+// error: 9:16: float can't be in a set
+// error: 10:16: P can't be in a set
+// error: 11:12: Set needs a type argument
+// error: 12:13: Set takes 1 type argument, found 2
+// error: 13:13: can't tell what the set holds
+// error: 14:30: value 1 is already in this set on line 14
+// error: 16:7: Set<int> has no method 'add'
+// error: 17:14: argument 'value': expected int, found string
+// error: 18:22: list item 1: expected int, found string
+// error: 18:44: intersection needs a set or a list, found int
+// error: 18:59: isSubset needs the label 'of:'
+// error: 18:79: subtracting has no parameter 'other'
+// error: 19:13: can't index a value of type Set<int>
+// error: 19:21: Set<int> has no member 'size'
+// error: 19:29: len is a property, not a method
+// error: 20:9: a set has no index
+// error: 21:5: can't change a constant set: 'small' is constant
+// error: 22:13: Set takes one list without a label
+// error: 23:17: float can't be in a set
+// error: 25:13: can't compare Set<int> with [int]
+// error: 25:22: values of type Set<int> can't be ordered with <

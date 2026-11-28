@@ -790,6 +790,8 @@ func (c *checker) substType(t Type, bound map[*TypeParam]Type) Type {
 		return &List{Elem: c.substType(t.Elem, bound)}
 	case *Map:
 		return &Map{Key: c.substType(t.Key, bound), Value: c.substType(t.Value, bound)}
+	case *Set:
+		return &Set{Elem: c.substType(t.Elem, bound)}
 	case *Optional:
 		return optionalOf(c.substType(t.Elem, bound))
 	case *Future:

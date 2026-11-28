@@ -147,6 +147,8 @@ func keyHint(t Type) string {
 		return fmt.Sprintf("list Hashable on it: struct %s: Hashable", t.Name)
 	case *Enum:
 		return fmt.Sprintf("list Hashable on it: enum %s: Hashable", t.Name)
+	case *TypeParam:
+		return fmt.Sprintf("require it: <%s: Hashable>", t.Name)
 	}
 	return "use int, string, bool, a record of those, or a struct or enum that lists Hashable"
 }
@@ -171,7 +173,7 @@ func (c *checker) ownHashWithParams() bool {
 // Reports whether values of [t] are references, which `===` can compare.
 func reference(t Type) bool {
 	switch t := t.(type) {
-	case *Struct, *List, *Map, *Interface, *Handle:
+	case *Struct, *List, *Map, *Set, *Interface, *Handle:
 		return true
 	case *Enum:
 		return !t.Simple()

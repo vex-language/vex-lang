@@ -1934,6 +1934,74 @@ static vx_map *vx_map_copy(vx_map *src) {
     return m;
 }
 
+// --- Sets ---
+
+// A set is a map whose entries have keys and no values.
+
+// Returns a new, empty set that hashes and compares like [s].
+static vx_map *vx_set_like(vx_map *s) {
+    vx_map *m = vx_map_new(s->kind, s->ksz, 0);
+    m->khash = s->khash;
+    m->keq = s->keq;
+    return m;
+}
+
+// Adds every item of [l] to [s], in order, and returns [s].
+static vx_map *vx_set_add_list(vx_map *s, vx_list *l) {
+    for (int64_t i = 0; i < l->len; i++) vx_map_set(s, (char *)l->data + (size_t)i * (size_t)s->ksz);
+    return s;
+}
+
+// Returns [s], failing at [line] if it is part of a constant.
+static inline vx_map *vx_set_mut(vx_map *s, int line) {
+    if (__builtin_expect(s->frozen, 0)) vx_fail(line, "can't change a constant set; change a copy made with .copy()");
+    return s;
+}
+
+// Adds [x] to [s]. Returns false if it was already there.
+static inline bool vx_set_insert(vx_map *s, const void *x) {
+    int64_t n = s->len;
+    vx_map_set(s, x);
+    return s->len != n;
+}
+
+// Removes [x] from [s]. Returns false if it wasn't there.
+static inline bool vx_set_remove(vx_map *s, const void *x) {
+    char none;
+    return vx_map_remove(s, x, &none);
+}
+
+// Returns the items of [a] that are in [b] when [keep] is set, or that
+// aren't when it is clear, in the order of [a].
+static vx_map *vx_set_filter(vx_map *a, vx_map *b, bool keep) {
+    vx_map *m = vx_set_like(a);
+    for (int64_t i = 0; i < a->used; i++) {
+        char *e = VX_MAP_ENTRY(a, i);
+        if (VX_MAP_SEQ(e) != 0 && (vx_map_find(b, e + VX_MAP_KEY) != NULL) == keep) vx_map_set(m, e + VX_MAP_KEY);
+    }
+    return m;
+}
+
+static vx_map *vx_set_union(vx_map *a, vx_map *b) {
+    vx_map *m = vx_map_copy(a);
+    vx_map_merge(m, b);
+    return m;
+}
+
+// Reports whether every item of [a] is in [b].
+static bool vx_set_subset(vx_map *a, vx_map *b) {
+    if (a->len > b->len) return false;
+    for (int64_t i = 0; i < a->used; i++) {
+        char *e = VX_MAP_ENTRY(a, i);
+        if (VX_MAP_SEQ(e) != 0 && !vx_map_find(b, e + VX_MAP_KEY)) return false;
+    }
+    return true;
+}
+
+static inline bool vx_set_eq(vx_map *a, vx_map *b) {
+    return a == b || (a->len == b->len && vx_set_subset(a, b));
+}
+
 // --- Conversions ---
 
 // Returns how a value of a C type called [name] at [p] is shown.

@@ -91,6 +91,9 @@ func (g *gen) toJSONFunc(t types.Type) string {
 	case *types.List:
 		fmt.Fprintf(&b, "vx_list *l = vx_list_new(sizeof(%s), 0, NULL); for (int64_t i = 0; i < v->len; i++) { %s x = %s; vx_list_push(l, &x); } return %s;",
 			jt, jt, g.toJSON(t.Elem, fmt.Sprintf("((%s*)v->data)[i]", ctype(t.Elem))), g.jsonCase("list", "l"))
+	case *types.Set:
+		fmt.Fprintf(&b, "vx_list *l = vx_list_new(sizeof(%s), 0, NULL); vx_map_iter it = vx_map_iter_new(v); for (char *e; (e = vx_map_next(v, &it));) { %s x = %s; vx_list_push(l, &x); } return %s;",
+			jt, jt, g.toJSON(t.Elem, fmt.Sprintf("*(%s*)(e + VX_MAP_KEY)", ctype(t.Elem))), g.jsonCase("list", "l"))
 	case *types.Map:
 		fmt.Fprintf(&b, "vx_map *m = %s; vx_map_iter it = vx_map_iter_new(v); for (char *e; (e = vx_map_next(v, &it));) { %s x = %s; *(%s*)vx_map_set(m, e + VX_MAP_KEY) = x; } return %s;",
 			newObject(jt), jt, g.toJSON(t.Value, fmt.Sprintf("*(%s*)(e + v->voff)", ctype(t.Value))), jt, g.jsonCase("object", "m"))
@@ -226,6 +229,21 @@ func (g *gen) fromJSONFunc(t types.Type) string {
 		g.line("    vx_list_push(l, &x);")
 		g.line("}")
 		g.line("return l;")
+	case *types.Set:
+		g.line("if (!(%s)) {", is("list"))
+		g.ind++
+		want("a list")
+		g.ind--
+		g.line("}")
+		g.line("vx_list *src = j->u.c_list.f_items;")
+		g.line("vx_map *s = %s;", g.newSet(t))
+		g.line("for (int64_t i = 0; i < src->len; i++) {")
+		g.line("    vx_jpath q = {p, {NULL, 0}, i};")
+		g.line("    %s = %s(((%s*)src->data)[i], &q, vx_err);", decl(t.Elem, "x"), g.fromJSONFunc(t.Elem), jt)
+		g.line("    if (*vx_err) return NULL;")
+		g.line("    vx_map_set(s, &x);")
+		g.line("}")
+		g.line("return s;")
 	case *types.Map:
 		g.line("if (!(%s)) {", is("object"))
 		g.ind++
