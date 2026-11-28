@@ -10,7 +10,7 @@ async fn fetch(name: string, ms: int) -> string {
 }
 
 async fn failing() throws -> int {
-    await time.sleep(20)
+    await time.sleep(500)
     throw Error("broken")
 }
 
