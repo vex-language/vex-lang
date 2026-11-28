@@ -836,7 +836,7 @@ func repr(t types.Type, x string) string {
 // Returns a C statement that writes [x] as in [repr] to the buffer [b].
 func write(t types.Type, b, x string) string {
 	switch t.(type) {
-	case *types.List, *types.Map, *types.Struct, *types.Enum, *types.Optional, *types.Interface, *types.Record:
+	case *types.List, *types.Map, *types.Set, *types.Struct, *types.Enum, *types.Optional, *types.Interface, *types.Record:
 		return fmt.Sprintf("wr_%s(%s, %s);", mangle(t), b, x)
 	}
 	switch t {
@@ -2355,15 +2355,20 @@ func (g *gen) builtin(c *types.Call, result types.Type, line int) string {
 			return fallback
 		}
 		switch c.Builtin {
-		case "print", "println":
+		case "print", "println", "eprint", "eprintln":
+			fn := "vx_print"
+			if c.Builtin[0] == 'e' {
+				fn = "vx_eprint"
+			}
+			newline := strings.HasSuffix(c.Builtin, "ln")
 			if len(cs) == 0 {
-				return fmt.Sprintf("vx_print(%t, 0, NULL)", c.Builtin == "println")
+				return fmt.Sprintf("%s(%t, 0, NULL)", fn, newline)
 			}
 			parts := make([]string, len(cs))
 			for i, x := range cs {
 				parts[i] = show(g.info.Types[c.Args[i]], x)
 			}
-			return fmt.Sprintf("vx_print(%t, %d, (vx_str[]){%s})", c.Builtin == "println", len(parts), strings.Join(parts, ", "))
+			return fmt.Sprintf("%s(%t, %d, (vx_str[]){%s})", fn, newline, len(parts), strings.Join(parts, ", "))
 		case "input":
 			return "vx_input(" + arg(0, `VX_LIT("")`) + ")"
 		case "panic":

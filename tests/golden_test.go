@@ -69,8 +69,9 @@ func stressInterval(path string) string {
 }
 
 // Runs each examples/NAME.vx and run/NAME.vx with NAME.in as input, if
-// present, and compares what it prints with NAME.out, also while the
-// collector runs far more often than usual.
+// present, and compares what it prints with NAME.out, and with NAME.err
+// for standard error, also while the collector runs far more often than
+// usual.
 func TestExamples(t *testing.T) {
 	if _, err := cc.Command(); err != nil {
 		t.Skip(err)
@@ -114,6 +115,11 @@ func TestExamples(t *testing.T) {
 				if err := os.WriteFile(base+".out", got, 0o644); err != nil {
 					t.Fatal(err)
 				}
+				if stderr.Len() > 0 {
+					if err := os.WriteFile(base+".err", stderr.Bytes(), 0o644); err != nil {
+						t.Fatal(err)
+					}
+				}
 				return
 			}
 			want, err := os.ReadFile(base + ".out")
@@ -122,6 +128,11 @@ func TestExamples(t *testing.T) {
 			}
 			if !bytes.Equal(got, want) {
 				t.Errorf("output differs from %s.out\n--- got\n%s--- want\n%s", name, got, want)
+			}
+			// NAME.err, when present, holds what the program writes to
+			// standard error.
+			if wantErr, err := os.ReadFile(base + ".err"); err == nil && !bytes.Equal(stderr.Bytes(), wantErr) {
+				t.Errorf("standard error differs from %s.err\n--- got\n%s--- want\n%s", name, stderr.Bytes(), wantErr)
 			}
 
 			stress := exec.Command(exe)

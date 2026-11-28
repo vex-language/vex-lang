@@ -1013,6 +1013,43 @@ static int64_t vx_time_ns(void) {
 // Seconds since 1970-01-01 UTC.
 static int64_t vx_time_unix(void) { return (int64_t)time(NULL); }
 
+// Microseconds since 1970-01-01 UTC, for vex:datetime.
+static int64_t vx_datetime_now(void) {
+    struct timespec ts;
+    clock_gettime(CLOCK_REALTIME, &ts);
+    return (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+}
+
+// Returns how many seconds the local time zone is ahead of UTC at
+// [seconds] after 1970-01-01 UTC. TZ is read again each time, so changes
+// to it take effect.
+static int64_t vx_datetime_offset(int64_t seconds) {
+    tzset();
+    time_t t = (time_t)seconds;
+    struct tm tm;
+    if (!localtime_r(&t, &tm)) return 0;
+    return (int64_t)tm.tm_gmtoff;
+}
+
+// Returns 64 bits from the operating system's random source, to seed an
+// isolate's generator in vex:random.
+static int64_t vx_random_seed(void) {
+    uint64_t seed = 0;
+#if defined(__APPLE__)
+    arc4random_buf(&seed, sizeof seed);
+#else
+    FILE *f = fopen("/dev/urandom", "rb");
+    bool ok = f && fread(&seed, sizeof seed, 1, f) == 1;
+    if (f) fclose(f);
+    if (!ok) {
+        struct timespec ts;
+        clock_gettime(CLOCK_REALTIME, &ts);
+        seed = (uint64_t)ts.tv_sec * 1000000007u ^ (uint64_t)ts.tv_nsec ^ (uint64_t)(uintptr_t)&seed;
+    }
+#endif
+    return (int64_t)seed;
+}
+
 static vx_str vx_str_concat(vx_str a, vx_str b) {
     if (a.len == 0) return b;
     if (b.len == 0) return a;
@@ -2654,6 +2691,17 @@ static void vx_print(bool newline, int n, const vx_str *parts) {
     if (newline) fputc('\n', stdout);
 }
 
+// Prints like vx_print, to standard error. Standard output is flushed
+// first, so the two keep their order in a terminal.
+static void vx_eprint(bool newline, int n, const vx_str *parts) {
+    fflush(stdout);
+    for (int i = 0; i < n; i++) {
+        if (i > 0) fputc(' ', stderr);
+        fwrite(parts[i].ptr, 1, (size_t)parts[i].len, stderr);
+    }
+    if (newline) fputc('\n', stderr);
+}
+
 // Reads one line from standard input without its line break; "" at the end
 // of input.
 static vx_str vx_input(vx_str prompt) {
@@ -2716,6 +2764,18 @@ static int vx_argc;
 static char **vx_argv;
 
 static const char *vx_os_error(void) { return strerror(vx_errno); }
+
+// Writes [text] to standard output when [fd] is 1, or standard error.
+static void vx_os_write(int64_t fd, vx_str text) {
+    if (fd == 1) {
+        vx_write(text);
+        return;
+    }
+    fflush(stdout);
+    fwrite(text.ptr, 1, (size_t)text.len, stderr);
+}
+
+static void vx_os_flush(int64_t fd) { fflush(fd == 1 ? stdout : stderr); }
 
 // Returns the bytes of the file at [path], or a string with a null pointer
 // on failure.
@@ -3227,6 +3287,860 @@ static const char *vx_os_output(const char *cmd) {
 }
 
 static int64_t vx_os_status_of_last(void) { return vx_os_last_status; }
+
+// --- Regular expressions ---
+//
+// The engine behind vex:regex. A pattern is parsed into a tree, compiled
+// to a program, and run by a backtracking matcher that remembers which
+// (instruction, position) pairs already failed, so matching takes time
+// proportional to the program's size times the text's length. Matches
+// prefer the leftmost start, then the first alternative, as in Perl.
+
+enum { VX_RN_CHAR, VX_RN_ANY, VX_RN_CLASS, VX_RN_BOL, VX_RN_EOL, VX_RN_WORDB, VX_RN_NWORDB,
+       VX_RN_GROUP, VX_RN_CAT, VX_RN_ALT, VX_RN_REPEAT, VX_RN_EMPTY };
+
+enum { VX_RE_CHAR, VX_RE_ANY, VX_RE_CLASS, VX_RE_BOL, VX_RE_EOL, VX_RE_WORDB, VX_RE_NWORDB,
+       VX_RE_SPLIT, VX_RE_JMP, VX_RE_SAVE, VX_RE_MATCH };
+
+// The most a counted repeat may ask for, and the longest program.
+#define VX_RE_MAX_REPEAT 1000
+#define VX_RE_MAX_PROG 100000
+
+typedef struct {
+    int kind;
+    int a, b;          // children; for a class, its first range and count
+    int min, max;      // repeat counts, max -1 for no limit; a group's number, -1 if it captures nothing
+    bool greedy, neg;
+    uint32_t c;
+} vx_re_node;
+
+typedef struct {
+    uint8_t op;
+    bool neg;
+    int32_t x, y;      // jump targets; a class's first range and count; a save's slot
+    uint32_t c;
+} vx_re_inst;
+
+typedef struct {
+    vx_re_inst *code;
+    int n, cap;
+    uint32_t *ranges;  // pairs of lowest and highest code point
+    int nranges;
+    int groups;        // capturing groups, not counting the whole match
+    char **names;      // the name of each group from 1, or NULL
+    bool icase;
+} vx_re_prog;
+
+typedef struct {
+    const char *p;
+    int64_t n, i;
+    vx_re_node *nodes;
+    int nn, ncap;
+    uint32_t *ranges;
+    int nr, rcap;
+    int groups;
+    char **names;
+    int names_cap;
+    bool icase;
+    bool failed;
+    char err[200];
+} vx_re_parser;
+
+static VX_TLS char vx_re_err[256];
+
+// Returns the character index of byte [i] of the pattern, for messages.
+static int64_t vx_re_column(vx_re_parser *ps, int64_t i) {
+    vx_str s = {ps->p, ps->n};
+    int64_t col = 0;
+    for (int64_t b = 0; b < i && b < ps->n; b += vx_utf8_width(s, b)) col++;
+    return col;
+}
+
+static int vx_re_fail(vx_re_parser *ps, int64_t at, const char *fmt, ...) {
+    if (ps->failed) return -1;
+    ps->failed = true;
+    char msg[160];
+    va_list ap;
+    va_start(ap, fmt);
+    vsnprintf(msg, sizeof msg, fmt, ap);
+    va_end(ap);
+    snprintf(ps->err, sizeof ps->err, "%s at character %" PRId64, msg, vx_re_column(ps, at));
+    return -1;
+}
+
+static int vx_re_node_new(vx_re_parser *ps, int kind) {
+    if (ps->nn == ps->ncap) {
+        ps->ncap = ps->ncap ? ps->ncap * 2 : 32;
+        ps->nodes = realloc(ps->nodes, (size_t)ps->ncap * sizeof(vx_re_node));
+        if (!ps->nodes) abort();
+    }
+    ps->nodes[ps->nn] = (vx_re_node){.kind = kind, .a = -1, .b = -1, .min = -1, .max = -1, .greedy = true};
+    return ps->nn++;
+}
+
+static int vx_re_pair(vx_re_parser *ps, int kind, int a, int b) {
+    if (a < 0) return b;
+    if (b < 0) return a;
+    int n = vx_re_node_new(ps, kind);
+    ps->nodes[n].a = a;
+    ps->nodes[n].b = b;
+    return n;
+}
+
+static void vx_re_range(vx_re_parser *ps, uint32_t lo, uint32_t hi) {
+    if (ps->nr + 2 > ps->rcap) {
+        ps->rcap = ps->rcap ? ps->rcap * 2 : 32;
+        ps->ranges = realloc(ps->ranges, (size_t)ps->rcap * sizeof(uint32_t));
+        if (!ps->ranges) abort();
+    }
+    ps->ranges[ps->nr++] = lo;
+    ps->ranges[ps->nr++] = hi;
+}
+
+// Returns the code point at byte [*i] of the pattern and moves past it.
+static uint32_t vx_re_decode(const char *p, int64_t n, int64_t *i) {
+    vx_str s = {p, n};
+    int64_t w = vx_utf8_width(s, *i);
+    unsigned char c = (unsigned char)p[*i];
+    uint32_t cp = c;
+    if (w == 2) cp = c & 0x1F;
+    else if (w == 3) cp = c & 0x0F;
+    else if (w == 4) cp = c & 0x07;
+    for (int64_t k = 1; k < w; k++) cp = (cp << 6) | ((unsigned char)p[*i + k] & 0x3F);
+    *i += w;
+    return cp;
+}
+
+// Adds the ranges of the class escape [c] (d, w or s, in either case),
+// negated for the capital letters inside a bracket class.
+static void vx_re_class_escape(vx_re_parser *ps, char c) {
+    switch (c | 0x20) {
+    case 'd':
+        vx_re_range(ps, '0', '9');
+        break;
+    case 'w':
+        vx_re_range(ps, '0', '9');
+        vx_re_range(ps, 'A', 'Z');
+        vx_re_range(ps, '_', '_');
+        vx_re_range(ps, 'a', 'z');
+        break;
+    case 's':
+        vx_re_range(ps, '\t', '\r');
+        vx_re_range(ps, ' ', ' ');
+        break;
+    }
+}
+
+// Adds the complement of the ranges from [start] on, which are sorted.
+static void vx_re_complement(vx_re_parser *ps, int start) {
+    int end = ps->nr;
+    uint32_t next = 0;
+    for (int k = start; k < end; k += 2) {
+        if (ps->ranges[k] > next) vx_re_range(ps, next, ps->ranges[k] - 1);
+        next = ps->ranges[k + 1] + 1;
+    }
+    vx_re_range(ps, next, 0x10FFFF);
+    memmove(ps->ranges + start, ps->ranges + end, (size_t)(ps->nr - end) * sizeof(uint32_t));
+    ps->nr -= end - start;
+}
+
+// Reads the escape after a backslash at [*i] that stands for one
+// character, or returns false for an unknown one.
+static bool vx_re_char_escape(vx_re_parser *ps, uint32_t *out) {
+    char c = ps->p[ps->i];
+    static const char map[][2] = {{'n', '\n'}, {'t', '\t'}, {'r', '\r'}, {'f', '\f'}, {'v', '\v'}, {'0', 0}};
+    for (size_t k = 0; k < sizeof map / sizeof map[0]; k++) {
+        if (map[k][0] == c) {
+            *out = (uint32_t)map[k][1];
+            ps->i++;
+            return true;
+        }
+    }
+    if ((unsigned char)c < 0x80 && !isalnum((unsigned char)c)) {
+        *out = (uint32_t)c;
+        ps->i++;
+        return true;
+    }
+    return false;
+}
+
+// Parses a bracket class; [*i] is just past the [.
+static int vx_re_parse_class(vx_re_parser *ps) {
+    int64_t open = ps->i - 1;
+    bool neg = false;
+    if (ps->i < ps->n && ps->p[ps->i] == '^') {
+        neg = true;
+        ps->i++;
+    }
+    int start = ps->nr;
+    bool first = true;
+    for (;;) {
+        if (ps->i >= ps->n) return vx_re_fail(ps, open, "missing ] to close the class");
+        char c = ps->p[ps->i];
+        if (c == ']' && !first) {
+            ps->i++;
+            break;
+        }
+        first = false;
+        uint32_t lo;
+        if (c == '\\') {
+            ps->i++;
+            if (ps->i >= ps->n) return vx_re_fail(ps, ps->i - 1, "the pattern ends after \\");
+            char e = ps->p[ps->i];
+            if (strchr("dwsDWS", e)) {
+                ps->i++;
+                if (e >= 'a') {
+                    vx_re_class_escape(ps, e);
+                } else {
+                    int sub = ps->nr;
+                    vx_re_class_escape(ps, e);
+                    vx_re_complement(ps, sub);
+                }
+                continue;
+            }
+            if (!vx_re_char_escape(ps, &lo)) return vx_re_fail(ps, ps->i - 1, "unknown escape \\%c", e);
+        } else {
+            lo = vx_re_decode(ps->p, ps->n, &ps->i);
+        }
+        uint32_t hi = lo;
+        if (ps->i + 1 < ps->n && ps->p[ps->i] == '-' && ps->p[ps->i + 1] != ']') {
+            int64_t dash = ps->i;
+            ps->i++;
+            if (ps->p[ps->i] == '\\') {
+                ps->i++;
+                if (ps->i >= ps->n || !vx_re_char_escape(ps, &hi)) return vx_re_fail(ps, dash, "a range must end in a single character");
+            } else {
+                hi = vx_re_decode(ps->p, ps->n, &ps->i);
+            }
+            if (hi < lo) return vx_re_fail(ps, dash, "the range ends before it starts");
+        }
+        vx_re_range(ps, lo, hi);
+        if (ps->icase) {
+            uint32_t a = lo < 'A' ? 'A' : lo, b = hi > 'Z' ? 'Z' : hi;
+            if (a <= b) vx_re_range(ps, a + 32, b + 32);
+            a = lo < 'a' ? 'a' : lo, b = hi > 'z' ? 'z' : hi;
+            if (a <= b) vx_re_range(ps, a - 32, b - 32);
+        }
+    }
+    // Sort and merge the ranges, so the class can be complemented and
+    // searched in order.
+    int count = (ps->nr - start) / 2;
+    uint32_t *r = ps->ranges + start;
+    for (int x = 1; x < count; x++) {
+        uint32_t lo = r[2 * x], hi = r[2 * x + 1];
+        int y = x - 1;
+        while (y >= 0 && r[2 * y] > lo) {
+            r[2 * y + 2] = r[2 * y];
+            r[2 * y + 3] = r[2 * y + 1];
+            y--;
+        }
+        r[2 * y + 2] = lo;
+        r[2 * y + 3] = hi;
+    }
+    int m = 0;
+    for (int x = 0; x < count; x++) {
+        if (m > 0 && r[2 * x] <= r[2 * m - 1] + 1) {
+            if (r[2 * x + 1] > r[2 * m - 1]) r[2 * m - 1] = r[2 * x + 1];
+        } else {
+            r[2 * m] = r[2 * x];
+            r[2 * m + 1] = r[2 * x + 1];
+            m++;
+        }
+    }
+    ps->nr = start + 2 * m;
+    if (neg) vx_re_complement(ps, start);
+    int node = vx_re_node_new(ps, VX_RN_CLASS);
+    ps->nodes[node].a = start;
+    ps->nodes[node].b = (ps->nr - start) / 2;
+    return node;
+}
+
+static int vx_re_parse_alt(vx_re_parser *ps, int depth);
+
+// Reads a whole number at [*i] for a repeat count; -1 when there is none.
+static int vx_re_count(vx_re_parser *ps) {
+    if (ps->i >= ps->n || !isdigit((unsigned char)ps->p[ps->i])) return -1;
+    int v = 0;
+    while (ps->i < ps->n && isdigit((unsigned char)ps->p[ps->i])) {
+        if (v <= VX_RE_MAX_REPEAT) v = v * 10 + (ps->p[ps->i] - '0');
+        ps->i++;
+    }
+    return v;
+}
+
+static int vx_re_parse_atom(vx_re_parser *ps, int depth) {
+    int64_t at = ps->i;
+    char c = ps->p[ps->i];
+    switch (c) {
+    case '(': {
+        ps->i++;
+        int group = -1;
+        if (ps->i < ps->n && ps->p[ps->i] == '?') {
+            if (ps->i + 1 < ps->n && ps->p[ps->i + 1] == ':') {
+                ps->i += 2;
+            } else if (ps->i + 1 < ps->n && ps->p[ps->i + 1] == '<') {
+                ps->i += 2;
+                int64_t name = ps->i;
+                while (ps->i < ps->n && (isalnum((unsigned char)ps->p[ps->i]) || ps->p[ps->i] == '_')) ps->i++;
+                if (ps->i == name || isdigit((unsigned char)ps->p[name])) return vx_re_fail(ps, name, "a group name must start with a letter or _");
+                if (ps->i >= ps->n || ps->p[ps->i] != '>') return vx_re_fail(ps, ps->i, "missing > after the group name");
+                size_t len = (size_t)(ps->i - name);
+                for (int g = 0; g < ps->groups; g++) {
+                    if (ps->names[g] && strlen(ps->names[g]) == len && memcmp(ps->names[g], ps->p + name, len) == 0) {
+                        return vx_re_fail(ps, name, "the group name '%.*s' is used twice", (int)len, ps->p + name);
+                    }
+                }
+                group = ps->groups++;
+                if (ps->groups > ps->names_cap) {
+                    ps->names_cap = ps->names_cap ? ps->names_cap * 2 : 8;
+                    ps->names = realloc(ps->names, (size_t)ps->names_cap * sizeof(char *));
+                    if (!ps->names) abort();
+                }
+                ps->names[group] = strndup(ps->p + name, len);
+                ps->i++;
+            } else {
+                return vx_re_fail(ps, ps->i, "unknown group kind; use (?:...) or (?<name>...)");
+            }
+        } else {
+            group = ps->groups++;
+            if (ps->groups > ps->names_cap) {
+                ps->names_cap = ps->names_cap ? ps->names_cap * 2 : 8;
+                ps->names = realloc(ps->names, (size_t)ps->names_cap * sizeof(char *));
+                if (!ps->names) abort();
+            }
+            ps->names[group] = NULL;
+        }
+        int inner = vx_re_parse_alt(ps, depth + 1);
+        if (ps->failed) return -1;
+        if (ps->i >= ps->n || ps->p[ps->i] != ')') return vx_re_fail(ps, at, "missing ) to close the group");
+        ps->i++;
+        int node = vx_re_node_new(ps, VX_RN_GROUP);
+        ps->nodes[node].a = inner;
+        ps->nodes[node].min = group < 0 ? -1 : group + 1;
+        return node;
+    }
+    case ')':
+        return vx_re_fail(ps, at, "unmatched )");
+    case '[':
+        ps->i++;
+        return vx_re_parse_class(ps);
+    case '.':
+        ps->i++;
+        return vx_re_node_new(ps, VX_RN_ANY);
+    case '^':
+        ps->i++;
+        return vx_re_node_new(ps, VX_RN_BOL);
+    case '$':
+        ps->i++;
+        return vx_re_node_new(ps, VX_RN_EOL);
+    case '*': case '+': case '?':
+        return vx_re_fail(ps, at, "nothing to repeat before %c", c);
+    case '{':
+        return vx_re_fail(ps, at, "nothing to repeat before {; write \\{ for a brace");
+    case '\\': {
+        ps->i++;
+        if (ps->i >= ps->n) return vx_re_fail(ps, at, "the pattern ends after \\");
+        char e = ps->p[ps->i];
+        if (e == 'b' || e == 'B') {
+            ps->i++;
+            return vx_re_node_new(ps, e == 'b' ? VX_RN_WORDB : VX_RN_NWORDB);
+        }
+        if (strchr("dwsDWS", e)) {
+            ps->i++;
+            int start = ps->nr;
+            vx_re_class_escape(ps, e);
+            if (e < 'a') vx_re_complement(ps, start);
+            int node = vx_re_node_new(ps, VX_RN_CLASS);
+            ps->nodes[node].a = start;
+            ps->nodes[node].b = (ps->nr - start) / 2;
+            return node;
+        }
+        uint32_t cp;
+        if (!vx_re_char_escape(ps, &cp)) return vx_re_fail(ps, at, "unknown escape \\%c", e);
+        int node = vx_re_node_new(ps, VX_RN_CHAR);
+        ps->nodes[node].c = cp;
+        return node;
+    }
+    default: {
+        int node = vx_re_node_new(ps, VX_RN_CHAR);
+        ps->nodes[node].c = vx_re_decode(ps->p, ps->n, &ps->i);
+        return node;
+    }
+    }
+}
+
+// Parses an atom and the repeat after it, if any.
+static int vx_re_parse_repeat(vx_re_parser *ps, int depth) {
+    int atom = vx_re_parse_atom(ps, depth);
+    if (ps->failed || ps->i >= ps->n) return atom;
+    int64_t at = ps->i;
+    char c = ps->p[ps->i];
+    int min, max;
+    if (c == '*') min = 0, max = -1;
+    else if (c == '+') min = 1, max = -1;
+    else if (c == '?') min = 0, max = 1;
+    else if (c == '{') {
+        ps->i++;
+        min = vx_re_count(ps);
+        if (min < 0) return vx_re_fail(ps, at, "expected a count after {; write \\{ for a brace");
+        max = min;
+        if (ps->i < ps->n && ps->p[ps->i] == ',') {
+            ps->i++;
+            max = vx_re_count(ps);
+        }
+        if (ps->i >= ps->n || ps->p[ps->i] != '}') return vx_re_fail(ps, at, "missing } to close the repeat count");
+        if (min > VX_RE_MAX_REPEAT || max > VX_RE_MAX_REPEAT) return vx_re_fail(ps, at, "repeat counts can be at most %d", VX_RE_MAX_REPEAT);
+        if (max >= 0 && max < min) return vx_re_fail(ps, at, "the repeat count {%d,%d} has its largest first", min, max);
+    } else {
+        return atom;
+    }
+    ps->i++;
+    int kind = ps->nodes[atom].kind;
+    if (kind == VX_RN_BOL || kind == VX_RN_EOL || kind == VX_RN_WORDB || kind == VX_RN_NWORDB) {
+        return vx_re_fail(ps, at, "an anchor can't be repeated");
+    }
+    bool greedy = true;
+    if (ps->i < ps->n && ps->p[ps->i] == '?') {
+        greedy = false;
+        ps->i++;
+    }
+    if (ps->i < ps->n && strchr("*+?{", ps->p[ps->i])) {
+        return vx_re_fail(ps, ps->i, "a repeat can't follow another; put the first in (?:...)");
+    }
+    int node = vx_re_node_new(ps, VX_RN_REPEAT);
+    ps->nodes[node].a = atom;
+    ps->nodes[node].min = min;
+    ps->nodes[node].max = max;
+    ps->nodes[node].greedy = greedy;
+    return node;
+}
+
+static int vx_re_parse_cat(vx_re_parser *ps, int depth) {
+    int left = -1;
+    while (!ps->failed && ps->i < ps->n && ps->p[ps->i] != '|' && !(ps->p[ps->i] == ')' && depth > 0)) {
+        left = vx_re_pair(ps, VX_RN_CAT, left, vx_re_parse_repeat(ps, depth));
+    }
+    return left < 0 ? vx_re_node_new(ps, VX_RN_EMPTY) : left;
+}
+
+static int vx_re_parse_alt(vx_re_parser *ps, int depth) {
+    if (depth > 200) return vx_re_fail(ps, ps->i, "groups are nested too deeply");
+    int left = vx_re_parse_cat(ps, depth);
+    while (!ps->failed && ps->i < ps->n && ps->p[ps->i] == '|') {
+        ps->i++;
+        int right = vx_re_parse_cat(ps, depth);
+        int n = vx_re_node_new(ps, VX_RN_ALT);
+        ps->nodes[n].a = left;
+        ps->nodes[n].b = right;
+        left = n;
+    }
+    return left;
+}
+
+static int vx_re_emit(vx_re_prog *p, vx_re_inst in) {
+    if (p->n == p->cap) {
+        p->cap = p->cap ? p->cap * 2 : 64;
+        p->code = realloc(p->code, (size_t)p->cap * sizeof(vx_re_inst));
+        if (!p->code) abort();
+    }
+    p->code[p->n] = in;
+    return p->n++;
+}
+
+// Writes the program for node [k]; false when it grows too long.
+static bool vx_re_gen(vx_re_parser *ps, vx_re_prog *p, int k) {
+    if (p->n > VX_RE_MAX_PROG) return false;
+    vx_re_node *nd = &ps->nodes[k];
+    switch (nd->kind) {
+    case VX_RN_CHAR:
+        vx_re_emit(p, (vx_re_inst){.op = VX_RE_CHAR, .c = ps->icase && nd->c >= 'A' && nd->c <= 'Z' ? nd->c + 32 : nd->c});
+        return true;
+    case VX_RN_ANY: vx_re_emit(p, (vx_re_inst){.op = VX_RE_ANY}); return true;
+    case VX_RN_CLASS: vx_re_emit(p, (vx_re_inst){.op = VX_RE_CLASS, .x = nd->a, .y = nd->b}); return true;
+    case VX_RN_BOL: vx_re_emit(p, (vx_re_inst){.op = VX_RE_BOL}); return true;
+    case VX_RN_EOL: vx_re_emit(p, (vx_re_inst){.op = VX_RE_EOL}); return true;
+    case VX_RN_WORDB: vx_re_emit(p, (vx_re_inst){.op = VX_RE_WORDB}); return true;
+    case VX_RN_NWORDB: vx_re_emit(p, (vx_re_inst){.op = VX_RE_NWORDB}); return true;
+    case VX_RN_EMPTY: return true;
+    case VX_RN_GROUP:
+        if (nd->min >= 0) vx_re_emit(p, (vx_re_inst){.op = VX_RE_SAVE, .x = 2 * nd->min});
+        if (!vx_re_gen(ps, p, nd->a)) return false;
+        if (nd->min >= 0) vx_re_emit(p, (vx_re_inst){.op = VX_RE_SAVE, .x = 2 * nd->min + 1});
+        return true;
+    case VX_RN_CAT: case VX_RN_ALT: {
+        // Chains nest to the left; they are walked in a loop, so a long
+        // pattern doesn't recurse deeply.
+        int kind = nd->kind, count = 0;
+        for (int at = k; ps->nodes[at].kind == kind; at = ps->nodes[at].a) count++;
+        int *parts = malloc((size_t)(count + 1) * sizeof(int));
+        if (!parts) abort();
+        int at = k;
+        for (int x = count; x > 0; x--) {
+            parts[x] = ps->nodes[at].b;
+            at = ps->nodes[at].a;
+        }
+        parts[0] = at;
+        bool ok = true;
+        if (kind == VX_RN_CAT) {
+            for (int x = 0; x <= count && ok; x++) ok = vx_re_gen(ps, p, parts[x]);
+        } else {
+            int *jumps = malloc((size_t)count * sizeof(int) + 1);
+            if (!jumps) abort();
+            for (int x = 0; x < count && ok; x++) {
+                int split = vx_re_emit(p, (vx_re_inst){.op = VX_RE_SPLIT});
+                p->code[split].x = p->n;
+                ok = vx_re_gen(ps, p, parts[x]);
+                jumps[x] = vx_re_emit(p, (vx_re_inst){.op = VX_RE_JMP});
+                p->code[split].y = p->n;
+            }
+            if (ok) ok = vx_re_gen(ps, p, parts[count]);
+            if (ok) {
+                for (int x = 0; x < count; x++) p->code[jumps[x]].x = p->n;
+            }
+            free(jumps);
+        }
+        free(parts);
+        return ok;
+    }
+    case VX_RN_REPEAT: {
+        int min = nd->min, max = nd->max, child = nd->a;
+        bool greedy = nd->greedy;
+        for (int r = 0; r < min; r++) {
+            if (!vx_re_gen(ps, p, child)) return false;
+        }
+        if (max < 0) {
+            int loop = vx_re_emit(p, (vx_re_inst){.op = VX_RE_SPLIT});
+            if (!vx_re_gen(ps, p, child)) return false;
+            vx_re_emit(p, (vx_re_inst){.op = VX_RE_JMP, .x = loop});
+            p->code[loop].x = greedy ? loop + 1 : p->n;
+            p->code[loop].y = greedy ? p->n : loop + 1;
+            return true;
+        }
+        int optional = max - min;
+        int *splits = malloc((size_t)(optional > 0 ? optional : 1) * sizeof(int));
+        if (!splits) abort();
+        for (int r = 0; r < optional; r++) {
+            splits[r] = vx_re_emit(p, (vx_re_inst){.op = VX_RE_SPLIT});
+            if (!vx_re_gen(ps, p, child)) {
+                free(splits);
+                return false;
+            }
+        }
+        // Each optional copy may end the repeat.
+        for (int r = 0; r < optional; r++) {
+            p->code[splits[r]].x = greedy ? splits[r] + 1 : p->n;
+            p->code[splits[r]].y = greedy ? p->n : splits[r] + 1;
+        }
+        free(splits);
+        return true;
+    }
+    }
+    return true;
+}
+
+static void vx_re_prog_free(vx_re_prog *p) {
+    if (!p) return;
+    for (int g = 0; g < p->groups; g++) free(p->names[g]);
+    free(p->names);
+    free(p->code);
+    free(p->ranges);
+    free(p);
+}
+
+// Compiles [pattern], or returns NULL with the reason in vx_re_err.
+static vx_re_prog *vx_re_build(vx_str pattern) {
+    vx_re_parser ps = {.p = pattern.ptr, .n = pattern.len};
+    if (ps.n >= 4 && memcmp(ps.p, "(?i)", 4) == 0) {
+        ps.icase = true;
+        ps.i = 4;
+    }
+    int root = vx_re_parse_alt(&ps, 0);
+    if (!ps.failed && ps.i < ps.n) vx_re_fail(&ps, ps.i, "unmatched )");
+    vx_re_prog *p = calloc(1, sizeof(vx_re_prog));
+    if (!p) abort();
+    p->groups = ps.groups;
+    p->names = ps.names;
+    p->icase = ps.icase;
+    if (!ps.failed && !vx_re_gen(&ps, p, root)) {
+        snprintf(ps.err, sizeof ps.err, "the pattern is too large; repeat counts multiply its size");
+        ps.failed = true;
+    }
+    if (ps.failed) {
+        snprintf(vx_re_err, sizeof vx_re_err, "%s", ps.err);
+        free(ps.nodes);
+        free(ps.ranges);
+        vx_re_prog_free(p);
+        return NULL;
+    }
+    vx_re_emit(p, (vx_re_inst){.op = VX_RE_MATCH});
+    p->ranges = ps.ranges;
+    p->nranges = ps.nr;
+    free(ps.nodes);
+    return p;
+}
+
+// Recently used programs, by pattern, so a Regex needn't own C memory.
+#define VX_RE_CACHE 16
+typedef struct {
+    char *pattern;
+    int64_t len;
+    vx_re_prog *prog;
+    uint64_t used;
+} vx_re_entry;
+static VX_TLS vx_re_entry vx_re_cache[VX_RE_CACHE];
+static VX_TLS uint64_t vx_re_clock;
+
+// Returns the program for [pattern], compiling it if it isn't cached.
+static vx_re_prog *vx_re_get(vx_str pattern) {
+    vx_re_entry *slot = &vx_re_cache[0];
+    for (int k = 0; k < VX_RE_CACHE; k++) {
+        vx_re_entry *e = &vx_re_cache[k];
+        if (e->prog && e->len == pattern.len && memcmp(e->pattern, pattern.ptr, (size_t)pattern.len) == 0) {
+            e->used = ++vx_re_clock;
+            return e->prog;
+        }
+        if (!e->prog || e->used < slot->used) slot = e;
+    }
+    vx_re_prog *p = vx_re_build(pattern);
+    if (!p) return NULL;
+    free(slot->pattern);
+    vx_re_prog_free(slot->prog);
+    slot->pattern = malloc((size_t)pattern.len + 1);
+    if (!slot->pattern) abort();
+    memcpy(slot->pattern, pattern.ptr, (size_t)pattern.len);
+    slot->len = pattern.len;
+    slot->prog = p;
+    slot->used = ++vx_re_clock;
+    return p;
+}
+
+// Compiles [pattern] and returns its number of groups, or -1 with the
+// reason in vx_re_error.
+static int64_t vx_re_compile(vx_str pattern) {
+    vx_re_prog *p = vx_re_get(pattern);
+    return p ? p->groups : -1;
+}
+
+static vx_str vx_re_error(void) { return vx_str_from_c(vx_re_err); }
+
+// Returns the name of group [g] of [pattern], counting from 1, or a
+// string with a null pointer for a group without one.
+static vx_str vx_re_name(vx_str pattern, int64_t g) {
+    vx_re_prog *p = vx_re_get(pattern);
+    if (!p || g < 1 || g > p->groups || !p->names[g - 1]) return (vx_str){NULL, 0};
+    return vx_str_from_c(p->names[g - 1]);
+}
+
+// Which (instruction, position) pairs the current search has tried: a
+// row of bits for each text position, valid when its generation is the
+// current one, so a new search clears only the rows it reaches.
+static VX_TLS uint8_t *vx_re_bits;
+static VX_TLS uint32_t *vx_re_gens;
+static VX_TLS size_t vx_re_bits_cap, vx_re_gens_cap, vx_re_row_bytes;
+static VX_TLS uint32_t vx_re_gen_now;
+
+// The jobs left to try: a position to try an instruction at, or a slot
+// to restore when backtracking past the save that set it.
+typedef struct { int32_t pc, slot; int64_t pos; } vx_re_job;
+static VX_TLS vx_re_job *vx_re_stack;
+static VX_TLS size_t vx_re_stack_cap;
+
+// The slots of the last match: two byte offsets per group, -1 when unset.
+static VX_TLS int64_t *vx_re_caps;
+static VX_TLS size_t vx_re_caps_cap;
+
+// Prepares the memory of tried pairs for a search of [rows] positions
+// with a program of [prog_len] instructions.
+static void vx_re_memo(size_t rows, int prog_len) {
+    size_t row_bytes = ((size_t)prog_len + 7) / 8;
+    size_t need = rows * row_bytes;
+    // A buffer left large by a long text is given back.
+    if (need > vx_re_bits_cap || (vx_re_bits_cap > ((size_t)64 << 20) && need < vx_re_bits_cap / 4)) {
+        free(vx_re_bits);
+        vx_re_bits = malloc(need);
+        if (!vx_re_bits) abort();
+        vx_re_bits_cap = need;
+    }
+    if (row_bytes != vx_re_row_bytes || rows > vx_re_gens_cap) {
+        if (rows > vx_re_gens_cap) {
+            free(vx_re_gens);
+            vx_re_gens = malloc(rows * sizeof(uint32_t));
+            if (!vx_re_gens) abort();
+            vx_re_gens_cap = rows;
+        }
+        memset(vx_re_gens, 0, vx_re_gens_cap * sizeof(uint32_t));
+        vx_re_row_bytes = row_bytes;
+        vx_re_gen_now = 0;
+    }
+    if (++vx_re_gen_now == 0) {
+        memset(vx_re_gens, 0, vx_re_gens_cap * sizeof(uint32_t));
+        vx_re_gen_now = 1;
+    }
+}
+
+// Marks instruction [pc] at [pos] as tried, and reports whether it was.
+static inline bool vx_re_seen(int32_t pc, int64_t pos) {
+    uint8_t *row = vx_re_bits + (size_t)pos * vx_re_row_bytes;
+    if (vx_re_gens[pos] != vx_re_gen_now) {
+        memset(row, 0, vx_re_row_bytes);
+        vx_re_gens[pos] = vx_re_gen_now;
+    }
+    uint8_t bit = (uint8_t)(1u << (pc & 7));
+    if (row[pc >> 3] & bit) return true;
+    row[pc >> 3] |= bit;
+    return false;
+}
+
+static inline void vx_re_push(int32_t pc, int32_t slot, int64_t pos, size_t *len) {
+    if (*len == vx_re_stack_cap) {
+        vx_re_stack_cap = vx_re_stack_cap ? vx_re_stack_cap * 2 : 256;
+        vx_re_stack = realloc(vx_re_stack, vx_re_stack_cap * sizeof(vx_re_job));
+        if (!vx_re_stack) abort();
+    }
+    vx_re_stack[(*len)++] = (vx_re_job){pc, slot, pos};
+}
+
+static inline bool vx_re_word(const char *s, int64_t n, int64_t i) {
+    if (i < 0 || i >= n) return false;
+    unsigned char c = (unsigned char)s[i];
+    return isalnum(c) || c == '_';
+}
+
+static bool vx_re_in_class(const vx_re_prog *p, const vx_re_inst *in, uint32_t cp) {
+    const uint32_t *r = p->ranges + in->x;
+    for (int k = 0; k < in->y; k++) {
+        if (cp < r[2 * k]) return false;
+        if (cp <= r[2 * k + 1]) return true;
+    }
+    return false;
+}
+
+// Tries to match [p] starting at byte [start] of [text]. With [whole],
+// the match must also reach the end of the text.
+static bool vx_re_run(const vx_re_prog *p, vx_str text, int64_t start, bool whole) {
+    const char *s = text.ptr;
+    int64_t n = text.len;
+    size_t len = 0;
+    vx_re_push(0, -1, start, &len);
+    while (len > 0) {
+        vx_re_job job = vx_re_stack[--len];
+        if (job.slot >= 0) {
+            vx_re_caps[job.slot] = job.pos;
+            continue;
+        }
+        int32_t pc = job.pc;
+        int64_t pos = job.pos;
+        for (;;) {
+            if (vx_re_seen(pc, pos)) break;
+            const vx_re_inst *in = &p->code[pc];
+            bool ok = false;
+            switch (in->op) {
+            case VX_RE_CHAR: case VX_RE_ANY: case VX_RE_CLASS: {
+                if (pos >= n) break;
+                int64_t at = pos;
+                uint32_t cp = vx_re_decode(s, n, &at);
+                if (in->op == VX_RE_ANY) ok = cp != '\n';
+                else if (in->op == VX_RE_CHAR) ok = (p->icase && cp >= 'A' && cp <= 'Z' ? cp + 32 : cp) == in->c;
+                else ok = vx_re_in_class(p, in, cp);
+                if (ok) {
+                    pos = at;
+                    pc++;
+                }
+                break;
+            }
+            case VX_RE_BOL: ok = pos == 0; pc++; break;
+            case VX_RE_EOL: ok = pos == n; pc++; break;
+            case VX_RE_WORDB: ok = vx_re_word(s, n, pos - 1) != vx_re_word(s, n, pos); pc++; break;
+            case VX_RE_NWORDB: ok = vx_re_word(s, n, pos - 1) == vx_re_word(s, n, pos); pc++; break;
+            case VX_RE_JMP: ok = true; pc = in->x; break;
+            case VX_RE_SPLIT:
+                vx_re_push(in->y, -1, pos, &len);
+                ok = true;
+                pc = in->x;
+                break;
+            case VX_RE_SAVE:
+                vx_re_push(0, in->x, vx_re_caps[in->x], &len);
+                vx_re_caps[in->x] = pos;
+                ok = true;
+                pc++;
+                break;
+            case VX_RE_MATCH:
+                if (whole && pos != n) break;
+                vx_re_caps[0] = start;
+                vx_re_caps[1] = pos;
+                return true;
+            }
+            if (!ok) break;
+        }
+    }
+    return false;
+}
+
+// The last byte offset turned into a character index, so the next one in
+// the same text counts on from there.
+static VX_TLS const char *vx_re_index_text;
+static VX_TLS int64_t vx_re_index_byte, vx_re_index_char;
+
+// Returns the character index of byte [b] of [text].
+static int64_t vx_re_chars(vx_str text, int64_t b) {
+    int64_t i = 0, c = 0;
+    if (text.ptr == vx_re_index_text && b >= vx_re_index_byte) {
+        i = vx_re_index_byte;
+        c = vx_re_index_char;
+    }
+    for (; i < b && i < text.len; i += vx_utf8_width(text, i)) c++;
+    vx_re_index_text = text.ptr;
+    vx_re_index_byte = i;
+    vx_re_index_char = c;
+    return c;
+}
+
+// Forgets the character index kept for vx_re_chars, before a new text.
+static void vx_re_reset(void) { vx_re_index_text = NULL; }
+
+// Searches [text] for [pattern] from byte [from], keeping the groups of
+// the match for vx_re_cap. With [whole], the match must cover the text
+// from [from] to the end.
+static bool vx_re_exec(vx_str pattern, vx_str text, int64_t from, bool whole) {
+    vx_re_prog *p = vx_re_get(pattern);
+    if (!p || from < 0 || from > text.len) return false;
+    size_t slots = 2 * ((size_t)p->groups + 1);
+    if (slots > vx_re_caps_cap) {
+        vx_re_caps = realloc(vx_re_caps, slots * sizeof(int64_t));
+        if (!vx_re_caps) abort();
+        vx_re_caps_cap = slots;
+    }
+    for (size_t k = 0; k < slots; k++) vx_re_caps[k] = -1;
+    if (from == 0) vx_re_reset();
+    vx_re_memo((size_t)text.len + 1, p->n);
+    bool anchored = p->code[0].op == VX_RE_BOL;
+    for (int64_t at = from; at <= text.len; at += at < text.len ? vx_utf8_width(text, at) : 1) {
+        if (vx_re_run(p, text, at, whole)) return true;
+        if (whole || anchored) break;
+    }
+    return false;
+}
+
+// Returns slot [k] of the last match: the start of group k/2 for even k,
+// its end for odd k, as a byte offset, or -1 when it took no part.
+static int64_t vx_re_cap(int64_t k) {
+    return k >= 0 && (size_t)k < vx_re_caps_cap ? vx_re_caps[k] : -1;
+}
+
+// Returns bytes [a] to [b] of [text].
+static vx_str vx_re_slice(vx_str text, int64_t a, int64_t b) {
+    if (a < 0 || b > text.len || b < a) return VX_LIT("");
+    return vx_str_new(text.ptr + a, b - a);
+}
+
+// Returns the byte after the character at byte [b] of [text], or -1 at
+// the end.
+static int64_t vx_re_next(vx_str text, int64_t b) {
+    return b < text.len ? b + vx_utf8_width(text, b) : -1;
+}
+
+// Returns the length of [text] in bytes.
+static int64_t vx_re_bytes(vx_str text) { return text.len; }
 
 // --- Async ---
 

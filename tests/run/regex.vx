@@ -1,0 +1,99 @@
+// Regular expressions: matching, groups, replacing, splitting and errors.
+import "vex:regex"
+import "vex:strings"
+
+fn re(pattern: string) -> regex.Regex => try regex.compile(pattern) catch e { panic(e.message) }
+
+fn first(pattern: string, text: string) -> string {
+    guard let m = re(pattern).find(text) else {
+        return "-"
+    }
+    return m.text
+}
+
+fn all(pattern: string, text: string) -> [string] => re(pattern).findAll(text).map(fn(m) => m.text)
+
+fn compileError(pattern: string) -> string => try regex.compile(pattern).pattern catch e { e.message }
+
+fn main() {
+    // Characters, classes and anchors.
+    println(first("b.d", "abcd"), first("a.c", "a\nc"), first("[a-c]+", "xxbcay"), first("[^0-9 ]+", "12 ab3"))
+    println(first("[]a]+", "x]a]y"), first("[a-]+", "x-a-y"), first(r"[\d.]+", "v1.25b"), first(r"[\]\\]+", r"x\]y"))
+    println(all(r"\d+", "a1b22c333"), all(r"\w+", "hi, there_1!"), all(r"\s+", "a \t b\nc"))
+    println(all(r"\D+", "a1b22c"), all(r"\W+", "a, b!"), all(r"\S+", " ab  cd "), all(r"[^\s,]+", "a, b,c"))
+    println(first("^ab", "abab"), first("^b", "ab"), first("b$", "abab"), first("a$", "aba"), first("^$", ""))
+    println(all(r"\bcat\b", "cat concat cat."), all(r"\Bcat", "cat concat scat"), all(r"\b", "ab cd"))
+    println(first(r"\.\*\+\?\(\)\[\{\|\^\$", r"x.*+?()[{|^$y"), first(r"a\tb", "a\tb"), first(r"x]y}", r"x]y}"))
+
+    // Alternatives and repeats, leftmost first.
+    println(first("a|ab", "ab"), first("ab|a", "ab"), first("cat|dog", "hotdog"), first("(?:a|b)+c", "xababc"))
+    println(first("<.+>", "<a><b>"), first("<.+?>", "<a><b>"), first("a*", "baa"), first("a*?b", "aab"), first("a??b", "ab"))
+    println(first(r"a{2}", "aaaa"), first(r"a{2,}", "aaaaa"), first(r"a{2,3}", "aaaaa"), first(r"a{2,3}?", "aaaaa"), first(r"a{0}b", "ab"))
+    println(first(r"(ab){2}", "abababx"), first("x(ab)?y", "xy"), first(r"(a|b|c){3}", "zcabz"), first("colou?r", "colour"))
+
+    // Groups.
+    let date = re(r"(?<year>\d{4})-(?<month>\d\d)(?:-(\d\d))?")
+    println(date, date.groupCount)
+    if let m = date.find("on 2024-03-15, and") {
+        println(m, m.groups, m.group("year"), m.group("month"), m.group("day"), m.start, m.end, m.range)
+    }
+    if let m = date.find("2024-03") {
+        println(m.groups)
+    }
+    if let m = re("(a)|(b)").find("b") {
+        println(m.groups)
+    }
+    if let m = re("((a)(b(c)))").find("abc") {
+        println(m.groups)
+    }
+    if let m = re("(a*)+").find("b") {
+        println(m.text.len, m.groups)
+    }
+    println(first("(a*)*", "aaa"), first("(a|)*b", "aab"), first("(?:a*)*c", "aac"))
+
+    // Ignoring case, for ASCII letters.
+    println(first("(?i)hello", "Say HeLLo"), first("(?i)[a-c]+", "xAbCz"), first("(?i)[^a]+", "AaBb"), first("hello", "HELLO"))
+
+    // Unicode: characters, not bytes.
+    let text = "naïve café ☕ ok"
+    let word = re(r"[^ ]+")
+    for m in word.findAll(text) {
+        println(m.text, m.start, m.end, text[m.range] == m.text)
+    }
+    println(first("caf.", "un café"), first("[à-ï]+", "naïve"), all(".", "é☕"), all("", "é☕"))
+
+    // Whole and partial matches.
+    let num = re(r"-?\d+")
+    println(num.matches("-42"), num.matches("42x"), num.matches(""), num.hasMatch("x42"), num.hasMatch("x"))
+    println(re("a|ab").matches("ab"), re("(a|ab)(c|bcd)").matches("abcd"), re("").matches(""), re("^a$").matches("a"))
+
+    // Every match, empty ones included.
+    println(all("a*", "baaac"), all("x*", ""), all(r"\d", "no digits"), re(r"\d").findAll("a1é2").map(fn(m) => m.start))
+
+    // Replacing.
+    let words = re(r"(\w+)@(?<host>\w+)")
+    println(words.replace("ann@home, bo@work", with: "$2:$1"))
+    println(words.replace("ann@home", with: "<$0> <$<host>> <$<1>> $$ $9 $<nope> $x $"))
+    println(words.replaceFirst("a@b c@d", with: "[$0]"), words.replace("none here", with: "x"), words.replaceFirst("none", with: "x"))
+    println(re("a*").replace("baac", with: "-"), re(r"\s+").replace(" a  b ", with: " "), re("(x)|(y)").replace("xy", with: "[$1$2]"))
+    println(re("é").replace("café é", with: "e"), re("").replace("ab", with: "."))
+
+    // Splitting.
+    println(re(r",\s*").split("a, b,c,,  d"), re(",").split(",a,"), re(",").split("abc"), re(",").split(""))
+    println(re("").split("abc"), re("x*").split("axbc"), re(r"\d").split("a1b2"), re(r"\s*").split("a b"))
+
+    // Escaping text to match it as written.
+    let literal = regex.escape(r"1+1=2? (yes) [x] {y} a|b ^$ \ .*")
+    println(literal, re(literal).matches(r"1+1=2? (yes) [x] {y} a|b ^$ \ .*"))
+
+    // Patterns that would take exponential time elsewhere finish at once.
+    let long = strings.repeat("a", 200)
+    println(re("(a*)*b").hasMatch(long), re("(a|aa)*c").hasMatch(long), re("(a+)+$").matches(long), re(r"(?:a?){30}a{30}").matches(strings.repeat("a", 30)))
+    let csv = strings.repeat("ab,", 1000)
+    println(re(",").findAll(csv).len, re(",").split(csv).len, re("b").replace(csv, with: "").len)
+
+    // Patterns that aren't valid.
+    for p in ["(a", "a)", "*a", "a**", "a+*", "[a", "[z-a]", r"a{3,2}", r"a{1001}", r"\q", "(?x)", "(?<1a>x)", "(?<n>a)(?<n>b)", "^*", r"a{", r"x{,3}", r"a{2", "ab\\", "(?<n", "(?i"] {
+        println(compileError(p))
+    }
+}

@@ -1,0 +1,17 @@
+42 [6, 5, 9, 2, 5]
+0.7415648787718233
+[69, 85, 1, 22, 4]
+same seed, same values: true
+outside: 0 each side at least 900: true
+[0, 3, 6, 9] [-3, -2, -1] 5 9223372036854775807
+true true true true true
+nil only
+["a", "b", "c"]
+[1, 2, 3, 4, 5, 6, 7, 8, 9, 10] true true true
+true
+["x"] []
+shared generator in range: true
+true nil
+true true
+10 true
+true

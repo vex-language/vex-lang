@@ -1,0 +1,516 @@
+/// Dates, times of day and durations.
+///
+/// A [DateTime] is an instant, counted in microseconds from 1970-01-01
+/// UTC, shown either in UTC or in the local time zone. A [Duration] is a
+/// length of time. Calendar fields follow the proleptic Gregorian
+/// calendar, as ISO 8601 does.
+
+extern fn cNow() -> int as "vx_datetime_now"
+extern fn cOffset(seconds: int) -> int as "vx_datetime_offset"
+
+const microsPerMilli = 1_000
+const microsPerSecond = 1_000_000
+const microsPerMinute = 60_000_000
+const microsPerHour = 3_600_000_000
+const microsPerDay = 86_400_000_000
+
+/// A length of time, positive or negative, to the microsecond.
+pub struct Duration: Hashable {
+    us: int
+
+    /// The duration of [n] days of 24 hours.
+    pub static fn days(n: int) -> Duration => Duration(us: n * microsPerDay)
+
+    /// The duration of [n] hours.
+    pub static fn hours(n: int) -> Duration => Duration(us: n * microsPerHour)
+
+    /// The duration of [n] minutes.
+    pub static fn minutes(n: int) -> Duration => Duration(us: n * microsPerMinute)
+
+    /// The duration of [n] seconds.
+    pub static fn seconds(n: int) -> Duration => Duration(us: n * microsPerSecond)
+
+    /// The duration of [n] milliseconds.
+    pub static fn millis(n: int) -> Duration => Duration(us: n * microsPerMilli)
+
+    /// The duration of [n] microseconds.
+    pub static fn micros(n: int) -> Duration => Duration(us: n)
+
+    /// The number of whole days, rounded toward zero.
+    pub get inDays -> int => us / microsPerDay
+
+    /// The number of whole hours, rounded toward zero.
+    pub get inHours -> int => us / microsPerHour
+
+    /// The number of whole minutes, rounded toward zero.
+    pub get inMinutes -> int => us / microsPerMinute
+
+    /// The number of whole seconds, rounded toward zero.
+    pub get inSeconds -> int => us / microsPerSecond
+
+    /// The number of whole milliseconds, rounded toward zero.
+    pub get inMillis -> int => us / microsPerMilli
+
+    /// The length in microseconds.
+    pub get inMicros -> int => us
+
+    /// Reports whether the duration is less than zero.
+    pub get isNegative -> bool => us < 0
+
+    /// Returns the duration without its sign.
+    pub fn abs() -> Duration => Duration(us: if us < 0 { -us } else { us })
+
+    pub operator +(other: Duration) -> Duration => Duration(us: us + other.us)
+    pub operator -(other: Duration) -> Duration => Duration(us: us - other.us)
+    pub operator -() -> Duration => Duration(us: -us)
+    pub operator *(n: int) -> Duration => Duration(us: us * n)
+
+    /// Divides by [n], rounding toward zero.
+    pub operator /(n: int) -> Duration => Duration(us: us / n)
+
+    pub operator <(other: Duration) -> bool => us < other.us
+
+    /// Returns the duration as Go writes it, such as `1h30m0s`, `2.5s` or
+    /// `750ms`.
+    pub fn toString() -> string {
+        if us == 0 {
+            return "0s"
+        }
+        let sign = if us < 0 { "-" } else { "" }
+        let u = if us < 0 { -us } else { us }
+        if u < microsPerMilli {
+            return "{sign}{u}µs"
+        }
+        if u < microsPerSecond {
+            return "{sign}{decimal(u, microsPerMilli, 3)}ms"
+        }
+        let h = u / microsPerHour
+        let m = u / microsPerMinute % 60
+        let s = decimal(u % microsPerMinute, microsPerSecond, 6)
+        if h > 0 {
+            return "{sign}{h}h{m}m{s}s"
+        }
+        if m > 0 {
+            return "{sign}{m}m{s}s"
+        }
+        return "{sign}{s}s"
+    }
+}
+
+/// Returns [value] divided by [unit], a power of ten with [digits] zeros,
+/// with the fraction written only as far as it goes.
+fn decimal(value: int, unit: int, digits: int) -> string {
+    let whole = value / unit
+    var rest = value % unit
+    if rest == 0 {
+        return "{whole}"
+    }
+    var width = digits
+    while rest % 10 == 0 {
+        rest = rest / 10
+        width -= 1
+    }
+    return "{whole}.{pad(rest, width)}"
+}
+
+/// Returns [n] written with at least [width] digits, with zeros in front.
+fn pad(n: int, width: int) -> string {
+    var s = "{n}"
+    while s.len < width {
+        s = "0" + s
+    }
+    return s
+}
+
+/// Returns [a] divided by [b], rounded down.
+fn floorDiv(a: int, b: int) -> int {
+    let q = a / b
+    if a % b != 0 && (a < 0) != (b < 0) {
+        return q - 1
+    }
+    return q
+}
+
+/// Returns the remainder of [a] divided by [b], with the sign of [b].
+fn floorMod(a: int, b: int) -> int => a - floorDiv(a, b) * b
+
+/// Returns the days from 1970-01-01 to [year]-[month]-[day]. The month
+/// and day may be out of their usual ranges, and roll over.
+fn daysFromCivil(year: int, month: int, day: int) -> int {
+    let y0 = year + floorDiv(month - 1, 12)
+    let m = floorMod(month - 1, 12) + 1
+    let y = if m <= 2 { y0 - 1 } else { y0 }
+    let era = floorDiv(y, 400)
+    let yoe = y - era * 400
+    let mp = if m > 2 { m - 3 } else { m + 9 }
+    let doy = (153 * mp + 2) / 5
+    let doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+    return era * 146097 + doe - 719468 + day - 1
+}
+
+/// The calendar fields of an instant in one time zone.
+struct Fields {
+    year: int
+    month: int
+    day: int
+    hour: int
+    minute: int
+    second: int
+    micro: int
+    weekday: int
+}
+
+/// Returns the calendar fields of [us], microseconds from 1970-01-01 in
+/// the time zone wanted.
+fn fieldsOf(us: int) -> Fields {
+    let days = floorDiv(us, microsPerDay)
+    let time = us - days * microsPerDay
+    let z = days + 719468
+    let era = floorDiv(z, 146097)
+    let doe = z - era * 146097
+    let yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    let mp = (5 * doy + 2) / 153
+    let month = if mp < 10 { mp + 3 } else { mp - 9 }
+    let year = yoe + era * 400 + (if month <= 2 { 1 } else { 0 })
+    return Fields(
+        year: year,
+        month: month,
+        day: doy - (153 * mp + 2) / 5 + 1,
+        hour: time / microsPerHour,
+        minute: time / microsPerMinute % 60,
+        second: time / microsPerSecond % 60,
+        micro: time % microsPerSecond,
+        weekday: floorMod(days + 3, 7) + 1,
+    )
+}
+
+/// Returns the local time zone's offset from UTC at the instant [us], in
+/// microseconds.
+fn localOffset(us: int) -> int => cOffset(floorDiv(us, microsPerSecond)) * microsPerSecond
+
+/// Returns the instant whose local time is [wall], microseconds from
+/// 1970-01-01 as a clock on the wall shows them. A time shown twice when
+/// the clocks go back gives the first; a time skipped when they go forward
+/// comes out as much later as the clocks jumped.
+fn fromLocal(wall: int) -> int {
+    // The offsets a day either side, taking at most one change between.
+    let early = wall - localOffset(wall - microsPerDay)
+    let late = wall - localOffset(wall + microsPerDay)
+    let earlyFits = early + localOffset(early) == wall
+    let lateFits = late + localOffset(late) == wall
+    if earlyFits && lateFits {
+        return if early < late { early } else { late }
+    }
+    if lateFits {
+        return late
+    }
+    return early
+}
+
+/// A moment in time, to the microsecond, shown in UTC or in the local time
+/// zone. Two values are equal when they are the same moment, whichever way
+/// they are shown.
+pub struct DateTime: Hashable {
+    us: int
+
+    /// Whether the fields and [toIso] show UTC rather than local time.
+    pub let isUtc: bool
+
+    /// The microseconds since 1970-01-01 UTC.
+    pub get unixMicros -> int => us
+
+    /// The milliseconds since 1970-01-01 UTC, rounded down.
+    pub get unixMillis -> int => floorDiv(us, microsPerMilli)
+
+    /// The seconds since 1970-01-01 UTC, rounded down.
+    pub get unix -> int => floorDiv(us, microsPerSecond)
+
+    /// How far the time shown is ahead of UTC: zero for UTC, and for local
+    /// time the zone's offset at this moment, summer time included.
+    pub get offset -> Duration => Duration(us: if isUtc { 0 } else { localOffset(us) })
+
+    fn fields() -> Fields => fieldsOf(us + offset.us)
+
+    /// The year, such as 2024.
+    pub get year -> int => fields().year
+
+    /// The month, from 1 for January to 12 for December.
+    pub get month -> int => fields().month
+
+    /// The day of the month, from 1.
+    pub get day -> int => fields().day
+
+    /// The hour, from 0 to 23.
+    pub get hour -> int => fields().hour
+
+    /// The minute, from 0 to 59.
+    pub get minute -> int => fields().minute
+
+    /// The second, from 0 to 59.
+    pub get second -> int => fields().second
+
+    /// The milliseconds after the second, from 0 to 999.
+    pub get millisecond -> int => fields().micro / microsPerMilli
+
+    /// The microseconds after the second, from 0 to 999999.
+    pub get microsecond -> int => fields().micro
+
+    /// The day of the week, from 1 for Monday to 7 for Sunday, as in ISO 8601.
+    pub get weekday -> int => fields().weekday
+
+    /// Returns the same moment shown in UTC.
+    pub fn toUtc() -> DateTime => DateTime(us: us, isUtc: true)
+
+    /// Returns the same moment shown in the local time zone.
+    pub fn toLocal() -> DateTime => DateTime(us: us, isUtc: false)
+
+    /// Returns the moment [d] later, shown the same way.
+    pub fn add(d: Duration) -> DateTime => DateTime(us: us + d.us, isUtc: isUtc)
+
+    /// Returns the moment [d] earlier, shown the same way.
+    pub fn subtract(d: Duration) -> DateTime => DateTime(us: us - d.us, isUtc: isUtc)
+
+    pub operator +(d: Duration) -> DateTime => add(d)
+
+    /// Returns the time from [other] to this moment.
+    pub operator -(other: DateTime) -> Duration => Duration(us: us - other.us)
+
+    pub operator ==(other: DateTime) -> bool => us == other.us
+    pub operator <(other: DateTime) -> bool => us < other.us
+
+    pub fn hash() -> int => us
+
+    /// Returns the moment in ISO 8601 form, such as `2024-03-15T09:30:00Z`
+    /// in UTC or `2024-03-15T15:00:00+05:30` in local time. Fractions of a
+    /// second are written when there are any, as milliseconds or
+    /// microseconds.
+    pub fn toIso() -> string {
+        let off = offset.us
+        let f = fieldsOf(us + off)
+        let y = if f.year >= 0 && f.year <= 9999 {
+            pad(f.year, 4)
+        } else if f.year < 0 {
+            "-" + pad(-f.year, 6)
+        } else {
+            "+" + pad(f.year, 6)
+        }
+        var text = "{y}-{pad(f.month, 2)}-{pad(f.day, 2)}T{pad(f.hour, 2)}:{pad(f.minute, 2)}:{pad(f.second, 2)}"
+        if f.micro % microsPerMilli != 0 {
+            text += "." + pad(f.micro, 6)
+        } else if f.micro != 0 {
+            text += "." + pad(f.micro / microsPerMilli, 3)
+        }
+        if isUtc {
+            return text + "Z"
+        }
+        let sign = if off < 0 { "-" } else { "+" }
+        let mins = (if off < 0 { -off } else { off }) / microsPerMinute
+        return text + "{sign}{pad(mins / 60, 2)}:{pad(mins % 60, 2)}"
+    }
+
+    /// Returns the moment in ISO 8601 form, as [toIso] does.
+    pub fn toString() -> string => toIso()
+}
+
+/// Returns the current moment, shown in local time.
+pub fn now() -> DateTime => DateTime(us: cNow(), isUtc: false)
+
+/// Returns the moment of the given date and time in UTC. Fields past their
+/// usual range roll over, so month 13 is January of the next year and day
+/// 0 is the last day of the month before.
+pub fn utc(year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0, millisecond: int = 0) -> DateTime {
+    let days = daysFromCivil(year, month, day)
+    let us = days * microsPerDay + hour * microsPerHour + minute * microsPerMinute + second * microsPerSecond + millisecond * microsPerMilli
+    return DateTime(us: us, isUtc: true)
+}
+
+/// Returns the moment of the given date and time in the local time zone.
+/// Fields roll over as for [utc]. A time the clocks skip when they go
+/// forward moves on by the jump, and one they show twice gives the first.
+pub fn local(year: int, month: int, day: int, hour: int = 0, minute: int = 0, second: int = 0, millisecond: int = 0) -> DateTime {
+    let wall = utc(year, month, day, hour: hour, minute: minute, second: second, millisecond: millisecond).us
+    return DateTime(us: fromLocal(wall), isUtc: false)
+}
+
+/// Returns the moment [seconds] after 1970-01-01 UTC, shown in local time,
+/// or in UTC when [utc] is set.
+pub fn fromUnix(seconds: int, utc: bool = false) -> DateTime => DateTime(us: seconds * microsPerSecond, isUtc: utc)
+
+/// Returns the moment [micros] microseconds after 1970-01-01 UTC, shown in
+/// local time, or in UTC when [utc] is set.
+pub fn fromUnixMicros(micros: int, utc: bool = false) -> DateTime => DateTime(us: micros, isUtc: utc)
+
+/// Reads a date in ISO 8601 form: `2024-03-15`, `2024-03-15T09:30`,
+/// `2024-03-15T09:30:05.25Z` or `2024-03-15 09:30:05+05:30`. A time with
+/// `Z` or an offset gives the moment shown in UTC; without one, the time
+/// is local, and a date alone is local midnight. Throws when the text
+/// isn't a valid date.
+pub fn parse(text: string) throws -> DateTime {
+    let r = IsoReader(chars: text.chars(), text: text)
+    return try r.read()
+}
+
+/// Reads ISO 8601 text one character at a time.
+struct IsoReader {
+    chars: [string]
+    text: string
+    at = 0
+
+    fn fail(reason: string) throws -> int {
+        throw Error("'{text}' isn't an ISO 8601 date: {reason}")
+    }
+
+    fn peek() -> string => if at < chars.len { chars[at] } else { "" }
+
+    fn isDigit(c: string) -> bool => c.len == 1 && c >= "0" && c <= "9"
+
+    /// Reads exactly [n] digits as a number, for the field [what].
+    fn digits(n: int, what: string) throws -> int {
+        var value = 0
+        for _ in 0..n {
+            let c = peek()
+            if !isDigit(c) {
+                return try fail("expected {n} digits for the {what}")
+            }
+            value = value * 10 + int(c)
+            at += 1
+        }
+        return value
+    }
+
+    fn want(c: string, what: string) throws {
+        if peek() != c {
+            try fail("expected '{c}' {what}")
+        }
+        at += 1
+    }
+
+    fn check(value: int, low: int, high: int, what: string) throws {
+        if value < low || value > high {
+            try fail("the {what} must be from {low} to {high}, found {value}")
+        }
+    }
+
+    fn read() throws -> DateTime {
+        var year = 0
+        let sign = peek()
+        if sign == "+" || sign == "-" {
+            at += 1
+            year = try digits(6, "year")
+            if sign == "-" {
+                year = -year
+            }
+        } else {
+            year = try digits(4, "year")
+        }
+        try want("-", "after the year")
+        let month = try digits(2, "month")
+        try check(month, 1, 12, "month")
+        try want("-", "after the month")
+        let day = try digits(2, "day")
+        try check(day, 1, daysIn(year, month), "day")
+
+        var hour = 0
+        var minute = 0
+        var second = 0
+        var micro = 0
+        let sep = peek()
+        if sep == "T" || sep == "t" || sep == " " {
+            at += 1
+            hour = try digits(2, "hour")
+            try check(hour, 0, 23, "hour")
+            try want(":", "after the hour")
+            minute = try digits(2, "minute")
+            try check(minute, 0, 59, "minute")
+            if peek() == ":" {
+                at += 1
+                second = try digits(2, "second")
+                try check(second, 0, 59, "second")
+                if peek() == "." || peek() == "," {
+                    at += 1
+                    var scale = 100000
+                    var count = 0
+                    while isDigit(peek()) {
+                        micro += int(peek()) * scale
+                        scale = scale / 10
+                        count += 1
+                        at += 1
+                    }
+                    if count == 0 {
+                        try fail("expected digits after the decimal point")
+                    }
+                }
+            }
+        }
+
+        let wall = daysFromCivil(year, month, day) * microsPerDay + hour * microsPerHour + minute * microsPerMinute + second * microsPerSecond + micro
+        let zone = peek()
+        if zone == "" {
+            return DateTime(us: fromLocal(wall), isUtc: false)
+        }
+        if sep != "T" && sep != "t" && sep != " " {
+            try fail("unexpected '{zone}' after the date")
+        }
+        var offset = 0
+        if zone == "Z" || zone == "z" {
+            at += 1
+        } else if zone == "+" || zone == "-" {
+            at += 1
+            let oh = try digits(2, "offset hours")
+            try check(oh, 0, 23, "offset hours")
+            var om = 0
+            if peek() == ":" {
+                at += 1
+                om = try digits(2, "offset minutes")
+            } else if isDigit(peek()) {
+                om = try digits(2, "offset minutes")
+            }
+            try check(om, 0, 59, "offset minutes")
+            offset = oh * microsPerHour + om * microsPerMinute
+            if zone == "-" {
+                offset = -offset
+            }
+        } else {
+            try fail("unexpected '{zone}' after the time")
+        }
+        if at < chars.len {
+            try fail("unexpected '{peek()}' at the end")
+        }
+        return DateTime(us: wall - offset, isUtc: true)
+    }
+}
+
+/// Returns the number of days in [month] of [year].
+fn daysIn(year: int, month: int) -> int {
+    if month == 2 {
+        let leap = year % 4 == 0 && (year % 100 != 0 || year % 400 == 0)
+        return if leap { 29 } else { 28 }
+    }
+    if month == 4 || month == 6 || month == 9 || month == 11 {
+        return 30
+    }
+    return 31
+}
+
+/// Durations written on numbers, in files that import `vex:datetime`:
+/// `90.seconds`, `5.minutes + 30.seconds`.
+pub extension int {
+    /// This many days of 24 hours.
+    get days -> Duration => Duration.days(self)
+
+    /// This many hours.
+    get hours -> Duration => Duration.hours(self)
+
+    /// This many minutes.
+    get minutes -> Duration => Duration.minutes(self)
+
+    /// This many seconds.
+    get seconds -> Duration => Duration.seconds(self)
+
+    /// This many milliseconds.
+    get millis -> Duration => Duration.millis(self)
+
+    /// This many microseconds.
+    get micros -> Duration => Duration.micros(self)
+}

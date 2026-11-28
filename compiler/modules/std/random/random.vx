@@ -1,0 +1,135 @@
+/// Random numbers, choices and shuffles.
+///
+/// The functions here draw from a generator seeded by the operating
+/// system, one for each isolate. A [Random] made with a seed gives the
+/// same values in the same order on every run, for tests and replays.
+/// Neither is meant for secrets such as passwords or keys.
+
+extern fn cSeed() -> int as "vx_random_seed"
+
+/// A generator of random values. `Random(seed: 42)` gives the same values
+/// every time it is made with 42.
+pub struct Random {
+    /// The number the generator started from.
+    pub let seed: int
+    state = 0
+
+    init {
+        state = seed
+    }
+
+    /// Returns the next 64 random bits, by SplitMix64.
+    fn next() -> int {
+        state = state &+ -7046029254386353131
+        var z = state
+        z = (z ^ shr(z, 30)) &* -4658895280553007687
+        z = (z ^ shr(z, 27)) &* -7723592293110705685
+        return z ^ shr(z, 31)
+    }
+
+    /// Returns a random int from 0 up to, not including, [n], with each
+    /// equally likely.
+    fn below(n: int) -> int {
+        // Taking 63-bit values below 2^63 % n would favour small results.
+        let skip = (int.max % n + 1) % n
+        while true {
+            let r = shr(next(), 1)
+            if r >= skip {
+                return r % n
+            }
+        }
+    }
+
+    /// Returns one of the values of [range], each equally likely:
+    /// `nextInt(1..=6)` rolls a die. The range must not be empty.
+    pub fn nextInt(range: Range) -> int {
+        let n = range.len
+        if n == 0 {
+            panic("nextInt needs a range with values, found the empty range {range}")
+        }
+        // The first two values give the step, for stepped and reversed ranges.
+        var first = 0
+        var step = 0
+        var seen = false
+        for x in range {
+            if seen {
+                step = x - first
+                break
+            }
+            first = x
+            seen = true
+        }
+        return first &+ below(n) &* step
+    }
+
+    /// Returns a random float from 0.0 up to, not including, 1.0.
+    pub fn nextFloat() -> float => float(shr(next(), 11)) * 0.00000000000000011102230246251565
+
+    /// Returns true or false, each half of the time.
+    pub fn nextBool() -> bool => next() < 0
+
+    /// Returns a random element of [items], or nil when it is empty.
+    pub fn pick<T>(items: [T]) -> T? {
+        if items.isEmpty {
+            return nil
+        }
+        return items[below(items.len)]
+    }
+
+    /// Puts the elements of [items] in a random order, in place.
+    pub fn shuffle<T>(items: [T]) {
+        var i = items.len - 1
+        while i > 0 {
+            let j = below(i + 1)
+            let t = items[i]
+            items[i] = items[j]
+            items[j] = t
+            i -= 1
+        }
+    }
+
+    /// Returns a copy of [items] in a random order.
+    pub fn shuffled<T>(items: [T]) -> [T] {
+        let out = items.copy()
+        shuffle(out)
+        return out
+    }
+}
+
+/// Returns [x] shifted right by [k] bits, from 1 to 63, filling with zeros.
+fn shr(x: int, k: int) -> int => (x >> k) & ~(-1 << (64 - k))
+
+// Each isolate seeds its own on first use.
+var shared = Random(seed: cSeed())
+
+/// Returns one of the values of [range], each equally likely:
+/// `random.nextInt(1..=6)` rolls a die. The range must not be empty.
+pub fn nextInt(range: Range) -> int => shared.nextInt(range)
+
+/// Returns a random float from 0.0 up to, not including, 1.0.
+pub fn nextFloat() -> float => shared.nextFloat()
+
+/// Returns true or false, each half of the time.
+pub fn nextBool() -> bool => shared.nextBool()
+
+/// Returns a random element of [items], or nil when it is empty.
+pub fn pick<T>(items: [T]) -> T? => shared.pick(items)
+
+/// Puts the elements of [items] in a random order, in place.
+pub fn shuffle<T>(items: [T]) {
+    shared.shuffle(items)
+}
+
+/// Returns a copy of [items] in a random order.
+pub fn shuffled<T>(items: [T]) -> [T] => shared.shuffled(items)
+
+/// Random order for lists, in files that import `vex:random`.
+pub extension<T> [T] {
+    /// Puts the elements in a random order, in place.
+    fn shuffle() {
+        shared.shuffle(self)
+    }
+
+    /// Returns a copy of the list in a random order.
+    fn shuffled() -> [T] => shared.shuffled(self)
+}

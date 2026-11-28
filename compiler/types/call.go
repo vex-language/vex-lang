@@ -797,7 +797,7 @@ func (c *checker) callBuiltin(e *ast.CallExpr, name string) Type {
 	}
 
 	switch name {
-	case "print", "println":
+	case "print", "println", "eprint", "eprintln":
 		for _, a := range e.Args {
 			if t := c.expr(a.Value, nil); !printable(t) {
 				c.errorAt(a.Value, "", "this expression has no value to print")

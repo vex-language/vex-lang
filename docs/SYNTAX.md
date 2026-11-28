@@ -1241,10 +1241,13 @@ fn helper() { }                         // private to models
   - `vex:math`: `abs`, `min`, `max`, `clamp`, `pow` and `gcd` for integers and comparable values; `sqrt`, `cbrt`, `powf`, `exp`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `hypot`, `floor`, `ceil`, `round`, `trunc`, `absf` and `pi()` for floats
   - `vex:strings`: `repeat`, `join`, `padLeft`, `padRight`, which are also the methods `s.repeat(n)`, `parts.join(sep)`, `s.padStart(width, with: fill)` and `s.padEnd(width, with: fill)`
   - `vex:time`: `nanos()` for measuring, `unix()` for the date, `sleep(ms)`, a future that completes after `ms` milliseconds, and `timeout(future, ms)` (see [Cancellation](#cancellation-and-timeouts))
+  - `vex:datetime`: `now()`, `DateTime` and `Duration`, calendar fields in UTC and local time, and ISO 8601 with `toIso()` and `parse` (see [Dates and times](#dates-and-times))
   - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, or [`Bytes`](#bytes) with `readBytes`, `writeBytes` and `appendBytes`, and failures throw an `Error` naming the path and the reason
   - `vex:json`: `encode`, `decode`, `parse` and `write`, and the `Json` and `JsonError` enums (see [JSON](#json))
   - `vex:isolate`: `run` and `spawn`, which start work on other cores (see Isolates), and `cores()`
-  - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status), and `target` and `arch`, the system the program is built for (see [Platform conditionals](#platform-conditionals))
+  - `vex:regex`: `compile(pattern)`, which throws for a pattern that isn't valid, giving a `Regex` with `matches`, `hasMatch`, `find`, `findAll`, `replace`, `replaceFirst` and `split`, and `escape(text)` (see [Regular expressions](#regular-expressions))
+  - `vex:random`: `nextInt(range)` (`random.nextInt(1..=6)` rolls a die; stepped and reversed ranges work), `nextFloat()` from 0.0 up to 1.0, `nextBool()`, `pick(items)`, a `T?` that is `nil` for an empty list, and `shuffle(items)` in place and `shuffled(items)`, also written `xs.shuffle()` and `xs.shuffled()`. These use a generator seeded by the system, one per isolate. `random.Random(seed: 42)` has the same methods and gives the same values on every run, for tests. Neither is for passwords or keys
+  - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status), `stdout` and `stderr`, writers with `write(text)`, `writeln(text)` and `flush()`, and `target` and `arch`, the system the program is built for (see [Platform conditionals](#platform-conditionals))
 
 ```swift
 import "vex:fs"
@@ -1313,6 +1316,97 @@ println(name, first, doc)                   // Ann vex {"user":{"name":"Ann","la
 - `get(key)` and `at(index)` look inside objects and lists, giving `nil` when the value isn't one or has no such entry. `asBool`, `asInt`, `asFloat`, `asString`, `asList` and `asObject` give the value as that type, or `nil`; `isNull` tells whether it is `null`. `asFloat` reads whole numbers too.
 - `json.toJson(value)` and `try json.fromJson<T>(json)` convert between Codable values and `Json`, for JSON that is partly known.
 - `Json` is Codable and Equatable, so it can be a field of a Codable struct, holding whatever the JSON has there.
+
+## Dates and times
+
+`vex:datetime` has `DateTime`, a moment to the microsecond, and `Duration`, a length of time. A `DateTime` is shown either in UTC or in the local time zone; its fields and `toIso()` follow the way it is shown.
+
+```swift
+import "vex:datetime"
+
+fn main() throws {
+    let start = datetime.now()                              // local time
+    let launch = datetime.utc(2024, 3, 15, hour: 9, minute: 30)
+    println(launch)                                         // 2024-03-15T09:30:00Z
+    println(launch.year, launch.month, launch.day, launch.weekday)   // 2024 3 15 5
+    println(launch.toLocal())                               // 2024-03-15T15:00:00+05:30 in India
+
+    let meeting = launch + 1.hours + 30.minutes             // a DateTime
+    let gap = meeting - launch                              // a Duration: 1h30m0s
+    println(gap.inMinutes, meeting > launch)                // 90 true
+
+    let parsed = try datetime.parse("2024-03-15T09:30:05.25+05:30")
+    println(parsed, parsed.toIso() == "2024-03-15T04:00:05.250Z")
+    println(datetime.now() - start < datetime.Duration.seconds(1))
+}
+```
+
+- `datetime.utc(year, month, day, hour:, minute:, second:, millisecond:)` and `datetime.local(...)` make a moment from calendar fields; the time ones default to 0. Fields past their range roll over, as in Dart: month 13 is January of the next year, and day 0 the last day of the month before. A local time the clocks skip moves on by the jump; one they show twice gives the first.
+- `fromUnix(seconds, utc:)` and `fromUnixMicros(micros, utc:)` make one from a count since 1970-01-01 UTC, shown in local time unless `utc: true`. `unix`, `unixMillis` and `unixMicros` read it back.
+- The fields are `year`, `month` (1 to 12), `day`, `hour`, `minute`, `second`, `millisecond`, `microsecond` and `weekday` (1 for Monday to 7 for Sunday, as in ISO 8601), with `isUtc` and `offset`, the time zone's offset from UTC as a `Duration`. `toUtc()` and `toLocal()` show the same moment the other way.
+- `+` and `add(d)` move a moment later by a `Duration`, and `subtract(d)` moves it earlier. `a - b` of two moments gives the `Duration` between them. Moments compare with `==`, `<` and the rest by the instant, whichever way they are shown, and can be map keys.
+- `toIso()`, which printing uses, writes `2024-03-15T09:30:00Z` in UTC and `2024-03-15T15:00:00+05:30` in local time, with milliseconds or microseconds when there are any. Years outside 0 to 9999 get a sign and six digits, `+012345`.
+- `datetime.parse(text)` reads `YYYY-MM-DD`, optionally followed by `T` or a space and `HH:MM`, `HH:MM:SS` or `HH:MM:SS.fraction`, then optionally `Z` or an offset such as `+05:30`, `+0530` or `+05`. With `Z` or an offset it gives the moment shown in UTC; without one the time is local, and a date alone is local midnight. Text that isn't a valid date throws an `Error` saying what is wrong: `'2023-02-29' isn't an ISO 8601 date: the day must be from 1 to 28, found 29`. Leap seconds aren't read.
+- A `Duration` is made with `Duration.days(n)`, `hours`, `minutes`, `seconds`, `millis` and `micros`, or, in a file that imports `vex:datetime`, as `n.days`, `n.hours`, `n.minutes`, `n.seconds`, `n.millis` and `n.micros`. `inDays`, `inHours`, `inMinutes`, `inSeconds`, `inMillis` and `inMicros` give it back in whole units, rounded toward zero. It has `+`, `-`, unary `-`, `* n` and `/ n`, comparisons, `abs()` and `isNegative`, and prints as Go writes durations: `1h30m0s`, `2.5s`, `750ms`.
+- The local time zone comes from the system, or from the `TZ` environment variable, which is read again each time it is needed.
+- `vex:time` stays the module for measuring and waiting: `time.nanos()` for how long code takes and `time.sleep(ms)`, which takes `d.inMillis` for a `Duration`.
+
+## Regular expressions
+
+`vex:regex` finds, replaces and splits text by pattern. Patterns are best written as raw strings, so `\` and `{` reach the pattern as written:
+
+```swift
+import "vex:regex"
+
+fn main() throws {
+    let date = try regex.compile(r"(?<year>\d{4})-(?<month>\d\d)-(\d\d)")
+    println(date.matches("2024-03-15"), date.hasMatch("on 2024-03-15"))   // true true
+
+    if let m = date.find("due 2024-03-15, paid 2024-04-01") {
+        println(m.text, m.start, m.end)              // 2024-03-15 4 14
+        println(m.groups, m.group("year"))           // ["2024", "03", "15"] 2024
+    }
+    println(date.findAll("2024-03-15 and 2024-04-01").map(fn(m) => m.text))
+    println(date.replace("on 2024-03-15", with: "$3/$<month>/$1"))   // on 15/03/2024
+
+    let comma = try regex.compile(r",\s*")
+    println(comma.split("a, b,c"))                   // ["a", "b", "c"]
+    println(try regex.compile("(a").pattern catch e { e.message })
+    // can't compile the pattern '(a': missing ) to close the group at character 0
+}
+```
+
+- `compile(pattern)` checks the pattern and throws an `Error` saying what is wrong and where. A `Regex` can be kept and used from many places; `pattern` and `groupCount` read it back.
+- `matches(text)` asks whether the whole text matches, and `hasMatch(text)` whether some part does.
+- `find(text)` gives the first `Match`, or `nil`. A `Match` has `text`, `start` and `end`, counted in characters as string indexes are, so `s[m.range]` is `m.text`. `groups` holds each group in parentheses from the first, `nil` for one that took no part, and `group(name)` reads a named group.
+- `findAll(text)` gives every match, each starting where the one before ended; after an empty match the search moves on one character.
+- `replace(text, with:)` replaces every match and `replaceFirst` the first. In the replacement, `$0` is the whole match, `$1` to `$9` and `$<12>` are groups by number, `$<name>` is a named group and `$$` is a `$`. A group that took no part gives an empty string, and a reference to a group that doesn't exist stays as written.
+- `split(text)` gives the pieces between matches. An empty match at either end, or right after the previous piece, doesn't split, so `compile("")` splits text into its characters.
+- `regex.escape(text)` puts a `\` before each character with a meaning in patterns, to match text as written.
+
+The pattern syntax:
+
+| Pattern | Matches |
+|---|---|
+| `a`, `é`, `\.`, `\\` | That character. A `\` before any ASCII punctuation makes it plain |
+| `\n`, `\t`, `\r`, `\f`, `\v`, `\0` | A line feed, tab, carriage return, form feed, vertical tab, NUL |
+| `.` | Any character except a line feed |
+| `[abc]`, `[a-z]`, `[^abc]` | One character in the set, or with `^` not in it. `]` first and `-` first or last are plain; `\` escapes work inside |
+| `\d`, `\w`, `\s` | An ASCII digit, an ASCII letter, digit or `_`, and a space, tab, line break, carriage return, form feed or vertical tab; `\D`, `\W`, `\S` are the opposites. They work inside `[...]` too |
+| `^`, `$` | The start and the end of the text |
+| `\b`, `\B` | A boundary between a `\w` character and another, or not one |
+| `x*`, `x+`, `x?` | 0 or more, 1 or more, 0 or 1 of `x`, as many as can be |
+| `x{n}`, `x{n,}`, `x{n,m}` | Exactly `n`, at least `n`, from `n` to `m`; counts are at most 1000 |
+| `x*?`, `x+?`, `x??`, `x{n,m}?` | The same, as few as can be |
+| `a\|b` | `a`, or else `b`: the first alternative that leads to a match wins |
+| `(x)` | A group that captures, numbered from 1 by its `(` |
+| `(?<name>x)` | A group that captures, with a name |
+| `(?:x)` | A group that doesn't capture |
+| `(?i)` at the start | Ignores the case of ASCII letters |
+
+- Patterns work on characters, not bytes, so `.` matches `é` and `[à-ï]` is a range of code points. The classes `\d`, `\w`, `\s` and `\b` and ignoring case cover ASCII only.
+- `^` and `$` match only at the ends of the whole text, not at each line. Backreferences, lookaround and possessive repeats aren't supported, and a plain `{` must be written `\{`.
+- Matching remembers what it has tried, so its time grows with the pattern's size times the text's length: patterns such as `(a*)*b` that take exponential time in some engines finish at once.
 
 ## C functions
 
@@ -2112,6 +2206,7 @@ $ vex test
 | Name | Description |
 |---|---|
 | `print(a, b, ...)` / `println(...)` | Print values separated by spaces |
+| `eprint(...)` / `eprintln(...)` | Print to standard error, for warnings and problems, in the same way |
 | `input(prompt)` | Read a line from standard input; the prompt is optional |
 | `int(x)`, `float(x)`, `str(x)` | Convert between types; `int` and `float` ignore spaces around the number, and stop the program if the text isn't one |
 | `int.parse(s)`, `float.parse(s)` | Parse text that may not be a number, giving `int?` and `float?`: `int.parse(field.text) ?? 0`. `int.parse(s, radix: 16)` reads other bases from 2 to 36 |

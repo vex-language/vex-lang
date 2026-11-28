@@ -1,0 +1,17 @@
+// Misusing vex:datetime.
+import "vex:datetime"
+
+fn main() {
+    let t = datetime.utc(2024, 1, 1)
+    let a = datetime.Duration(us: 5)
+    let b = datetime.DateTime(us: 0, isUtc: true)
+    let c = t + 5
+    let d = t - 1.hours
+    let e = datetime.parse("2024-01-01")
+}
+
+// error: 6:31: field 'us' of datetime.Duration is private to vex:datetime
+// error: 7:31: field 'us' of datetime.DateTime is private to vex:datetime
+// error: 8:17: expected datetime.Duration, found int
+// error: 9:17: expected datetime.DateTime, found datetime.Duration
+// error: 10:13: parse can throw, so the call needs try
