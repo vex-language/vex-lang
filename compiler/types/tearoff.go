@@ -151,3 +151,41 @@ func (c *checker) genericTearOff(e *ast.MemberExpr, names []string, want Type, w
 	}
 	return c.tearOff(e, &tearSig{names: names, types: make([]Type, len(names)), result: ft.Result}, nil, callee, want)
 }
+
+// Checks `x.name` used as a value, where [x] has type [t] and the method
+// called [name] comes from an extension: of an interface [t] implements,
+// or of a built-in or generic interface type. It returns false when no
+// extension adds it.
+func (c *checker) extTearOff(e *ast.MemberExpr, t Type, name string, called func(x ast.Expr) ast.Expr, want Type) (Type, bool) {
+	var f *Func
+	for _, i := range extIfaces(t) {
+		if f = extOf(i, name); f != nil {
+			break
+		}
+	}
+	if f == nil {
+		r, b := c.findRecv(t, name, ast.Method, e.Name)
+		if r == nil {
+			return nil, false
+		}
+		if f = r.plain; f == nil {
+			args := make([]Type, len(r.gen.params))
+			for i, p := range r.gen.params {
+				if args[i] = b.types[p]; args[i] == nil {
+					c.errorAt(e.Name, fmt.Sprintf("call it in a closure: fn(...) => %s(...)", name), "generic method '%s' can't be used as a value", name)
+					return Invalid, true
+				}
+			}
+			if f = c.instFunc(r.gen, args, e); f == nil {
+				return Invalid, true
+			}
+		}
+	}
+	if c.methodPrivate(e.Name, f) {
+		return Invalid, true
+	}
+	if sig := c.funcSig(e.Name, f); sig != nil {
+		return c.tearOff(e, sig, t, called, want), true
+	}
+	return Invalid, true
+}

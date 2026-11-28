@@ -1853,7 +1853,9 @@ func (p *parser) warn(t lexer.Token, hint, format string, args ...any) {
 }
 
 // Warns when the condition of [keyword], tokens [first] to [last], is
-// wrapped in one needless pair of parentheses.
+// wrapped in one needless pair of parentheses. A block directly inside
+// them, as in `if (xs.any { it > 2 })`, needs them: without, it would
+// start the body.
 func (p *parser) checkParens(keyword string, first, last int) {
 	if last <= first || p.toks[first].Kind != lexer.LParen || p.toks[last].Kind != lexer.RParen {
 		return
@@ -1861,11 +1863,15 @@ func (p *parser) checkParens(keyword string, first, last int) {
 	depth := 0
 	for i := first; i <= last; i++ {
 		switch p.toks[i].Kind {
-		case lexer.LParen:
+		case lexer.LParen, lexer.LBracket:
 			depth++
-		case lexer.RParen:
+		case lexer.RParen, lexer.RBracket:
 			depth--
 			if depth == 0 && i != last {
+				return
+			}
+		case lexer.LBrace:
+			if depth == 1 {
 				return
 			}
 		}

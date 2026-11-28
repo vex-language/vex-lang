@@ -179,6 +179,8 @@ func (c *checker) tryExpr(e *ast.TryExpr, want Type, stmt bool) Type {
 		}
 	case th == nil && where == "the closure":
 		c.errorAt(e, "handle it with catch, use try?, or declare the closure fn(...) throws", "the error can't pass up: the closure doesn't throw")
+	case th == nil && c.inDefer:
+		c.errorAt(e, "handle it with catch, or use try?", "the error can't pass up: a defer block runs as its block ends, so it can't throw")
 	case th == nil && c.inInit():
 		c.errorAt(e, "handle it with catch or try?, or create the struct in a static fn that throws", "the error can't pass up: init can't throw")
 	case th == nil:

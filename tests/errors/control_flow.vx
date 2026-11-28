@@ -31,7 +31,7 @@ fn main() {}
 // error: 5:9: return can't be used in a defer block
 // error: 8:9: throw can't be used in a defer block
 // error: 12:13: break can only be used inside a loop
-// error: 15:21: the error can't pass up: a defer block doesn't throw
+// error: 15:21: the error can't pass up: a defer block runs as its block ends, so it can't throw
 // error: 19:15: no loop around this is named 'inner'
 // error: 22:9: a loop around this one is already named 'a'
 // error: 26:5: continue can only be used inside a loop

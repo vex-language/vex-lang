@@ -338,7 +338,7 @@ let evens = (0..10).step(2).toList()       // [0, 2, 4, 6, 8]
 ```
 
 - Ranges hold ints. A range whose end comes before its start is empty: `5..2` gives nothing.
-- `step(n)` keeps the first value and takes every `n`th one; `n` must be more than 0. `reversed()` gives the same values backwards.
+- `step(n)` keeps the first value and takes every `n`th one; `n` must be more than 0. Steps chain: `(0..10).step(2).step(3)` takes every third of 0, 2, 4, 6, 8, giving `[0, 6]`. `reversed()` gives the same values backwards.
 - `len`, `isEmpty`, `start`, `end`, `contains(x)` and `toList()` read a range. `start` and `end` are the bounds as written. Two ranges are `==` when they give the same values, so `0..3 == 0..=2`.
 - `..` binds looser than arithmetic and tighter than comparisons: `0..n + 1` is `0..(n + 1)`. Ranges can be constants, fields and parameters, and can be sent to other isolates.
 
@@ -592,7 +592,7 @@ println("cost: {m}")         // cost: $12.50
 println([m, m])              // [$12.50, $12.50]
 ```
 
-- `toString` must be written `fn toString() -> string`: no parameters, not static, async or throwing. An extension can add it too.
+- `toString` must be written `fn toString() -> string`: no parameters, not static, async or throwing. An extension of a struct or enum can add it too. `int`, `string` and the other built-in types always print in their own form, so an extension can't give them a `toString`.
 - Showing `self` inside `toString` calls it again without end; show the fields instead.
 
 **Operators.** A struct defines an operator like a method, as in Dart: `self` is the left operand and the parameter the right one.
@@ -1285,7 +1285,7 @@ let add = items.push                     // fn(int)
 let make: fn(int) -> Box<int> = Box.new  // generic types take their type arguments from the expected type
 ```
 
-- Methods of structs, enums and interfaces, extension methods and built-in members such as `upper` and `push` can be torn off. Inside a struct or enum, a method named alone is torn off `self`, or the type when static: `names.map(greet)`.
+- Methods of structs, enums and interfaces, extension methods (those added to interfaces included) and built-in members such as `upper` and `push` can be torn off. Inside a struct or enum, a method named alone is torn off `self`, or the type when static: `names.map(greet)`.
 - `x?.method` is nil when `x` is nil, and otherwise a function bound to the value inside.
 - A tear-off has the method's parameters and result, and throws what the method throws. Default arguments don't carry over: the function takes every parameter.
 - A method must be torn off a value: `User.greet` is an error. Async and generic methods, and `map`, can't be torn off yet; call them in a closure.

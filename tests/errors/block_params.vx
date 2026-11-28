@@ -20,5 +20,5 @@ fn main() {
 // error: 11:20: map needs a function that returns a value
 // error: 12:21: expected int, found string
 // error: 13:14: a builder block for 'children' takes no parameters
-// error: 14:14: the last argument of count is given twice: in the call and as a trailing block
+// error: 14:14: a trailing block needs the last parameter of count to be a function or a list, but 'n' is int
 // error: 15:26: expected a function with 2 parameters, found one with 1

@@ -230,6 +230,8 @@ func TestWarnings(t *testing.T) {
     while (a < 0) {}
     if (a > 0) && (b > 0) {}
     if ((a)) {}
+    if (xs.any { it > 2 }) {}
+    if (f(xs.map { it }) > 0) {}
 }`))
 	if err != nil {
 		t.Fatal(err)
@@ -244,6 +246,7 @@ func TestWarnings(t *testing.T) {
 		"5:19 a ; isn't needed at the end of a line | remove it",
 		"7:11 the while condition doesn't need parentheses | write while a < 0 {",
 		"9:8 the if condition doesn't need parentheses | write if (a) {",
+		"11:8 the if condition doesn't need parentheses | write if f(xs.map { it }) > 0 {",
 	}
 	if strings.Join(got, "\n") != strings.Join(want, "\n") {
 		t.Errorf("\n got: %s\nwant: %s", strings.Join(got, "\n      "), strings.Join(want, "\n      "))
