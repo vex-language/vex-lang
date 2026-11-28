@@ -1,0 +1,57 @@
+bcd - bca ab
+]a] -a- 1.25 \]
+["1", "22", "333"] ["hi", "there_1"] [" \t ", "\n"]
+["a", "b", "c"] [", ", "!"] ["ab", "cd"] ["a", "b", "c"]
+ab - b a 
+["cat", "cat"] ["cat", "cat"] ["", "", "", ""]
+.*+?()[{|^$ a	b x]y}
+a ab dog ababc
+<a><b> <a>  aab ab
+aa aaaaa aaa aa b
+abab xy cab colour
+(?<year>\d{4})-(?<month>\d\d)(?:-(\d\d))? 3
+Match("2024-03-15", 3..13) ["2024", "03", "15"] 2024 03 nil 3 13 3..13
+["2024", "03", nil]
+[nil, "b"]
+["abc", "a", "bc", "c"]
+0 [""]
+aaa aab aac
+HeLLo AbC Bb -
+naïve 0 5 true
+café 6 10 true
+☕ 11 12 true
+ok 13 15 true
+café ï ["é", "☕"] ["", "", ""]
+true false false true false
+true true true true
+["", "aaa", "", ""] [""] [] [1, 3]
+home:ann, work:bo
+<ann@home> <home> <ann> $ $9 $<nope> $x $
+[a@b] c@d none here none
+-b--c-  a b  [x][y]
+cafe e .a.b.
+["a", "b", "c", "", "d"] ["", "a", ""] ["abc"] [""]
+["a", "b", "c"] ["a", "b", "c"] ["a", "b", ""] ["a", "b"]
+1\+1=2\? \(yes\) \[x\] \{y\} a\|b \^\$ \\ \.\* true
+false false true true
+1000 1001 2000
+can't compile the pattern '(a': missing ) to close the group at character 0
+can't compile the pattern 'a)': unmatched ) at character 1
+can't compile the pattern '*a': nothing to repeat before * at character 0
+can't compile the pattern 'a**': a repeat can't follow another; put the first in (?:...) at character 2
+can't compile the pattern 'a+*': a repeat can't follow another; put the first in (?:...) at character 2
+can't compile the pattern '[a': missing ] to close the class at character 0
+can't compile the pattern '[z-a]': the range ends before it starts at character 2
+can't compile the pattern 'a{3,2}': the repeat count {3,2} has its largest first at character 1
+can't compile the pattern 'a{1001}': repeat counts can be at most 1000 at character 1
+can't compile the pattern '\q': unknown escape \q at character 0
+can't compile the pattern '(?x)': unknown group kind; use (?:...) or (?<name>...) at character 1
+can't compile the pattern '(?<1a>x)': a group name must start with a letter or _ at character 3
+can't compile the pattern '(?<n>a)(?<n>b)': the group name 'n' is used twice at character 10
+can't compile the pattern '^*': an anchor can't be repeated at character 1
+can't compile the pattern 'a{': expected a count after {; write \{ for a brace at character 1
+can't compile the pattern 'x{,3}': expected a count after {; write \{ for a brace at character 1
+can't compile the pattern 'a{2': missing } to close the repeat count at character 1
+can't compile the pattern 'ab\': the pattern ends after \ at character 2
+can't compile the pattern '(?<n': missing > after the group name at character 4
+can't compile the pattern '(?i': unknown group kind; use (?:...) or (?<name>...) at character 1

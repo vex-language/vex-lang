@@ -1245,6 +1245,7 @@ fn helper() { }                         // private to models
   - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, or [`Bytes`](#bytes) with `readBytes`, `writeBytes` and `appendBytes`, and failures throw an `Error` naming the path and the reason
   - `vex:json`: `encode`, `decode`, `parse` and `write`, and the `Json` and `JsonError` enums (see [JSON](#json))
   - `vex:isolate`: `run` and `spawn`, which start work on other cores (see Isolates), and `cores()`
+  - `vex:regex`: `compile(pattern)`, which throws for a pattern that isn't valid, giving a `Regex` with `matches`, `hasMatch`, `find`, `findAll`, `replace`, `replaceFirst` and `split`, and `escape(text)` (see [Regular expressions](#regular-expressions))
   - `vex:random`: `nextInt(range)` (`random.nextInt(1..=6)` rolls a die; stepped and reversed ranges work), `nextFloat()` from 0.0 up to 1.0, `nextBool()`, `pick(items)`, a `T?` that is `nil` for an empty list, and `shuffle(items)` in place and `shuffled(items)`, also written `xs.shuffle()` and `xs.shuffled()`. These use a generator seeded by the system, one per isolate. `random.Random(seed: 42)` has the same methods and gives the same values on every run, for tests. Neither is for passwords or keys
   - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status), `stdout` and `stderr`, writers with `write(text)`, `writeln(text)` and `flush()`, and `target` and `arch`, the system the program is built for (see [Platform conditionals](#platform-conditionals))
 
@@ -1349,6 +1350,63 @@ fn main() throws {
 - A `Duration` is made with `Duration.days(n)`, `hours`, `minutes`, `seconds`, `millis` and `micros`, or, in a file that imports `vex:datetime`, as `n.days`, `n.hours`, `n.minutes`, `n.seconds`, `n.millis` and `n.micros`. `inDays`, `inHours`, `inMinutes`, `inSeconds`, `inMillis` and `inMicros` give it back in whole units, rounded toward zero. It has `+`, `-`, unary `-`, `* n` and `/ n`, comparisons, `abs()` and `isNegative`, and prints as Go writes durations: `1h30m0s`, `2.5s`, `750ms`.
 - The local time zone comes from the system, or from the `TZ` environment variable, which is read again each time it is needed.
 - `vex:time` stays the module for measuring and waiting: `time.nanos()` for how long code takes and `time.sleep(ms)`, which takes `d.inMillis` for a `Duration`.
+
+## Regular expressions
+
+`vex:regex` finds, replaces and splits text by pattern. Patterns are best written as raw strings, so `\` and `{` reach the pattern as written:
+
+```swift
+import "vex:regex"
+
+fn main() throws {
+    let date = try regex.compile(r"(?<year>\d{4})-(?<month>\d\d)-(\d\d)")
+    println(date.matches("2024-03-15"), date.hasMatch("on 2024-03-15"))   // true true
+
+    if let m = date.find("due 2024-03-15, paid 2024-04-01") {
+        println(m.text, m.start, m.end)              // 2024-03-15 4 14
+        println(m.groups, m.group("year"))           // ["2024", "03", "15"] 2024
+    }
+    println(date.findAll("2024-03-15 and 2024-04-01").map(fn(m) => m.text))
+    println(date.replace("on 2024-03-15", with: "$3/$<month>/$1"))   // on 15/03/2024
+
+    let comma = try regex.compile(r",\s*")
+    println(comma.split("a, b,c"))                   // ["a", "b", "c"]
+    println(try regex.compile("(a").pattern catch e { e.message })
+    // can't compile the pattern '(a': missing ) to close the group at character 0
+}
+```
+
+- `compile(pattern)` checks the pattern and throws an `Error` saying what is wrong and where. A `Regex` can be kept and used from many places; `pattern` and `groupCount` read it back.
+- `matches(text)` asks whether the whole text matches, and `hasMatch(text)` whether some part does.
+- `find(text)` gives the first `Match`, or `nil`. A `Match` has `text`, `start` and `end`, counted in characters as string indexes are, so `s[m.range]` is `m.text`. `groups` holds each group in parentheses from the first, `nil` for one that took no part, and `group(name)` reads a named group.
+- `findAll(text)` gives every match, each starting where the one before ended; after an empty match the search moves on one character.
+- `replace(text, with:)` replaces every match and `replaceFirst` the first. In the replacement, `$0` is the whole match, `$1` to `$9` and `$<12>` are groups by number, `$<name>` is a named group and `$$` is a `$`. A group that took no part gives an empty string, and a reference to a group that doesn't exist stays as written.
+- `split(text)` gives the pieces between matches. An empty match at either end, or right after the previous piece, doesn't split, so `compile("")` splits text into its characters.
+- `regex.escape(text)` puts a `\` before each character with a meaning in patterns, to match text as written.
+
+The pattern syntax:
+
+| Pattern | Matches |
+|---|---|
+| `a`, `é`, `\.`, `\\` | That character. A `\` before any ASCII punctuation makes it plain |
+| `\n`, `\t`, `\r`, `\f`, `\v`, `\0` | A line feed, tab, carriage return, form feed, vertical tab, NUL |
+| `.` | Any character except a line feed |
+| `[abc]`, `[a-z]`, `[^abc]` | One character in the set, or with `^` not in it. `]` first and `-` first or last are plain; `\` escapes work inside |
+| `\d`, `\w`, `\s` | An ASCII digit, an ASCII letter, digit or `_`, and a space, tab, line break, carriage return, form feed or vertical tab; `\D`, `\W`, `\S` are the opposites. They work inside `[...]` too |
+| `^`, `$` | The start and the end of the text |
+| `\b`, `\B` | A boundary between a `\w` character and another, or not one |
+| `x*`, `x+`, `x?` | 0 or more, 1 or more, 0 or 1 of `x`, as many as can be |
+| `x{n}`, `x{n,}`, `x{n,m}` | Exactly `n`, at least `n`, from `n` to `m`; counts are at most 1000 |
+| `x*?`, `x+?`, `x??`, `x{n,m}?` | The same, as few as can be |
+| `a\|b` | `a`, or else `b`: the first alternative that leads to a match wins |
+| `(x)` | A group that captures, numbered from 1 by its `(` |
+| `(?<name>x)` | A group that captures, with a name |
+| `(?:x)` | A group that doesn't capture |
+| `(?i)` at the start | Ignores the case of ASCII letters |
+
+- Patterns work on characters, not bytes, so `.` matches `é` and `[à-ï]` is a range of code points. The classes `\d`, `\w`, `\s` and `\b` and ignoring case cover ASCII only.
+- `^` and `$` match only at the ends of the whole text, not at each line. Backreferences, lookaround and possessive repeats aren't supported, and a plain `{` must be written `\{`.
+- Matching remembers what it has tried, so its time grows with the pattern's size times the text's length: patterns such as `(a*)*b` that take exponential time in some engines finish at once.
 
 ## C functions
 

@@ -1,0 +1,12 @@
+// Misusing vex:regex.
+import "vex:regex"
+
+fn main() {
+    let a = regex.Regex(pattern: "x", groupCount: 0)
+    let b = regex.compile("x")
+    let c = regex.escape(1)
+}
+
+// error: 5:13: regex.Regex can't be created outside vex:regex because field 'names' is private
+// error: 6:13: compile can throw, so the call needs try
+// error: 7:26: argument 'text': expected string, found int
