@@ -63,6 +63,7 @@ func (g *gen) spawnWrapper(f *types.Func) {
 	}
 	g.line("")
 	g.line("typedef struct { vx_future *f; %s } ar_%s;", strings.Join(fields, " "), name)
+	g.layoutMacro("ar_"+name, append([]string{"vx_future *f"}, fields...))
 	g.line("static void en_%s(void *p) {", name)
 	g.line("    ar_%s *a = p;", name)
 	var args []string
@@ -87,8 +88,8 @@ func (g *gen) spawnWrapper(f *types.Func) {
 	g.line("    vx_future_done(a->f, %s);", value)
 	g.line("}")
 	g.line("static %s {", spawnSig(f))
-	g.line("    ar_%s *a = vx_alloc(sizeof(ar_%s));", name, name)
-	g.line("    a->f = vx_future_new(%s);", valueSize(f.Result))
+	g.line("    ar_%s *a = vx_alloc_obj(sizeof(ar_%s), VXPM_ar_%s);", name, name, name)
+	g.line("    a->f = vx_future_new(%s, %s);", valueSize(f.Result), layoutOf(f.Result))
 	for _, n := range ns {
 		g.line("    a->%s = %s;", n, n)
 	}
@@ -143,6 +144,7 @@ func (g *gen) valueSpawner(ft *types.FuncType) string {
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "typedef struct { vx_future *f; vx_fn fn; %s } arv_%s;\n", strings.Join(fields, " "), m)
+	fmt.Fprintf(&b, "#define VXPM_arv_%s %s\n", m, structLayout("arv_"+m, cFields(append([]string{"vx_future *f", "vx_fn fn"}, fields...))))
 	fmt.Fprintf(&b, "static void env_%s(void *p) { arv_%s *a = p; ", m, m)
 	call := fmt.Sprintf("((%s)a->fn.fn)(%s)", fnPtrType(ft), strings.Join(append([]string{"a->fn.env"}, args...), ", "))
 	if ft.Throws != nil {
@@ -160,8 +162,8 @@ func (g *gen) valueSpawner(ft *types.FuncType) string {
 		b.WriteString("if (err) { vx_future_fail(a->f, err); return; } ")
 	}
 	fmt.Fprintf(&b, "vx_future_done(a->f, %s); }\n", value)
-	fmt.Fprintf(&b, "static vx_future *%s(%s) { arv_%s *a = vx_alloc(sizeof(arv_%s)); a->f = vx_future_new(%s); a->fn = fn; %s vx_remember(a); vx_go_f(env_%s, a, a->f); return a->f; }\n",
-		name, strings.Join(append([]string{"vx_fn fn"}, params...), ", "), m, m, valueSize(ft.Result), strings.Join(sets, " "), m)
+	fmt.Fprintf(&b, "static vx_future *%s(%s) { arv_%s *a = vx_alloc_obj(sizeof(arv_%s), VXPM_arv_%s); a->f = vx_future_new(%s, %s); a->fn = fn; %s vx_remember(a); vx_go_f(env_%s, a, a->f); return a->f; }\n",
+		name, strings.Join(append([]string{"vx_fn fn"}, params...), ", "), m, m, m, valueSize(ft.Result), layoutOf(ft.Result), strings.Join(sets, " "), m)
 	g.codecDefs.WriteString(b.String())
 	return name
 }
@@ -192,10 +194,10 @@ func (g *gen) asyncBuiltin(e *ast.CallExpr, c *types.Call) string {
 		return g.settle(e, arg, fmt.Sprintf("vx_run(%%s, %d)", g.lineOf(e)))
 	case "all":
 		elem := g.info.Types[c.Args[0]].(*types.List).Elem.(*types.Future).Elem
-		return fmt.Sprintf("vx_all(%s, %s)", arg, valueSize(elem))
+		return fmt.Sprintf("vx_all(%s, %s, %s)", arg, valueSize(elem), layoutOf(elem))
 	}
 	elem := g.info.Types[c.Args[0]].(*types.List).Elem.(*types.Future).Elem
-	return fmt.Sprintf("vx_any(%s, %s, %d)", arg, valueSize(elem), g.lineOf(e))
+	return fmt.Sprintf("vx_any(%s, %s, %s, %d)", arg, valueSize(elem), layoutOf(elem), g.lineOf(e))
 }
 
 // Returns the C function the call [e] of [f] runs: [f] itself, or its
@@ -227,8 +229,8 @@ func (g *gen) timeoutCall(e *ast.CallExpr, c *types.Call) string {
 			"switch (a->src->state) { case 0: { %s r = (%s){0}; vx_cancel(a->src); vx_future_done(a->f, &r); break; } "+
 			"case 1: { %s vx_future_done(a->f, &r); break; } case 2: vx_future_fail(a->f, a->src->err); break; default: vx_future_settle(a->f, 3); } vx_cancel(timer); }\n",
 			m, m, ctype(res.Elem), ctype(res.Elem), value)
-		fmt.Fprintf(&g.codecDefs, "static vx_future *%s(vx_future *src, int64_t ms) { artmo_%s *a = vx_alloc(sizeof(artmo_%s)); a->f = vx_future_new(sizeof(%s)); a->src = src; a->ms = ms; vx_remember(a); vx_go_f(entmo_%s, a, a->f); return a->f; }\n",
-			name, m, m, ctype(res.Elem), m)
+		fmt.Fprintf(&g.codecDefs, "static vx_future *%s(vx_future *src, int64_t ms) { artmo_%s *a = vx_alloc_obj(sizeof(artmo_%s), VX_FIELD(artmo_%s, f, 1) | VX_FIELD(artmo_%s, src, 1)); a->f = vx_future_new(sizeof(%s), %s); a->src = src; a->ms = ms; vx_remember(a); vx_go_f(entmo_%s, a, a->f); return a->f; }\n",
+			name, m, m, m, m, ctype(res.Elem), layoutOf(res.Elem), m)
 	}
 	return g.ordered(c.Args, func(cs []string) string {
 		return fmt.Sprintf("%s(%s, %s)", name, cs[0], cs[1])

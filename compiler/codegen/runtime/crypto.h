@@ -36,7 +36,7 @@ static VX_TLS const char *vx_crypto_err = "";
 
 // Returns [n] zero bytes.
 static vx_list *vx_crypto_new(size_t n) {
-    vx_list *b = vx_list_make(1, 0, (int64_t)n, NULL, true);
+    vx_list *b = vx_list_make(1, 0, (int64_t)n, NULL, 0);
     memset(b->data, 0, n);
     b->len = (int64_t)n;
     return b;

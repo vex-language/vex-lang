@@ -1,0 +1,211 @@
+// The collector scans objects by their layout: only the words that may
+// hold pointers. Each part keeps pointers in a different kind of place,
+// churns garbage so collections run, and reads everything back.
+import "vex:isolate"
+import "vex:time"
+
+struct Point {
+    x: int
+    y: float
+    label: string
+    tags: [string] = []
+}
+
+struct Tree {
+    id: int
+    kids: [Tree] = []
+    parent: Tree? = nil
+    pos: (int, string) = (0, "")
+    spot: ({float w, Point? p}) = (w: 0.0, p: nil)
+}
+
+enum Shape {
+    dot
+    circle(r: float, name: string)
+    poly(points: [Point], scale: int, owner: Tree?)
+}
+
+extension type Name(value: string)
+
+struct Wide {
+    a0: string = "a0"
+    n0: int = 0
+    a1: string = "a1"
+    n1: int = 1
+    a2: string = "a2"
+    n2: int = 2
+    a3: string = "a3"
+    n3: int = 3
+    a4: string = "a4"
+    n4: int = 4
+    a5: string = "a5"
+    n5: int = 5
+    a6: string = "a6"
+    n6: int = 6
+    a7: string = "a7"
+    n7: int = 7
+    a8: string = "a8"
+    n8: int = 8
+    a9: string = "a9"
+    n9: int = 9
+    b0: string = "b0"
+    b1: string = "b1"
+    b2: string = "b2"
+    b3: string = "b3"
+    b4: string = "b4"
+    b5: string = "b5"
+    b6: string = "b6"
+    b7: string = "b7"
+    b8: string = "b8"
+    b9: string = "b9"
+    last: Point? = nil
+}
+
+var registry: [string: Tree] = [:]
+let firstPoint = Point(x: 1, y: 2.5, label: "first")
+
+fn churn(n: int) -> int {
+    var total = 0
+    for i in 0..n {
+        total += "junk {i}".len + [i, i * 2].len
+    }
+    return total
+}
+
+fn grow(depth: int, parent: Tree?) -> Tree {
+    let t = Tree(id: depth, parent: parent, pos: (depth, "d{depth}"), spot: (w: 1.5, p: Point(x: depth, y: 0.5, label: "p{depth}")))
+    if depth > 0 {
+        for i in 0..2 {
+            t.kids.push(grow(depth - 1, t))
+            churn(2)
+        }
+    }
+    return t
+}
+
+fn size(t: Tree) -> int {
+    var n = 1
+    for k in t.kids {
+        n += size(k)
+    }
+    return n
+}
+
+fn labels(points: [Point]) -> Iterable<string> {
+    for p in points {
+        churn(3)
+        yield p.label + p.tags.join("+")
+    }
+}
+
+async fn later(p: Point, n: int) -> Point {
+    let kept = Point(x: p.x + n, y: p.y, label: "{p.label}-later", tags: [p.label])
+    await time.sleep(1)
+    churn(20)
+    await time.sleep(1)
+    return Point(x: kept.x, y: kept.y, label: kept.label, tags: kept.tags)
+}
+
+async fn main() {
+    // A deep tree whose nodes point back to their parents: a cyclic graph.
+    let root = grow(8, nil)
+    churn(500)
+    println(size(root), root.kids[1].kids[0].parent?.parent?.id ?? -1, root.kids[0].pos.$2, root.kids[0].spot.p?.label ?? "-")
+
+    // Records with pointers and numbers mixed, in a list that grows.
+    var pairs: [(int, string, Point)] = []
+    for i in 0..300 {
+        pairs.push((i, "s{i}", Point(x: i, y: 0.0, label: "pt{i}")))
+        churn(1)
+    }
+    churn(500)
+    println(pairs.len, pairs[0].$2, pairs[299].$3.label, pairs[150].$1)
+
+    // Maps of structs, with record keys.
+    var byKey: [(int, string): Point] = [:]
+    for i in 0..200 {
+        byKey[(i, "k{i}")] = Point(x: i, y: 1.0, label: "v{i}", tags: ["t{i}"])
+    }
+    churn(500)
+    println(byKey.len, byKey[(7, "k7")]?.label ?? "-", byKey[(199, "k199")]?.label ?? "-")
+    println(byKey.keys[3].$2, byKey.values[4].tags[0])
+
+    // Enums whose cases hold different things in the same place.
+    var shapes: [Shape] = []
+    for i in 0..300 {
+        match i % 3 {
+            0 => shapes.push(Shape.dot)
+            1 => shapes.push(Shape.circle(r: 1.5, name: "c{i}"))
+            _ => shapes.push(Shape.poly(points: [Point(x: i, y: 0.0, label: "q{i}")], scale: i, owner: root))
+        }
+    }
+    churn(500)
+    var names = 0
+    for s in shapes {
+        match s {
+            dot => names += 0
+            circle(_, name) => names += name.len
+            poly(points, scale, owner) => names += points[0].label.len + scale - scale + (owner?.id ?? 0) - 8
+        }
+    }
+    println(names)
+
+    // Closures capturing heap values, records and changing variables.
+    var counter = Point(x: 0, y: 0.0, label: "counter")
+    var fns: [fn() -> string] = []
+    for i in 0..100 {
+        let p = Point(x: i, y: 0.0, label: "cap{i}")
+        let r = (i, "rec{i}")
+        fns.push(fn() => p.label + r.$2)
+    }
+    let bump = fn() {
+        counter = Point(x: counter.x + 1, y: 0.0, label: "counter{counter.x + 1}")
+    }
+    for _ in 0..50 {
+        bump()
+        churn(5)
+    }
+    println(fns[42](), counter.label)
+
+    // Generators and async tasks holding objects across pauses and awaits.
+    let pts = [for i in 0..20 Point(x: i, y: 0.0, label: "g{i}", tags: ["x{i}"])]
+    var joined = ""
+    for l in labels(pts) {
+        joined = joined + l
+    }
+    println(joined.len)
+    let futures = [for i in 0..10 later(Point(x: i, y: 2.0, label: "a{i}"), i)]
+    let done = await all(futures)
+    println(done[9].label, done[9].x, done[3].tags[0])
+
+    // Variables outside functions, and extension types wrapping pointers.
+    for i in 0..50 {
+        registry["t{i}"] = Tree(id: i)
+    }
+    let names2: [Name] = [for i in 0..50 Name(value: "name{i}")]
+    churn(500)
+    println(registry["t42"]?.id ?? -1, firstPoint.label, names2[49].value)
+
+    // Objects over 512 bytes are scanned word by word, and lists of them
+    // over 2 KB are large objects.
+    var wides: [Wide] = []
+    for i in 0..40 {
+        wides.push(Wide(last: Point(x: i, y: 0.0, label: "w{i}")))
+    }
+    churn(500)
+    println(wides[39].b9, wides[39].last?.label ?? "-", wides[0].a5)
+    var bigs = [for i in 0..400 (i, "big{i}")]
+    churn(500)
+    println(bigs[399].$2, bigs.len)
+    bigs.sort(fn(a, b) => a.$1 > b.$1)
+    churn(500)
+    println(bigs[0].$2)
+
+    // A graph copied to another isolate and back.
+    let copy = await isolate.run(fn() -> Tree {
+        churn(200)
+        return grow(5, nil)
+    })
+    churn(500)
+    println(size(copy), copy.kids[0].kids[1].parent?.id ?? -1)
+}

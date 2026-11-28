@@ -1,6 +1,6 @@
 # Memory management
 
-Status: stage 1 done (V-107); generational collection done (part of V-112).
+Status: stage 1 done (V-107); stage 2, precise object layouts, done (V-111); generational collection done (part of V-112).
 
 ## Decision
 
@@ -19,15 +19,18 @@ Trade-offs: memory isn't freed the moment it becomes unreachable, and collection
 The collector is part of the runtime (`compiler/codegen/runtime/vexrt.h`); the compiler calls `vx_gc_init` at the start of `main` and emits write barriers.
 
 - **Allocation.** Objects up to 2 KB come from 64 KB pages that each hold one of 24 size classes. An object is taken from its class's free list, or else from the page the class is filling in order. Allocations of up to 128 bytes are inlined where they happen. Larger objects get their own allocation. String text, and lists of numbers and bools, are allocated as *atomic*: they never hold pointers, so they are never scanned.
+- **Object layouts.** Every allocation passes the layout of its words: a 64-bit mask with a bit for each 8-byte word that may hold a pointer, repeated for each element of an array. The compiler emits one as a C constant for each struct, enum case, record, optional, closure environment, captured variable and task or generator argument block, built with `offsetof` so the C compiler places the fields; lists, maps, sets and futures get theirs from the element, key and value types. Pages are kept apart by layout as well as size class, so a page stores its layout once, in its header, and allocating writes nothing but the object. Each class has its pages for objects with no pointers and for objects that are all pointers, the two common cases, whose inlined allocation takes the same instructions as an allocation without a layout. Every other layout of a class gets pages of its own, found through a table of 256 per heap, and its inlined allocation adds one comparison; once the table is three quarters full, a new layout is treated as all pointers. A large object keeps its mask in its header. Words that hold an int or a float are never read by the collector, so a number can't keep an object alive by looking like its address. A word that is a pointer in one enum case and a number in another is only read in objects of the first case; an object whose case isn't known when it is made, while an isolate message is decoded, uses the union of its cases. A value over 512 bytes that holds pointers has every word scanned.
 - **Layout.** An optional struct or enum is a pointer that is NULL for nil, since those values are never NULL; other optionals carry a flag.
 - **Finding objects.** A hash table maps a page number to its page, so any word can be checked with a shift and one lookup. Large objects are found by binary search.
-- **Marking.** Roots are the C stack and the registers, which are spilled with `setjmp`. Marking is conservative: any word that points into an object keeps it alive, including pointers into the middle of an object. Marked objects are scanned the same way, using an explicit work list rather than recursion.
+- **Marking.** Roots are the C stacks of the program and its tasks and the registers, which are spilled with `setjmp`, scanned conservatively: any word there that points into an object keeps it alive, including pointers into the middle of an object. Globals, constants and the runtime's own roots (timers, futures waiting for another isolate, closures handed to C) are read precisely, by the layout of each global. Marked objects are scanned by their layout, using an explicit work list rather than recursion. A word read this way still has to point into an object to keep it alive, which makes a layout bit set for a word that never holds a pointer harmless.
 - **Generations.** Marks stay set after a collection, so the objects that survived are old. A *minor* collection marks only from the roots and from old objects written since the last collection, and stops at anything already marked, so it doesn't trace long-lived data again. A *major* collection clears every mark and traces everything.
 - **Write barrier.** After the compiled code or the runtime stores a pointer into an object (a field, a list element, a map entry, a captured variable), it records the object in the remembered set, which the next minor collection scans again. Plain local variables are roots and need no barrier, and neither do stores of numbers and bools. Writing one object repeatedly records it once; when the set fills, it is compacted to one entry per object.
 - **Sweeping.** Unmarked objects go back onto the free lists. Pages with no live objects are reused for any size class, pages whose objects are all live are skipped, and unmarked large objects are freed.
 - **Pacing.** A minor collection runs once the young objects reach the size of the heap after the last collection, and never below 4 MB. A major one runs instead once the old objects have doubled since the last major collection.
 
-Conservative marking can keep a dead object alive when an unrelated number happens to look like its address. It never frees a live object.
+Scanning the stacks conservatively can keep a dead object alive when an unrelated number on the stack happens to look like its address, or when a stack slot still holds a pointer the program no longer uses. It never frees a live object.
+
+**Why the stacks stay conservative.** A precise stack needs a shadow stack: each function that holds pointers links a frame of root slots into a thread-local chain and stores each pointer it holds there, which also keeps those pointers out of registers across calls. Measured by hand on the generated C of the binary-trees benchmark, that costs 13% more cycles when only the functions that allocate keep slots, and 27% when every function with a pointer does, for no gain in a collector that doesn't move objects. Go and Dart find stack pointers precisely through stack maps that their own code generators emit; a compiler that emits C gets no stack maps, which leaves a shadow stack, as Kotlin/Native uses, or conservative scanning. A collector that moves objects needs the former, but Vex's never moves one, so conservative stacks with precise objects keep almost all of the benefit, as in the collectors of WebKit and Mono.
 
 ### Environment variables
 
@@ -50,8 +53,9 @@ Before the collector, the first program leaked all 387 MB it allocated.
 
 Binary trees of depth 18 (about 67 million short-lived nodes beside one long-lived tree) take 0.26 s and 42 MB: Kotlin on the JVM takes 0.28 s and 438 MB, Dart 0.35 s and 78 MB, Go 1.26 s and 45 MB. Minor collections are what make the difference: before them it took 0.45 s.
 
+Precise object layouts leave the benchmarks of `bench/` within 1% in cycles, except for those whose objects mix numbers with pointers: hash maps run about 6% faster, sorting 4% and JSON 1%, since the collector no longer reads those numbers. A layout of its own holds a partly used page per size class: the JSON benchmark uses 5 pages, 320 KB, more than before. Setting a bit per word on each allocation instead, in a bitmap at the end of each page, cost binary trees 7%.
+
 ## Next stages
 
-1. **Precise roots and objects.** The compiler records where pointers live in each struct, enum and stack frame, so nothing is kept alive by accident and scanning skips plain numbers.
-2. **Returning memory to the OS**, and finalizers for native handles once the UI bridge exists.
-3. **Threads**, when Vex gets them: per-thread allocation caches and stopping threads for a collection.
+1. **Returning memory to the OS**, and finalizers for native handles once the UI bridge exists.
+2. **Threads**, when Vex gets them: per-thread allocation caches and stopping threads for a collection.

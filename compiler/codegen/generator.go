@@ -49,6 +49,7 @@ func (g *gen) generatorFunction(f *types.Func) {
 		sig = []string{"void"}
 	}
 	g.line("typedef struct { %s } gi_%s;", strings.Join(fields, " "), name)
+	g.layoutMacro("gi_"+name, fields)
 	g.line("static void en_%s(void *p) {", name)
 	g.line("    vx_gen *g = p;")
 	g.line("    gi_%s *a = g->src;", name)
@@ -59,7 +60,7 @@ func (g *gen) generatorFunction(f *types.Func) {
 	g.line("static void *const itab_gi_%s[] = { %s };", name, tableOf(it, map[string]string{"iterator": "git_" + name}))
 	g.line("static const vx_desc desc_gi_%s = { wrv_gi_%s, { [%d] = itab_gi_%s } };", name, name, it.Index, name)
 	g.line("static void *%s(%s) {", name, strings.Join(sig, ", "))
-	g.line("    gi_%s *a = vx_alloc(sizeof(gi_%s));", name, name)
+	g.line("    gi_%s *a = vx_alloc_obj(sizeof(gi_%s), VXPM_gi_%s);", name, name, name)
 	g.line("    a->vx_t = &desc_gi_%s;", name)
 	for _, n := range ns {
 		g.line("    a->%s = %s;", n, n)

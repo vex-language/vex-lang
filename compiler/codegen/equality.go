@@ -199,14 +199,14 @@ func (g *gen) hashFunc(t types.Type) string {
 // bools, strings and simple enums hash and compare through generated
 // functions.
 func (g *gen) newMap(m *types.Map) string {
-	return g.newTable(m.Key, "sizeof("+ctype(m.Value)+")")
+	return g.newTable(m.Key, "sizeof("+ctype(m.Value)+"), "+layoutOf(m.Value))
 }
 
-// Returns C code for a new, empty map with keys of type [key] and values of
-// [vsize] bytes.
-func (g *gen) newTable(key types.Type, vsize string) string {
+// Returns C code for a new, empty map with keys of type [key] and values
+// [value], written as their size and layout.
+func (g *gen) newTable(key types.Type, value string) string {
 	if kind := keyKind(key); kind != "" {
-		return fmt.Sprintf("vx_map_new(%s, sizeof(%s), %s)", kind, ctype(key), vsize)
+		return fmt.Sprintf("vx_map_new(%s, sizeof(%s), %s, %s)", kind, ctype(key), layoutOf(key), value)
 	}
 	k := ctype(key)
 	id := mangle(key)
@@ -216,7 +216,7 @@ func (g *gen) newTable(key types.Type, vsize string) string {
 		fmt.Fprintf(&g.codecDefs, "static bool keq_%s(const void *a, const void *b) { return %s; }\n", id,
 			g.eq(key, fmt.Sprintf("(*(const %s *)a)", k), fmt.Sprintf("(*(const %s *)b)", k)))
 	}
-	return fmt.Sprintf("vx_map_new_custom(khash_%s, keq_%s, sizeof(%s), %s)", id, id, k, vsize)
+	return fmt.Sprintf("vx_map_new_custom(khash_%s, keq_%s, sizeof(%s), %s, %s)", id, id, k, layoutOf(key), value)
 }
 
 // Returns C code for `hash(a, b, ...)` over the arguments [cs] of types [ts].

@@ -1,6 +1,7 @@
 package codegen
 
 import (
+	"fmt"
 	"math"
 	"strconv"
 	"strings"
@@ -81,6 +82,7 @@ func (g *gen) varsStruct(info *types.Info) {
 		g.line("    %s;", decl(k.Type, constField(k)))
 	}
 	g.line("} vx_v;")
+	g.rootParts("vx_v", vars)
 	g.line("static VX_TLS uint8_t vx_vs[%d];", len(vars))
 	for i, k := range vars {
 		f := constField(k)
@@ -107,7 +109,6 @@ func (g *gen) varsInit(info *types.Info) string {
 		g.ind++
 		g.line("if (vx_vs[%d] == 1) vx_fail(%d, \"'%s' is used before its starting value is ready\");", i, g.lineOf(k.Decl.Name), k.String())
 		g.line("vx_vars_lo = (const char *)&vx_v;")
-		g.line("vx_vars_hi = (const char *)(&vx_v + 1);")
 		g.line("vx_vs[%d] = 1;", i)
 		g.line("%s = %s;", decl(k.Type, "v"), g.expr(k.Decl.Value))
 		g.line("vx_v.%s = v;", f)
@@ -135,7 +136,33 @@ func (g *gen) constsStruct(info *types.Info) {
 		g.line("%s", f)
 	}
 	g.line("} vx_k;")
+	var ks []*types.Const
+	for _, k := range info.Consts {
+		if global(k) {
+			ks = append(ks, k)
+		}
+	}
+	g.rootParts("vx_k", ks)
 	g.line("")
+}
+
+// Writes [name]_parts, the parts of the struct of globals [name] holding
+// the constants or variables [ks] that may hold pointers, and the macro
+// [name]_len with their number.
+func (g *gen) rootParts(name string, ks []*types.Const) {
+	var parts []string
+	for _, k := range ks {
+		if m := layoutOf(k.Type); m != "0" {
+			f := constField(k)
+			parts = append(parts, fmt.Sprintf("{offsetof(__typeof__(%s), %s), sizeof(%s.%s), %s}", name, f, name, f, m))
+		}
+	}
+	if len(parts) == 0 {
+		g.line("#define %s_parts NULL", name)
+	} else {
+		g.line("static const vx_root %s_parts[] = {%s};", name, strings.Join(parts, ", "))
+	}
+	g.line("#define %s_len %d", name, len(parts))
 }
 
 // Returns the function that builds the constants kept in globals, each
@@ -153,8 +180,9 @@ func (g *gen) constsInit(info *types.Info) string {
 	g.enter(&b)
 	g.line("static void vx_consts_init(void) {")
 	g.ind++
+	g.line("vx_roots_parts = vx_k_parts;")
+	g.line("vx_roots_len = vx_k_len;")
 	g.line("vx_roots_lo = (const char *)&vx_k;")
-	g.line("vx_roots_hi = (const char *)(&vx_k + 1);")
 	g.constMode = true
 	for _, k := range info.Consts {
 		if global(k) {
