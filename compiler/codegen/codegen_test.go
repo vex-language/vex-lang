@@ -1258,6 +1258,39 @@ fn main() {
 	}
 }
 
+// A heap that shrinks gives its empty pages back to the system.
+func TestMemoryGoesBack(t *testing.T) {
+	exe := build(t, `struct Blob {
+    id: int
+    name: string
+}
+fn main() {
+    var big: [Blob] = []
+    for i in 0..150000 {
+        big.push(Blob(id: i, name: "blob number {i}"))
+    }
+    println(big.len, big[149999].name)
+    big = []
+    var total = 0
+    for i in 0..3000000 {
+        total += "x{i}".repeat(10).len
+    }
+    println(total)
+}`)
+	out, errOut, code := execute(t, exe, "", "VEX_GC_STATS=1")
+	if code != 0 || out != "150000 blob number 149999\n228888900\n" {
+		t.Fatalf("exit %d, output %q, stderr %q", code, out, errOut)
+	}
+	var collections, allocated, peak, live, held, most, back int
+	if _, err := fmt.Sscanf(errOut, "gc: %d collections, %d KB allocated, %d KB peak heap, %d KB live, %d KB from the system, %d KB at most, %d KB given back",
+		&collections, &allocated, &peak, &live, &held, &most, &back); err != nil {
+		t.Fatalf("bad stats %q: %v", errOut, err)
+	}
+	if most < 8*1024 || held > most/3 || back < most/2 {
+		t.Errorf("memory isn't given back: %s", errOut)
+	}
+}
+
 func TestRuntimeErrors(t *testing.T) {
 	cases := []struct{ name, body, want string }{
 		{"index", "let xs = [1, 2, 3]\nprintln(xs[5])", "index 5 is out of range for a list of length 3\n --> main.vx:3"},
