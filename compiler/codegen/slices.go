@@ -12,8 +12,11 @@ import (
 // left-out end is the length.
 func (g *gen) slice(e *ast.IndexExpr) string {
 	f, length := "vx_list_slice_range", "%s->len"
-	if g.info.Types[e.X] == types.String {
+	switch g.info.Types[e.X] {
+	case types.String:
 		f, length = "vx_str_slice_range", "vx_str_len(%s)"
+	case types.Bytes:
+		f = "vx_bytes_slice_range"
 	}
 	line := g.lineOf(e)
 	r, ok := e.Index.(*ast.RangeExpr)

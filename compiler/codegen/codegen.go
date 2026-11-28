@@ -470,6 +470,8 @@ func ctype(t types.Type) string {
 		return "vx_str"
 	case types.Range:
 		return "vx_range"
+	case types.Bytes:
+		return "vx_list *"
 	}
 	return "void"
 }
@@ -825,6 +827,8 @@ func repr(t types.Type, x string) string {
 		return "vx_str_quote(" + x + ")"
 	case types.Range:
 		return "vx_range_str(" + x + ")"
+	case types.Bytes:
+		return "vx_bytes_str(" + x + ")"
 	}
 	return "VX_LIT(\"\")"
 }
@@ -1308,6 +1312,10 @@ func (g *gen) forStmt(s *ast.ForStmt) {
 		g.line("}")
 		return
 	}
+	if g.info.Types[s.Iter] == types.Bytes {
+		g.bytesLoop(s)
+		return
+	}
 	if it := g.info.Iterables[s]; it != nil {
 		g.iterableLoop(s, it)
 		return
@@ -1374,6 +1382,8 @@ func (g *gen) assign(s *ast.AssignStmt) {
 	// and what it records: the object, the list's elements, or the target
 	// itself.
 	inHeap, barrier := true, ""
+	// For a byte of Bytes, the line that checks the value is a byte.
+	byteLine := 0
 	switch x := s.Target.(type) {
 	case *ast.IndexExpr:
 		if set := g.info.IndexSets[x]; set != nil {
@@ -1392,6 +1402,10 @@ func (g *gen) assign(s *ast.AssignStmt) {
 		setup = append(setup,
 			fmt.Sprintf("vx_list *%s = %s;", list, g.expr(x.X)),
 			fmt.Sprintf("int64_t %s = %s;", idx, g.expr(x.Index)))
+		if g.info.Types[x.X] == types.Bytes {
+			target, byteLine = fmt.Sprintf("(*VX_BYTE(%s, %s, %d))", list, idx, g.lineOf(x)), g.lineOf(x)
+			break
+		}
 		barrier = list + "->data"
 		if g.rng != nil && !g.constMode && g.rng.inBounds(x.X, x.Index) {
 			// A list that keeps its length was made by a literal here, so
@@ -1431,6 +1445,9 @@ func (g *gen) assign(s *ast.AssignStmt) {
 		target = g.expr(s.Target)
 	}
 	store := func(value string) {
+		if byteLine != 0 {
+			value = fmt.Sprintf("vx_byte(%s, %d)", value, byteLine)
+		}
 		if !inHeap || flat(t) {
 			g.line("%s = %s;", target, value)
 			return
@@ -1950,6 +1967,11 @@ func (g *gen) value(e ast.Expr) string {
 		if g.info.Types[e.Index] == types.Range {
 			return g.slice(e)
 		}
+		if g.info.Types[e.X] == types.Bytes {
+			return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
+				return fmt.Sprintf("((int64_t)*VX_BYTE(%s, %s, %d))", cs[0], cs[1], g.lineOf(e))
+			})
+		}
 		if g.rng != nil && g.rng.inBounds(e.X, e.Index) {
 			return g.ordered([]ast.Expr{e.X, e.Index}, func(cs []string) string {
 				return fmt.Sprintf("(((%s *)%s->data)[%s])", ctype(t), cs[0], cs[1])
@@ -2033,7 +2055,7 @@ func (g *gen) value(e ast.Expr) string {
 			}
 			return "vx_str_len(" + x + ")"
 		}
-		if _, ok := g.info.Types[e.X].(*types.Set); ok && m.Builtin == "isEmpty" {
+		if _, ok := g.info.Types[e.X].(*types.Set); (ok || g.info.Types[e.X] == types.Bytes) && m.Builtin == "isEmpty" {
 			return "(" + x + "->len == 0)"
 		}
 		if g.info.Types[e.X] == types.Range {
@@ -2362,6 +2384,8 @@ func (g *gen) builtin(c *types.Call, result types.Type, line int) string {
 			return g.toJSON(g.info.Types[c.Args[0]], cs[0])
 		case "jsonAs":
 			return fmt.Sprintf("%s(%s, NULL, &%s)", g.fromJSONFunc(result), cs[0], g.tries[len(g.tries)-1].err)
+		case "Bytes", "Bytes.count", "Bytes.list", "Bytes.fromHex":
+			return bytesBuiltin(c.Builtin, cs, result, line)
 		case "int.parse", "float.parse":
 			t, v := ctype(result), g.temp()
 			if c.Builtin == "int.parse" {
@@ -2402,6 +2426,9 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 		}
 		if recv == types.Float && c.Builtin == "toFixed" {
 			return fmt.Sprintf("vx_float_fixed(%s, %s, %d)", cs[0], cs[1], line)
+		}
+		if recv == types.Bytes {
+			return bytesMember(c, cs, g.info.Types[e], line)
 		}
 		if recv == types.Range {
 			switch c.Builtin {
@@ -2480,6 +2507,8 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 			}
 		}
 		switch c.Builtin {
+		case "toBytes":
+			return fmt.Sprintf("({ vx_str s = %s; vx_bytes_new(s.len, s.ptr); })", cs[0])
 		case "upper", "lower", "capitalize", "reversed":
 			return fmt.Sprintf("vx_str_%s(%s)", c.Builtin, cs[0])
 		case "contains":

@@ -30,8 +30,13 @@ func externType(t types.Type, sized string) string {
 		if _, ok := t.Elem.(*types.Handle); ok {
 			return "void *"
 		}
+		if t.Elem == types.Bytes {
+			return "vx_list *"
+		}
 	}
 	switch t {
+	case types.Bytes:
+		return "vx_list *"
 	case types.Int:
 		return "int64_t"
 	case types.Float:
@@ -48,7 +53,7 @@ func externType(t types.Type, sized string) string {
 func toC(t types.Type, x string) string {
 	switch t := t.(type) {
 	case *types.Optional:
-		if _, ok := t.Elem.(*types.Handle); ok {
+		if _, ok := t.Elem.(*types.Handle); ok || t.Elem == types.Bytes {
 			return fmt.Sprintf("(%s.has ? %s.v : NULL)", x, x)
 		}
 		return fmt.Sprintf("(%s.has ? vx_cstr(%s.v) : NULL)", x, x)

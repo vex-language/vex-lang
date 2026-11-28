@@ -103,6 +103,10 @@ func (g *gen) codec(t types.Type) string {
 		if t == types.String {
 			snd.WriteString("vx_enc_str(e, v);")
 			rcv.WriteString("return vx_dec_str(d);")
+		} else if t == types.Bytes {
+			snd.WriteString("if (vx_enc_ref(e, v)) return; vx_enc_i64(e, v->len); vx_enc_put(e, v->data, (size_t)v->len);")
+			rcv.WriteString("vx_list *o = vx_dec_ref(d); if (o) return o; int64_t n = vx_dec_i64(d); " +
+				"o = vx_bytes_count(n, 0); vx_dec_obj(d, o); vx_dec_get(d, o->data, (size_t)n); return o;")
 		} else {
 			// Numbers, bools and channels are copied as they are.
 			snd.WriteString("vx_enc_put(e, &v, sizeof v);")
