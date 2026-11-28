@@ -2318,19 +2318,7 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			if p.spacedInHead() {
 				return x
 			}
-			p.next()
-			saved, savedHead := p.noTrailing, p.elemHead
-			p.noTrailing, p.elemHead = false, false
-			p.skipNewlines()
-			var idx ast.Expr
-			if p.at(lexer.DotDot) || p.at(lexer.DotDotEq) {
-				idx = p.rangeRest(nil, precedence(lexer.DotDot))
-			} else {
-				idx = p.expr()
-			}
-			p.skipNewlines()
-			p.noTrailing, p.elemHead = saved, savedHead
-			p.expect(lexer.RBracket)
+			idx := p.index()
 			x = &ast.IndexExpr{Span: p.span(x.Pos()), X: x, Index: idx}
 		case lexer.LBrace:
 			// `Column { ... }` is a call with only a trailing block.
@@ -2354,6 +2342,17 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			}
 			return x
 		case lexer.Question:
+			if p.spacedInHead() {
+				return x
+			}
+			if next := p.peek(1); next.Kind == lexer.LBracket && next.Pos.Offset == p.tok().End && p.tok().Pos.Offset == p.lastEnd {
+				p.next()
+				idx := p.index()
+				x = &ast.IndexExpr{Span: p.span(x.Pos()), X: x, Index: idx, Optional: true}
+				continue
+			} else if next.Kind == lexer.LBracket && p.tok().Pos.Offset == p.lastEnd {
+				p.fail(p.tok(), "write ?[ without a space, e.g. xs?[0]", "unexpected '?'")
+			}
 			if next := p.peek(1); startsExpr(next.Kind) && !next.IsAutoSemi() {
 				p.fail(p.tok(), "write if cond { a } else { b }", "Vex has no ? : operator")
 			}
@@ -2362,6 +2361,24 @@ func (p *parser) postfix(x ast.Expr) ast.Expr {
 			return x
 		}
 	}
+}
+
+// Parses `[index]`, an int or a range, from its opening bracket.
+func (p *parser) index() ast.Expr {
+	p.expect(lexer.LBracket)
+	saved, savedHead := p.noTrailing, p.elemHead
+	p.noTrailing, p.elemHead = false, false
+	p.skipNewlines()
+	var idx ast.Expr
+	if p.at(lexer.DotDot) || p.at(lexer.DotDotEq) {
+		idx = p.rangeRest(nil, precedence(lexer.DotDot))
+	} else {
+		idx = p.expr()
+	}
+	p.skipNewlines()
+	p.noTrailing, p.elemHead = saved, savedHead
+	p.expect(lexer.RBracket)
+	return idx
 }
 
 func (p *parser) arg() *ast.Arg {
@@ -2446,6 +2463,9 @@ func (p *parser) primary() ast.Expr {
 	if t.Kind == lexer.Ellipsis {
 		p.fail(t, "use it inside a list or map literal, e.g. [...xs, 4]", "'...' can only be used in a list or map literal")
 	}
+	if t.Kind == lexer.Question {
+		p.fail(t, "use ?x inside a list or map literal, e.g. [a, ?b], or write if let", "'?' before a value can only be used in a list or map literal")
+	}
 	p.fail(t, "", "expected an expression, found %s", describe(t))
 	return nil
 }
@@ -2464,9 +2484,7 @@ func (p *parser) bracketLit() ast.Expr {
 	sp := p.span(open.Pos)
 	plain := true
 	for _, s := range elems {
-		if x, ok := s.(*ast.ExprStmt); !ok {
-			plain = false
-		} else if _, ok := x.X.(*ast.SpreadExpr); ok {
+		if x, ok := s.(*ast.ExprStmt); !ok || !plainElem(x.X) {
 			plain = false
 		}
 	}
@@ -2491,6 +2509,18 @@ func (p *parser) bracketLit() ast.Expr {
 		list.Elems = append(list.Elems, s.(*ast.ExprStmt).X)
 	}
 	return list
+}
+
+// Reports whether [x] adds exactly one value or entry: it isn't a spread
+// and has no `?x`.
+func plainElem(x ast.Expr) bool {
+	switch x := x.(type) {
+	case *ast.SpreadExpr, *ast.OptionalElem:
+		return false
+	case *ast.MapEntry:
+		return plainElem(x.Key) && plainElem(x.Value)
+	}
+	return true
 }
 
 // Whether a list or map literal is being parsed, decided by its first
@@ -2550,7 +2580,7 @@ func (p *parser) element(kind *litKind) ast.Stmt {
 		s.Span = p.span(start)
 		return s
 	}
-	x := p.expr()
+	x := p.elemValue()
 	if kind.first {
 		kind.first, kind.isMap = false, p.at(lexer.Colon)
 	}
@@ -2560,12 +2590,23 @@ func (p *parser) element(kind *litKind) ast.Stmt {
 			p.fail(p.tok(), "write key: value", "expected ':' after a map key, found %s", describe(p.tok()))
 		}
 		p.next()
-		v := p.expr()
+		v := p.elemValue()
 		return &ast.ExprStmt{X: &ast.MapEntry{Span: p.span(start), Key: x, Value: v}}
 	case p.at(lexer.Colon):
 		p.fail(p.tok(), "a list holds values, a map holds key: value pairs", "unexpected ':' in a list")
 	}
 	return &ast.ExprStmt{X: x}
+}
+
+// Parses a value of a list or map literal, or the key or value of a map
+// entry: an expression, or `?x` to add it only when x isn't nil.
+func (p *parser) elemValue() ast.Expr {
+	if !p.at(lexer.Question) {
+		return p.expr()
+	}
+	start := p.next().Pos
+	x := p.expr()
+	return &ast.OptionalElem{Span: p.span(start), X: x}
 }
 
 // Parses the condition of an `if` element or the sequence of a `for`
@@ -2576,7 +2617,7 @@ func (p *parser) elemHeader(parse func() ast.Expr) ast.Expr {
 	x := parse()
 	p.noTrailing, p.elemHead = saved, savedHead
 	p.skipNewlines()
-	if !startsExpr(p.tok().Kind) && !p.at(lexer.If) && !p.at(lexer.For) && !p.at(lexer.Ellipsis) {
+	if !startsExpr(p.tok().Kind) && !p.at(lexer.If) && !p.at(lexer.For) && !p.at(lexer.Ellipsis) && !p.at(lexer.Question) {
 		p.fail(p.tok(), "e.g. [if ok 1 else 2] or [for x in xs x * 2]", "expected an element after the condition or loop, found %s", describe(p.tok()))
 	}
 	return x

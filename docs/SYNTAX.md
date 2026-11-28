@@ -331,6 +331,18 @@ let scores = ["ann": 3, if bonus "bob": 5, ...others]
 - `if let n = maybe n` works too.
 - Spreading a map into a map sets its entries in order, so a later key replaces an earlier one.
 
+**Null-aware elements.** `?x` adds an optional `x` only when it isn't nil, as in Dart. In a map, `?` before the key skips the entry when the key is nil, and before the value when the value is nil:
+
+```swift
+let tags = [primary, ?secondary, ?user?.nickname]   // [string]: nil values are left out
+let query = ["q": text, ?langKey: lang, "page": ?page]
+let ids = [for u in users ?u.id]
+```
+
+- The element type is the type inside the optional, so `[a, ?b]` with `b: int?` is an `[int]`. In an `[int?]`, `?b` still leaves out nil.
+- `?x` on a value that can't be nil is an error: drop the `?`.
+- When the key of `?k: v` is nil, `v` isn't evaluated.
+
 ## Maps
 
 ```swift
@@ -353,6 +365,7 @@ let empty: [string: int] = [:]
 - Keys can be `int`, `string`, `bool`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable` (see [Equality and hashing](#equality-and-hashing)). Values can be any type except an optional, since a missing key already reads as `nil`.
 - Maps are shared references, like lists and structs.
 - `m[k] += 1` is an error, since the key may be missing. Write `m[k] = (m[k] ?? 0) + 1`, or `m.update(k) { it + 1 }` when the key is known to be there.
+- `?k: v` and `k: ?v` leave the entry out when the key or the value is nil (see [Null-aware elements](#lists)).
 
 **Helpers.** These read or change entries without spelling out the missing-key case:
 
@@ -1533,6 +1546,7 @@ while let job = queue.next() {            // loops until the value is nil
 let name = findUser(2)?.name ?? "guest"   // ?. gives nil if the left side is nil; ?? gives a default
 let boss = user?.manager?.name            // string?: each step after an optional needs ?.
 user?.greet()                             // runs only when user isn't nil
+let top = scores?[0]                      // ?[ ] indexes an optional list, map or string
 
 if user == nil { ... }
 if id == 3 { ... }                        // true only when id isn't nil and is 3
@@ -1572,6 +1586,7 @@ for line in lines {
 - `if value case pattern` can't take more conditions after a comma; add them with `when`.
 - The names a `guard` binds can't be used in its `else` block, which must leave.
 - `user.name` on a `User?` is an error. Use `user?.name`, `if let` or `guard let`.
+- `xs?[i]` is nil when `xs` is nil, and otherwise `xs[i]`: an index out of range still stops the program. On a map, `m?[k]` is nil when the map is nil or the key is missing. Assigning through `?[ ]` is an error, as through `?.`.
 - There's no force unwrap: every optional is checked.
 - `?` comes last in a type: `[int?]` is a list of optional ints, and `[int]?` is an optional list. Write `(fn() -> int)?` for an optional function that returns a value; `fn()?` needs no parentheses.
 - Optionals print as their value or `nil`.

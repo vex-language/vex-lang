@@ -124,13 +124,13 @@ func (c *checker) element(x ast.Expr, b *build) {
 			c.errorAt(x, "a list holds values, a map holds key: value pairs", "unexpected 'key: value' in a list")
 			return
 		}
-		kt := c.expr(x.Key, b.key)
+		kt := c.elemValue(x.Key, b.key)
 		c.entryType(&b.key, kt, x.Key, "map key")
 		if b.key != nil && b.key != Invalid && !mapKeyType(b.key) {
 			c.errorAt(x.Key, keyHint(b.key), "%s can't be a map key", b.key)
 			b.key = Invalid
 		}
-		vt := c.expr(x.Value, b.value)
+		vt := c.elemValue(x.Value, b.value)
 		if _, ok := vt.(*Optional); ok && b.value == nil {
 			c.errorAt(x.Value, "leave the key out instead of storing nil", "map values can't be optional, since a missing key already reads as nil")
 			vt = Invalid
@@ -138,8 +138,38 @@ func (c *checker) element(x ast.Expr, b *build) {
 		c.entryType(&b.value, vt, x.Value, "map value")
 		return
 	}
-	t := c.expr(x, b.elem)
+	t := c.elemValue(x, b.elem)
 	c.entryType(&b.elem, t, x, "list element")
+}
+
+// Checks a value, key or map value [x] of a literal against [want], and
+// returns its type: for `?v`, the type inside the optional v.
+func (c *checker) elemValue(x ast.Expr, want Type) Type {
+	e, ok := x.(*ast.OptionalElem)
+	if !ok {
+		return c.expr(x, want)
+	}
+	_, optWant := want.(*Optional)
+	if want != nil && want != Invalid {
+		want = optionalOf(want)
+	}
+	c.expr(e.X, want)
+	t := c.info.Types[e.X]
+	c.info.Types[e] = t
+	if o, ok := t.(*Optional); ok {
+		if optWant {
+			return t
+		}
+		return o.Elem
+	}
+	if t != Invalid && t != Void {
+		name := "it"
+		if id, ok := e.X.(*ast.Ident); ok {
+			name = id.Name
+		}
+		c.errorAt(e, name+" isn't optional, so drop the ?", "'?' needs an optional value, found %s", t)
+	}
+	return t
 }
 
 // Records [t] as the type in [slot], or checks it against the type

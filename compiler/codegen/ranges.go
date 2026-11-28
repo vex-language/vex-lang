@@ -214,7 +214,8 @@ func (r *ranges) length(e ast.Expr) (interval, bool) {
 	if !ok || r.info.Elements[es] != lit {
 		return interval{}, false
 	}
-	if _, spread := es.X.(*ast.SpreadExpr); spread {
+	switch es.X.(type) {
+	case *ast.SpreadExpr, *ast.OptionalElem:
 		return interval{}, false
 	}
 	hi := rg.Hi

@@ -58,7 +58,8 @@ func (g *gen) presize(body *ast.Block) string {
 	if !ok || g.info.Elements[es] == nil {
 		return "0"
 	}
-	if _, spread := g.info.Elements[es].(*ast.SpreadExpr); spread {
+	switch g.info.Elements[es].(type) {
+	case *ast.SpreadExpr, *ast.OptionalElem:
 		return "0"
 	}
 	if r, ok := fs.Iter.(*ast.RangeExpr); ok {
@@ -136,6 +137,17 @@ func (g *gen) element(x ast.Expr, lit ast.Expr) {
 			})
 			return
 		}
+		if _, ok := x.(*ast.OptionalElem); ok {
+			v := g.temp()
+			g.line("{")
+			g.ind++
+			n := g.elemValue(x, t.Elem, v)
+			g.line("%s;", push(t.Elem, r, v))
+			g.closeBlocks(n)
+			g.ind--
+			g.line("}")
+			return
+		}
 		f, ok := g.fills[lit]
 		if !ok {
 			g.line("%s;", push(t.Elem, r, g.expr(x)))
@@ -155,8 +167,54 @@ func (g *gen) element(x ast.Expr, lit ast.Expr) {
 		}
 		e := x.(*ast.MapEntry)
 		k, v := g.temp(), g.temp()
-		g.line("{ %s = %s; %s = %s; *(%s*)vx_map_set(%s, &%s) = %s; }",
-			decl(t.Key, k), g.expr(e.Key), decl(t.Value, v), g.expr(e.Value), ctype(t.Value), r, k, v)
+		if plainElem(e.Key) && plainElem(e.Value) {
+			g.line("{ %s = %s; %s = %s; *(%s*)vx_map_set(%s, &%s) = %s; }",
+				decl(t.Key, k), g.expr(e.Key), decl(t.Value, v), g.expr(e.Value), ctype(t.Value), r, k, v)
+			return
+		}
+		g.line("{")
+		g.ind++
+		n := g.elemValue(e.Key, t.Key, k)
+		n += g.elemValue(e.Value, t.Value, v)
+		g.line("*(%s*)vx_map_set(%s, &%s) = %s;", ctype(t.Value), r, k, v)
+		g.closeBlocks(n)
+		g.ind--
+		g.line("}")
+	}
+}
+
+// Reports whether [x] isn't a `?v` element.
+func plainElem(x ast.Expr) bool {
+	_, opt := x.(*ast.OptionalElem)
+	return !opt
+}
+
+// Writes the declaration of [name] of type [t] holding the element value
+// [x]. For `?v`, it opens a block that runs only when v isn't nil, and
+// returns the number of blocks opened.
+func (g *gen) elemValue(x ast.Expr, t types.Type, name string) int {
+	e, ok := x.(*ast.OptionalElem)
+	if !ok {
+		g.line("%s = %s;", decl(t, name), g.expr(x))
+		return 0
+	}
+	o, tmp := g.optOf(e.X), g.temp()
+	g.line("%s = %s;", decl(o, tmp), g.expr(e.X))
+	g.line("if (%s) {", present(o, tmp))
+	g.ind++
+	v := unwrap(o, tmp)
+	if want, ok := t.(*types.Optional); ok {
+		v = wrapOpt(want, v)
+	}
+	g.line("%s = %s;", decl(t, name), v)
+	return 1
+}
+
+// Closes [n] blocks opened by [gen.elemValue].
+func (g *gen) closeBlocks(n int) {
+	for range n {
+		g.ind--
+		g.line("}")
 	}
 }
 

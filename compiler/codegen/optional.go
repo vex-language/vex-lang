@@ -193,8 +193,8 @@ func (g *gen) coalesce(e *ast.BinaryExpr) string {
 	return fmt.Sprintf("({ %s %s ? %s : %s; })", x, present(o, tmp), value, fallback)
 }
 
-// Returns an optional chain such as `x?.name` or `x?.greet()`: nil when the
-// receiver is nil, otherwise the member, wrapped in an optional if [wrap].
+// Returns an optional chain such as `x?.name`, `x?.greet()` or `xs?[i]`:
+// nil when the receiver is nil, otherwise the member, wrapped in an optional if [wrap].
 func (g *gen) chain(e ast.Expr, wrap bool) string {
 	var x ast.Expr
 	switch e := e.(type) {
@@ -202,19 +202,25 @@ func (g *gen) chain(e ast.Expr, wrap bool) string {
 		x = e.X
 	case *ast.CallExpr:
 		x = e.Fn.(*ast.MemberExpr).X
+	case *ast.IndexExpr:
+		x = e.X
 	}
 	opt := g.info.Types[x].(*types.Optional)
 	tmp := g.temp()
 	recv := g.expr(x)
+	t := g.info.Types[e]
 
-	// Generate the member as if the receiver were the value inside.
+	// Generate the member as if the receiver were the value inside, and an
+	// index as giving the element itself.
 	g.recvs[x], g.chaining[e], g.info.Types[x] = unwrap(opt, tmp), true, opt.Elem
+	if _, index := e.(*ast.IndexExpr); index && wrap {
+		g.info.Types[e] = t.(*types.Optional).Elem
+	}
 	inner := g.expr(e)
 	delete(g.recvs, x)
 	delete(g.chaining, e)
-	g.info.Types[x] = opt
+	g.info.Types[x], g.info.Types[e] = opt, t
 
-	t := g.info.Types[e]
 	head := fmt.Sprintf("%s = %s;", decl(opt, tmp), recv)
 	if t == types.Void {
 		return fmt.Sprintf("({ %s if %s %s; })", head, present(opt, tmp), inner)

@@ -740,6 +740,13 @@ type SpreadExpr struct {
 	Optional bool
 }
 
+// A null-aware element `?x` of a list or map literal, or the key or value
+// of a map entry: added only when the optional [X] isn't nil.
+type OptionalElem struct {
+	Span
+	X Expr
+}
+
 // A prefix operation: `-x` or `!done`.
 type UnaryExpr struct {
 	Span
@@ -790,6 +797,9 @@ type IndexExpr struct {
 	Span
 	X     Expr
 	Index Expr
+
+	// Set for `xs?[i]`, which is nil when [X] is nil.
+	Optional bool
 }
 
 // A member access: `user.name`, `nums.push`, `User.guest`.
@@ -1016,6 +1026,7 @@ func (*ListLit) exprNode()            {}
 func (*MapLit) exprNode()             {}
 func (*MapEntry) exprNode()           {}
 func (*SpreadExpr) exprNode()         {}
+func (*OptionalElem) exprNode()       {}
 func (*TypeArgsExpr) exprNode()       {}
 func (*UnaryExpr) exprNode()          {}
 func (*BinaryExpr) exprNode()         {}
