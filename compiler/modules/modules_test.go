@@ -21,6 +21,11 @@ func loadErrors(t *testing.T, files map[string]string) string {
 		fsys["app/"+name] = &fstest.MapFile{Data: []byte(src)}
 	}
 	_, err := LoadFS(fsys, "app", "app", true)
+	return formatErrors(err)
+}
+
+// Returns [err] as `file:line:col: message` lines.
+func formatErrors(err error) string {
 	if err == nil {
 		return ""
 	}
@@ -83,7 +88,7 @@ func TestLoadErrors(t *testing.T) {
 		{"unknown std module", map[string]string{"package.toml": project, "main.vx": "import \"vex:nope\"\n"},
 			"app/main.vx:1:8: unknown module 'vex:nope'"},
 		{"package imports", map[string]string{"package.toml": project, "main.vx": "import \"package:ui\"\n"},
-			"app/main.vx:1:8: package imports aren't supported yet"},
+			"app/main.vx:1:8: no package 'ui' in package.toml"},
 		{"unknown scheme", map[string]string{"package.toml": project, "main.vx": "import \"http:x\"\n"},
 			"app/main.vx:1:8: unknown import scheme in 'http:x'"},
 		{"absolute", map[string]string{"package.toml": project, "main.vx": "import \"/etc\"\n"},
@@ -301,5 +306,45 @@ func TestLoadTests(t *testing.T) {
 	}
 	if files, decls := count(prog); files != 3 || decls != 4 {
 		t.Errorf("test build: %d files, %d declarations", files, decls)
+	}
+}
+
+func TestLoadPackages(t *testing.T) {
+	fsys := fstest.MapFS{
+		"app/package.toml":       {Data: []byte(project)},
+		"app/main.vx":            {Data: []byte("import \"package:charts\"\nimport \"package:charts/line\" as l\nfn main() {}\n")},
+		"cache/charts/a.vx":      {Data: []byte("import \"line\"\nimport \"package:fmt\"\npub fn f() {}\n")},
+		"cache/charts/line/l.vx": {Data: []byte("pub fn g() {}\n")},
+		"cache/charts/a_test.vx": {Data: []byte("not loaded")},
+		"cache/fmt/f.vx":         {Data: []byte("import \"../charts\"\npub fn h() {}\n")},
+		"cache/broken/b.vx":      {Data: []byte("import \"package:nope\"\nimport \"package:x/../y\"\nimport \"package:x/z\"\n")},
+	}
+	fmtPkg := &Package{Name: "fmt", Dir: "cache/fmt"}
+	charts := &Package{Name: "charts", Dir: "cache/charts", Deps: map[string]*Package{"fmt": fmtPkg}}
+	prog, err := loadFS(fsys, "app", "app", true, Options{Packages: map[string]*Package{"charts": charts}})
+	if err == nil {
+		t.Fatal("expected an error for an import outside a package")
+	}
+	if got := formatErrors(err); got != "cache/fmt/f.vx:1:8: '../charts' is outside the package" {
+		t.Errorf("error %q", got)
+	}
+	var got []string
+	for _, m := range prog.Modules {
+		got = append(got, fmt.Sprintf("%s=%s(%d)", m.Path, m.Name, len(m.Files)))
+	}
+	if want := "=main(1) package:charts=charts(1) package:charts/line=line(1) package:fmt=fmt(1) vex:core=core(1)"; strings.Join(got, " ") != want {
+		t.Errorf("modules\n got %s\nwant %s", strings.Join(got, " "), want)
+	}
+
+	broken := &Package{Name: "broken", Dir: "cache/broken"}
+	_, err = loadFS(fsys, "app", "app", true, Options{Packages: map[string]*Package{"charts": broken}})
+	for _, want := range []string{
+		"package 'broken' doesn't depend on 'nope'",
+		"'../y' isn't a folder inside the package",
+		"package 'broken' doesn't depend on 'x'",
+	} {
+		if !strings.Contains(formatErrors(err), want) {
+			t.Errorf("missing error %q in %v", want, err)
+		}
 	}
 }

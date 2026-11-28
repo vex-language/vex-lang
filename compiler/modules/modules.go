@@ -46,8 +46,9 @@ type Module struct {
 	// Set for the module holding `main`.
 	Root bool
 
-	dir string
-	std bool
+	dir   string
+	std   bool
+	scope *scope
 }
 
 // An import of a module by one file.
@@ -124,12 +125,13 @@ func (p *Program) Warnings() diag.List {
 // Loads the program at [target]: a project folder with a project file, or
 // a single `.vx` file. On errors the result is a [diag.List] when the
 // problems are in source files.
-func Load(target string) (*Program, error) { return load(target, false) }
+func Load(target string) (*Program, error) { return LoadWith(target, Options{}) }
 
 // Loads the program at [target] like [Load], with its tests.
-func LoadTests(target string) (*Program, error) { return load(target, true) }
+func LoadTests(target string) (*Program, error) { return LoadWith(target, Options{Tests: true}) }
 
-func load(target string, tests bool) (*Program, error) {
+// Loads the program at [target] like [Load], with the choices in [opts].
+func LoadWith(target string, opts Options) (*Program, error) {
 	abs, err := filepath.Abs(target)
 	if err != nil {
 		return nil, err
@@ -140,7 +142,8 @@ func load(target string, tests bool) (*Program, error) {
 	}
 	fsys := os.DirFS(filepath.VolumeName(abs) + string(filepath.Separator))
 	rel := filepath.ToSlash(strings.TrimPrefix(abs, filepath.VolumeName(abs)+string(filepath.Separator)))
-	prog, err := loadFS(fsys, rel, target, info.IsDir(), tests)
+	opts.volume = filepath.ToSlash(filepath.VolumeName(abs) + string(filepath.Separator))
+	prog, err := loadFS(fsys, rel, target, info.IsDir(), opts)
 	if prog != nil && info.IsDir() {
 		prog.Dir = abs
 	}
@@ -150,23 +153,25 @@ func load(target string, tests bool) (*Program, error) {
 // Loads a program from [fsys]. [root] is the folder or file within [fsys],
 // and [shown] is how file names start in messages.
 func LoadFS(fsys fs.FS, root, shown string, isDir bool) (*Program, error) {
-	return loadFS(fsys, root, shown, isDir, false)
+	return loadFS(fsys, root, shown, isDir, Options{})
 }
 
 // Loads a program from [fsys] like [LoadFS], with its tests when [tests]
 // is set.
 func LoadTestsFS(fsys fs.FS, root, shown string, isDir bool) (*Program, error) {
-	return loadFS(fsys, root, shown, isDir, true)
+	return loadFS(fsys, root, shown, isDir, Options{Tests: true})
 }
 
-func loadFS(fsys fs.FS, root, shown string, isDir, tests bool) (*Program, error) {
-	l := &loader{fsys: fsys, shown: shown, modules: map[string]*Module{}, tests: tests}
+func loadFS(fsys fs.FS, root, shown string, isDir bool, opts Options) (*Program, error) {
+	tests := opts.Tests
+	l := &loader{fsys: fsys, shown: shown, modules: map[string]*Module{}, tests: tests, opts: opts}
 	if isDir {
 		l.base = root
 	} else {
 		l.base = path.Dir(root)
 		l.shown = filepath.Dir(shown)
 	}
+	l.main = &scope{base: l.base, shown: l.shown, deps: opts.Packages}
 	l.prog = &Program{Target: Host(), Testing: tests}
 	var m *Module
 	if isDir {
@@ -187,12 +192,12 @@ func loadFS(fsys fs.FS, root, shown string, isDir, tests bool) (*Program, error)
 				return nil, fmt.Errorf("%s: C source '%s' not found", l.display(path.Join(root, ProjectFile)), src)
 			}
 		}
-		m = l.folder(root, nil)
+		m = l.folder(root, nil, l.main)
 		if m != nil && len(m.Files) == 0 {
 			return nil, fmt.Errorf("no .vx files in %s", shown)
 		}
 	} else {
-		m = &Module{Imports: map[*diag.File]map[string]*Import{}, dir: l.base}
+		m = &Module{Imports: map[*diag.File]map[string]*Import{}, dir: l.base, scope: l.main}
 		l.modules[l.base] = m
 		l.prog.Modules = append(l.prog.Modules, m)
 		if err := l.addFile(m, root, shown); err != nil {
@@ -231,6 +236,11 @@ type loader struct {
 	prog    *Program
 	errs    diag.List
 	tests   bool
+	opts    Options
+
+	// The project's own files, and the scope of each package loaded.
+	main     *scope
+	packages map[*Package]*scope
 }
 
 // Replaces the test blocks of the root module with their functions when
@@ -256,10 +266,7 @@ func (l *loader) takeTests() {
 }
 
 // Returns the name of a file at [p] in [fsys], as shown in messages.
-func (l *loader) display(p string) string {
-	rel := strings.TrimPrefix(strings.TrimPrefix(p, l.base), "/")
-	return filepath.Join(l.shown, filepath.FromSlash(rel))
-}
+func (l *loader) display(p string) string { return l.main.display(p) }
 
 func (l *loader) addFile(m *Module, p, shown string) error {
 	src, err := fs.ReadFile(l.fsys, p)
@@ -285,20 +292,24 @@ func (l *loader) addFile(m *Module, p, shown string) error {
 	return nil
 }
 
-// Loads the module in folder [dir], once. [imp] is the import that asked
-// for it, for errors; nil for the root.
-func (l *loader) folder(dir string, imp *Import) *Module {
+// Loads the module in folder [dir] of scope [s], once. [imp] is the
+// import that asked for it, for errors; nil for the root.
+func (l *loader) folder(dir string, imp *Import, s *scope) *Module {
 	if m := l.modules[dir]; m != nil {
 		return m
 	}
 	entries, err := fs.ReadDir(l.fsys, dir)
 	if err != nil {
 		if imp != nil {
-			l.errorAt(imp, "check the folder name; paths are relative to the importing file", "no folder '%s'", imp.Decl.Path)
+			hint := "check the folder name; paths are relative to the importing file"
+			if strings.HasPrefix(imp.Decl.Path, "package:") {
+				hint = "check the folder name inside the package"
+			}
+			l.errorAt(imp, hint, "no folder '%s'", imp.Decl.Path)
 		}
 		return nil
 	}
-	m := &Module{Imports: map[*diag.File]map[string]*Import{}, dir: dir}
+	m := &Module{Imports: map[*diag.File]map[string]*Import{}, dir: dir, scope: s}
 	var names []string
 	for _, e := range entries {
 		if !e.IsDir() && strings.HasSuffix(e.Name(), ".vx") && (!strings.HasSuffix(e.Name(), "_test.vx") || l.tests && imp == nil) {
@@ -314,7 +325,7 @@ func (l *loader) folder(dir string, imp *Import) *Module {
 	l.prog.Modules = append(l.prog.Modules, m)
 	for _, n := range names {
 		p := path.Join(dir, n)
-		if err := l.addFile(m, p, l.display(p)); err != nil {
+		if err := l.addFile(m, p, s.display(p)); err != nil {
 			l.errs = append(l.errs, diag.Diagnostic{Message: err.Error()})
 		}
 	}
@@ -406,8 +417,11 @@ func (l *loader) resolveImports(m *Module) {
 				name = strings.TrimPrefix(d.Path, "vex:")
 				target = l.stdModule(name, imp)
 			case strings.HasPrefix(d.Path, "package:"):
-				l.errorAt(imp, "packages arrive with vex get; for now, import folders of this project", "package imports aren't supported yet")
-				continue
+				if m.std {
+					l.errorAt(imp, "", "the standard library can only import vex: modules")
+					continue
+				}
+				target, name = l.packageModule(m, imp)
 			case strings.Contains(d.Path, ":"):
 				l.errorAt(imp, `use "vex:name" for the standard library, or a folder of this project`, "unknown import scheme in '%s'", d.Path)
 				continue
@@ -420,8 +434,8 @@ func (l *loader) resolveImports(m *Module) {
 					l.errorAt(imp, "", "the standard library can only import vex: modules")
 					continue
 				}
-				if !strings.HasPrefix(dir+"/", l.base+"/") && dir != l.base {
-					l.errorAt(imp, "", "'%s' is outside the project", d.Path)
+				if base := m.scope.base; !strings.HasPrefix(dir+"/", base+"/") && dir != base {
+					l.errorAt(imp, "", "'%s' is outside the %s", d.Path, m.scope.kind())
 					continue
 				}
 				if dir == m.dir {
@@ -429,7 +443,7 @@ func (l *loader) resolveImports(m *Module) {
 					continue
 				}
 				name = path.Base(d.Path)
-				target = l.folder(dir, imp)
+				target = l.folder(dir, imp, m.scope)
 				if target != nil && target.Path == "" && !target.Root {
 					target.Path = d.Path
 					target.Name = name
