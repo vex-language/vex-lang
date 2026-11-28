@@ -18,7 +18,7 @@ import (
 // itself, without the error.
 func spawnParams(f *types.Func) (cts, names []string) {
 	if f.Owner != nil && !f.Static {
-		cts, names = append(cts, structName(f.Owner)+" *"), append(names, "self")
+		cts, names = append(cts, ctype(f.Owner)), append(names, "self")
 	}
 	if f.Enum != nil && !f.Static {
 		cts, names = append(cts, enumName(f.Enum)+" *"), append(names, "self")

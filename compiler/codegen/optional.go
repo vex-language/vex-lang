@@ -11,8 +11,14 @@ import (
 
 // Reports whether optionals of [o] are a pointer that is NULL for nil,
 // rather than a struct with a flag. Struct and enum values are pointers
-// that are never NULL.
+// that are never NULL; an extension type goes by the value it wraps.
 func nullable(o *types.Optional) bool {
+	if u := wrapped(o.Elem); u != nil {
+		if _, ok := u.(*types.Optional); ok {
+			return false
+		}
+		return nullable(&types.Optional{Elem: u})
+	}
 	switch o.Elem.(type) {
 	case *types.Struct, *types.Enum:
 		return true

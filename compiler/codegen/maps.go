@@ -11,6 +11,9 @@ import (
 // Returns the runtime constant for how keys of type [t] are hashed, or ""
 // for keys that need generated functions.
 func keyKind(t types.Type) string {
+	if s, ok := t.(*types.Struct); ok && s.Underlying() != nil && s.Operator("==") == nil && s.HashMethod() == nil {
+		return keyKind(s.Underlying())
+	}
 	switch t {
 	case types.Int:
 		return "VX_KEY_INT"
