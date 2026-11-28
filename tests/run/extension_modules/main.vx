@@ -1,0 +1,17 @@
+import "ids"
+
+extension ids.OrderId {
+    fn next() -> ids.OrderId => ids.OrderId(value: value + 1)
+}
+
+fn main() {
+    let id = ids.OrderId(value: 7)
+    println(id)
+    println(id.value)
+    println(id.label())
+    println(id.doubled)
+    println(id.next() > id)
+    let counts: [ids.OrderId: int] = [id: 1, id.next(): 2]
+    println(counts[ids.OrderId(value: 8)] ?? 0)
+    println(ids.token())
+}

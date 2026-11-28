@@ -1,0 +1,159 @@
+import "vex:isolate"
+import "vex:json"
+import "vex:math"
+
+/// A user's id: a distinct type that compiles to a plain int.
+extension type UserId(value: int): Hashable, Comparable {
+    static const root = UserId(value: 0)
+
+    fn isAdmin() -> bool => value < 100
+    get next -> UserId => UserId(value: value + 1)
+
+    static fn parse(text: string) -> UserId? {
+        if text == "" {
+            return nil
+        }
+        return UserId(value: text.len)
+    }
+}
+
+extension UserId {
+    fn describe() -> string => "user #{value}"
+}
+
+/// An email address, written to JSON as a plain string.
+extension type Email(value: string): Equatable, Codable
+
+extension type Celsius(value: float) {
+    fn toString() -> string => "{value}°C"
+    operator +(other: Celsius) -> Celsius => Celsius(value: value + other.value)
+}
+
+extension type Box<T>(value: T) {
+    fn get() -> T => value
+}
+
+extension type Ranked<T: Comparable>(value: T): Comparable
+
+extension type Tags(value: [string]) {
+    fn add(tag: string) { value.push(tag) }
+    get count -> int => value.len
+}
+
+struct User: Codable {
+    id: int
+    email: Email
+}
+
+extension type Admin(user: User) {
+    get email -> string => user.email.value
+}
+
+extension type MaybeInt(value: int?)
+extension type Meters(value: UserId): Equatable
+
+extension type Counter(value: int) {
+    async fn later() -> int => value * 2
+    fn twice() -> Counter => Counter(value: value * 2)
+}
+
+const firstIds = [UserId(value: 1), UserId(value: 2)]
+
+fn load(id: UserId) -> string => "loading {id.value}"
+
+fn unwrap(c: Counter) -> int => c.value
+
+async fn main() throws {
+    let id = UserId(value: 42)
+    let n: int = id.value
+    println(n)
+    println(id)
+    println("{id}")
+    println(id.isAdmin())
+    println(id.next)
+    println(id.describe())
+    println(load(id))
+    println(UserId.root)
+    println(UserId.parse("seven"))
+    println(UserId.parse(""))
+    println(id.copy(value: 1))
+
+    // Derived ==, order and hashing come from the int.
+    println(UserId(value: 3) == UserId(value: 3))
+    println(UserId(value: 3) < UserId(value: 5))
+    println(UserId(value: 3) >= UserId(value: 5))
+    var ids = [UserId(value: 9), UserId(value: 2), UserId(value: 5)]
+    ids.sort()
+    println(ids)
+    println(ids.contains(UserId(value: 5)))
+    println(math.max(UserId(value: 1), UserId(value: 8)))
+    var names: [UserId: string] = [:]
+    names[id] = "Ann"
+    names[UserId(value: 7)] = "Bob"
+    println(names[UserId(value: 42)] ?? "?")
+    println(names)
+
+    let maybe: UserId? = id
+    if let m = maybe {
+        println("got {m.value}")
+    }
+    let none: UserId? = nil
+    println(none)
+    println(none ?? UserId.root)
+
+    match id {
+        UserId(value: 42) => println("forty-two")
+        _ => println("other")
+    }
+    match UserId(value: 5) {
+        UserId(:value) => println("value {value}")
+    }
+    println([3, 4].map(UserId.new))
+    println(firstIds)
+
+    let e = Email(value: "ann@example.com")
+    println(e)
+    println(e != Email(value: "bob@example.com"))
+
+    let t = Celsius(value: 21.5) + Celsius(value: 1.0)
+    println(t)
+    println([t])
+
+    println(Box(value: "hi").get())
+    println(Box<int>(value: 3))
+    var ranked = [Ranked(value: "b"), Ranked(value: "a")]
+    ranked.sort()
+    println(ranked)
+
+    let tags = Tags(value: [])
+    tags.add("new")
+    tags.add("hot")
+    println(tags.count)
+    println(tags)
+
+    let text = json.encode(User(id: 1, email: e))
+    println(text)
+    let back = try json.decode<User>(text)
+    println(back.email.value)
+    println(try json.decode<[Email]>("[\"a@b.c\"]"))
+
+    let admin = Admin(user: back)
+    println(admin.email)
+    let someAdmin: Admin? = admin
+    println(someAdmin?.email ?? "none")
+    let noAdmin: Admin? = nil
+    println(noAdmin?.email ?? "none")
+
+    println(MaybeInt(value: nil))
+    let mi: MaybeInt? = MaybeInt(value: 3)
+    println(mi)
+    println(Meters(value: UserId(value: 5)) == Meters(value: UserId(value: 5)))
+
+    let c = Counter(value: 4)
+    println(await c.later())
+    let twice = c.twice
+    println(twice())
+    let counters = [1, 2, 3].map { x in Counter(value: x) }
+    println(counters.map(unwrap))
+    println(await isolate.run { unwrap(Counter(value: 21)) * 2 })
+}

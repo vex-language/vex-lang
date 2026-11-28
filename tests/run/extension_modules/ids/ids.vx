@@ -1,0 +1,11 @@
+/// An order number, compared and hashed as the int it wraps.
+pub extension type OrderId(value: int): Hashable, Comparable {
+    pub fn label() -> string => "#{value}"
+    fn secret() -> int => value * 2
+    pub get doubled -> int => secret()
+}
+
+/// A token only this module creates.
+extension type Token(value: string)
+
+pub fn token() -> string => Token(value: "abc").value

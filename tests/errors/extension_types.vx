@@ -1,0 +1,60 @@
+interface Named {
+    fn name() -> string
+}
+
+extension type UserId(value: int) {
+    fn isAdmin() -> bool => value < 100
+}
+
+extension type Shown(value: int): Named {
+    fn name() -> string => "shown"
+}
+
+extension type Loop(value: Loop?)
+extension type Tags(value: [string]): Comparable
+extension type Plain(value: [int])
+extension type Bad<T>(value: T): Comparable
+extension type Deep(value: (Deep?, int))
+extension type UserId(value: string)
+
+fn load(id: UserId) {}
+
+fn main() {
+    load(42)
+    let id = UserId(value: 7)
+    let n: int = id
+    let m: int = UserId(value: 1)
+    id.value = 3
+    println(id + 1)
+    println(id.abs())
+    println(id < UserId(value: 2))
+    println(Plain(value: []) == Plain(value: []))
+    let p = Plain(value: [])
+    println(p === p)
+    let named: Named = Shown(value: 1)
+    let ids: [UserId] = [1]
+    let seen: [Plain: bool] = [:]
+    let shape: Named = Shown(value: 2)
+    if shape is Shown {}
+}
+
+// error: 9:35: an extension type can only list Equatable, Hashable, Comparable and Codable, which it gets from the value it wraps
+// error: 13:28: extension type 'Loop' wraps itself, so it could never be created
+// error: 14:28: 'value' is [string], which can't be ordered, so Tags can't be Comparable
+// error: 16:30: 'value' is T, which can't be ordered, so Bad can't be Comparable
+// error: 17:28: extension type 'Deep' wraps itself, so it could never be created
+// error: 18:16: extension type 'UserId' is already declared on line 5
+// error: 23:10: argument 'id': expected UserId, found int
+// error: 25:18: expected int, found UserId
+// error: 26:18: expected int, found UserId
+// error: 27:8: can't change 'value': it's a let field of UserId
+// error: 28:13: '+' can't be used with UserId
+// error: 29:16: UserId has no method 'abs'
+// error: 30:13: values of type UserId can't be ordered with <
+// error: 31:13: values of type Plain can't be compared with ==
+// error: 33:13: '===' compares references, but a Plain is a value
+// error: 34:24: expected Named, found Shown
+// error: 35:26: list item 1: expected UserId, found int
+// error: 36:16: Plain can't be a map key
+// error: 37:24: expected Named, found Shown
+// error: 38:17: Shown doesn't implement Named, so a Named value is never one

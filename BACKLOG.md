@@ -126,7 +126,7 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-143** Tear-offs: methods and constructors as values, as in `names.map(user.greet)` (S)
 - [x] **V-144** Sealed interfaces: a closed set of structs that `match` checks exhaustively, with type patterns (M)
 - [x] **V-145** Null-aware elements in collections and `?[ ]` indexing (S)
-- [ ] **V-146** Extension types: zero-cost wrappers that make `UserId` and `int` different types (M)
+- [x] **V-146** Extension types: zero-cost wrappers that make `UserId` and `int` different types (M)
 - [x] **V-160** Trailing blocks with parameters: `xs.map { x in x * 2 }`, and an implicit name for a single parameter (M)
 - [x] **V-161** Fields: `let` fields set once at creation, field types inferred from defaults, `init` blocks for validation, a generated `copy(field:)`, fields readable everywhere but set only inside the type (L)
 - [x] **V-162** Optional ergonomics: `if let x` shorthand, comma-separated conditions in `if`/`while`/`guard`, `guard cond else`, and `?? return`/`throw`/`break`/`continue` (M)
