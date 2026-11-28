@@ -185,10 +185,8 @@ static void vx_fail(int line, const char *fmt, ...) {
 #define VX_PAGE_SIZE ((size_t)1 << VX_PAGE_SHIFT)
 #define VX_SMALL_MAX 2048
 #define VX_CLASSES 24
-// A page whose objects may hold pointers keeps one bit per word, set for
-// the words that may hold a pointer, in its last VX_PAGE_BITS bytes.
-#define VX_PAGE_BITS 1024
-#define VX_PAGE_ROOM (VX_PAGE_SIZE - VX_PAGE_BITS)
+// Mixed layouts that pages can hold, beyond no pointers and all pointers.
+#define VX_MIXED 256
 
 static const uint32_t vx_class_size[VX_CLASSES] = {
     16, 32, 48, 64, 80, 96, 112, 128, 160, 192, 224, 256,
@@ -198,12 +196,36 @@ static const uint32_t vx_class_size[VX_CLASSES] = {
 // Size class of each multiple of 16 bytes up to VX_SMALL_MAX.
 static uint8_t vx_class_of[VX_SMALL_MAX / 16 + 1];
 
+// The objects of one size class and one layout, and the pages they come
+// from. A page holds objects of a single kind, so its layout is stored
+// once, in the page, and allocating sets nothing but the object.
+typedef struct {
+    void *free;           // free objects
+    char *bump, *bump_end; // the unused end of the page allocated from in order
+} vx_kind;
+
+// A kind whose objects mix pointers with other words.
+typedef struct {
+    vx_kind kind;
+    uint64_t mask;
+    uint32_t key;         // vx_kind_key of it; 0 for a free slot
+    uint32_t tag;         // vx_kind_tag of it, for a layout of up to 16 words
+} vx_mixed;
+
+// The mixed kinds of a heap that has none yet.
+static const vx_mixed vx_no_mixed[VX_MIXED];
+
 typedef struct {
     char *start;
     uint32_t size;    // object size; 0 while the page is unused
     uint32_t count;   // objects that fit
     uint32_t atomic;  // its objects hold no pointers, so they aren't scanned
     uint32_t live;
+    // The layout of each object: word i may hold a pointer when bit
+    // i % period of mask is set. A period of 1 means every word may.
+    uint64_t mask;
+    uint32_t period;
+    vx_kind *kind;
     // ceil(2^32 / size): the object holding byte `off` is (off * recip) >> 32,
     // exact since size * VX_PAGE_SIZE < 2^32.
     uint32_t recip;
@@ -219,22 +241,25 @@ typedef struct {
     size_t esz;
 } vx_large;
 
-// An object marked but not yet scanned. The size of a large object has
-// VX_SPAN_LARGE set.
+// An object marked but not yet scanned. [info] is the page of an object
+// with a mixed layout, or the size shifted left by 2 and tagged with
+// VX_SPAN_ALL, when every word may hold a pointer, or VX_SPAN_LARGE, for a
+// large object laid out by its header.
 typedef struct {
     char *ptr;
-    size_t size;
+    uintptr_t info;
 } vx_span;
 
-#define VX_SPAN_LARGE ((size_t)1 << 63)
+#define VX_SPAN_ALL 1
+#define VX_SPAN_LARGE 2
 
 // The heap of one thread. It is a single thread-local struct, rather than
 // one variable per field, so that an allocation looks up thread-local
 // storage once.
 typedef struct {
-    void *free[2][VX_CLASSES]; // free objects by atomic flag and class
     size_t heap_bytes;         // bytes in objects, live or not
     size_t gc_next;            // collect once heap_bytes passes this
+    vx_kind kinds[2][VX_CLASSES]; // objects with all pointers and with none, by class
     size_t gc_countdown;
     size_t gc_total, gc_peak, gc_count;
     size_t gc_base;            // heap_bytes when the last collection ended
@@ -247,9 +272,8 @@ typedef struct {
     size_t larges_len, larges_cap;
     vx_span *gray;             // objects marked but not yet scanned
     size_t gray_len, gray_cap;
-    // The unused end of the page each class allocates from in order, once
-    // its free list is empty.
-    char *bump[2][VX_CLASSES], *bump_end[2][VX_CLASSES];
+    vx_mixed *mixed;           // VX_MIXED kinds with mixed layouts, by vx_kind_slot
+    size_t mixed_len;
     size_t page_scan;          // pages before this one aren't empty
     const void **rem;          // addresses written since the last collection
     size_t rem_len, rem_cap;
@@ -258,9 +282,8 @@ typedef struct {
 } vx_heap;
 
 
-static VX_TLS vx_heap vx_h = {.gc_next = 4 << 20, .lo = UINTPTR_MAX};
+static VX_TLS vx_heap vx_h = {.gc_next = 4 << 20, .lo = UINTPTR_MAX, .mixed = (vx_mixed *)vx_no_mixed};
 
-#define vx_free vx_h.free
 #define vx_heap_bytes vx_h.heap_bytes
 #define vx_gc_next vx_h.gc_next
 #define vx_gc_countdown vx_h.gc_countdown
@@ -477,21 +500,25 @@ static void vx_page_memory_free(char *p) {
 #endif
 }
 
-// Gives the objects of [pg] to class [cls], which allocates them in order.
-static void vx_page_format(vx_page *pg, int cls, bool atomic) {
+// Gives the objects of [pg] to kind [k] of class [cls], laid out as [mask]
+// every [period] words, which allocates them in order.
+static void vx_page_format(vx_page *pg, vx_kind *k, size_t cls, uint64_t mask, uint32_t period) {
     pg->size = vx_class_size[cls];
-    pg->count = (uint32_t)((atomic ? VX_PAGE_SIZE : VX_PAGE_ROOM) / pg->size);
+    pg->count = (uint32_t)(VX_PAGE_SIZE / pg->size);
     pg->recip = (uint32_t)((((uint64_t)1 << 32) + pg->size - 1) / pg->size);
-    pg->atomic = atomic;
-    vx_h.bump[atomic][cls] = pg->start;
-    vx_h.bump_end[atomic][cls] = pg->start + (size_t)pg->count * pg->size;
+    pg->atomic = period == 0;
+    pg->mask = mask;
+    pg->period = period;
+    pg->kind = k;
+    k->bump = pg->start;
+    k->bump_end = pg->start + (size_t)pg->count * pg->size;
 }
 
-static void vx_page_new(int cls, bool atomic) {
+static void vx_page_new(vx_kind *k, size_t cls, uint64_t mask, uint32_t period) {
     for (size_t i = vx_h.page_scan; i < vx_pages_len; i++) {
         if (vx_pages[i]->size == 0) {
             vx_h.page_scan = i + 1;
-            vx_page_format(vx_pages[i], cls, atomic);
+            vx_page_format(vx_pages[i], k, cls, mask, period);
             return;
         }
     }
@@ -510,7 +537,7 @@ static void vx_page_new(int cls, bool atomic) {
         vx_page_table_put(pg);
     }
     vx_bounds((uintptr_t)pg->start, (uintptr_t)pg->start + VX_PAGE_SIZE);
-    vx_page_format(pg, cls, atomic);
+    vx_page_format(pg, k, cls, mask, period);
 }
 
 static int vx_large_cmp(const void *a, const void *b) {
@@ -579,42 +606,65 @@ static inline void vx_remember(const void *p) {
     h->rem[h->rem_len++] = p;
 }
 
-static void vx_gray_push(char *ptr, size_t size) {
+static void vx_gray_push(char *ptr, uintptr_t info) {
     if (vx_gray_len == vx_gray_cap) vx_gray = vx_grow(vx_gray, &vx_gray_cap, sizeof(vx_span));
-    vx_gray[vx_gray_len++] = (vx_span){ptr, size};
+    vx_gray[vx_gray_len++] = (vx_span){ptr, info};
+}
+
+// Returns the span info of the page object [pg] holds, which holds pointers.
+static inline uintptr_t vx_page_info(const vx_page *pg) {
+    return pg->period == 1 ? (uintptr_t)pg->size << 2 | VX_SPAN_ALL : (uintptr_t)pg;
+}
+
+// Returns the span info of the large object [l], which holds pointers.
+static inline uintptr_t vx_large_info(const vx_large *l) {
+    bool all = l->esz > 512 || l->esz < 8 || l->mask == ~(uint64_t)0;
+    return (uintptr_t)l->size << 2 | (all ? VX_SPAN_ALL : VX_SPAN_LARGE);
 }
 
 // Reads whole stack frames and objects on purpose, so it isn't checked by
 // AddressSanitizer.
 //
-// The heap's fields are read through [h] once, since each access to the
-// thread-local heap otherwise looks it up again.
+// The state of marking. It is a local copy of the heap's bounds and page
+// table, so the compiler keeps them in registers rather than reading the
+// thread-local heap again after each store to the work list.
 //
 // Objects near each other are usually on the same page, so the page last
-// found is kept in [cache] and checked before the page table.
+// found is kept in [n] and [pg] and checked before the page table.
 typedef struct {
+    vx_heap *h;
+    uintptr_t lo, hi;
+    vx_page *const *table;
+    size_t mask;
     uintptr_t n;
     vx_page *pg;
-} vx_page_cache;
+} vx_marker;
+
+static inline vx_marker vx_marker_of(vx_heap *h) {
+    return (vx_marker){h, h->lo, h->hi, h->page_table, h->page_table_cap - 1, 0, NULL};
+}
 
 // Marks the object that the word [p] points into, if any.
 __attribute__((always_inline))
-static inline void vx_mark_word(vx_heap *h, vx_page_cache *cache, uintptr_t p) {
-    if (p < h->lo || p >= h->hi) return;
+static inline void vx_mark_word(vx_marker *m, uintptr_t p) {
+    if (p < m->lo || p >= m->hi) return;
+    vx_heap *h = m->h;
     uintptr_t n = p >> VX_PAGE_SHIFT;
     vx_page *pg = NULL;
-    if (n == cache->n) {
-        pg = cache->pg;
-    } else if (h->page_table) {
-        const size_t mask = h->page_table_cap - 1;
-        for (size_t j = vx_page_hash(n, mask + 1);; j = (j + 1) & mask) {
-            vx_page *t = h->page_table[j];
+    if (n == m->n) {
+        pg = m->pg;
+    } else if (m->table) {
+        for (size_t j = vx_page_hash(n, m->mask + 1);; j = (j + 1) & m->mask) {
+            vx_page *t = m->table[j];
             if (!t || (uintptr_t)t->start >> VX_PAGE_SHIFT == n) {
                 pg = t;
                 break;
             }
         }
-        if (pg) *cache = (vx_page_cache){n, pg};
+        if (pg) {
+            m->n = n;
+            m->pg = pg;
+        }
     }
     if (pg) {
         if (pg->size == 0) return;
@@ -624,66 +674,21 @@ static inline void vx_mark_word(vx_heap *h, vx_page_cache *cache, uintptr_t p) {
         pg->live++;
         if (!pg->atomic) {
             if (h->gray_len == h->gray_cap) h->gray = vx_grow(h->gray, &h->gray_cap, sizeof(vx_span));
-            h->gray[h->gray_len++] = (vx_span){pg->start + i * pg->size, pg->size};
+            h->gray[h->gray_len++] = (vx_span){pg->start + i * pg->size, vx_page_info(pg)};
         }
         return;
     }
     vx_large *l = vx_large_of(p);
     if (!l || l->mark) return;
     l->mark = 1;
-    if (!l->atomic) vx_gray_push((char *)(l + 1), l->size | VX_SPAN_LARGE);
+    if (!l->atomic) vx_gray_push((char *)(l + 1), vx_large_info(l));
 }
 
 // Scans every word from [lo] to [hi], as for a stack.
 __attribute__((no_sanitize_address, always_inline))
-static inline void vx_scan(vx_heap *h, vx_page_cache *cache, const char *lo, const char *hi) {
+static inline void vx_scan(vx_marker *m, const char *lo, const char *hi) {
     uintptr_t start = ((uintptr_t)lo + sizeof(void *) - 1) & ~(uintptr_t)(sizeof(void *) - 1);
-    for (uintptr_t a = start; a + sizeof(void *) <= (uintptr_t)hi; a += sizeof(void *)) vx_mark_word(h, cache, *(uintptr_t *)a);
-}
-
-// Returns the pointer bits of the page holding [p].
-static inline uint8_t *vx_page_bits(const void *p) {
-    return (uint8_t *)(((uintptr_t)p & ~(uintptr_t)(VX_PAGE_SIZE - 1)) + VX_PAGE_ROOM);
-}
-
-// Returns the bits of the [n] words, at most 56, from word [w] of a page.
-static inline uint64_t vx_bits_get(const uint8_t *bits, size_t w, size_t n) {
-    uint64_t b;
-    memcpy(&b, bits + (w >> 3), 8);
-    return (b >> (w & 7)) & (((uint64_t)1 << n) - 1);
-}
-
-// Sets the bits of the [n] words, up to 16, from the word [p] points to,
-// to [pat]. Objects are 16-byte aligned, so the bits span at most 3 bytes.
-__attribute__((always_inline))
-static inline void vx_bits_put(const void *p, size_t n, uint32_t pat) {
-    size_t w = ((uintptr_t)p & (VX_PAGE_SIZE - 1)) >> 3;
-    uint8_t *b = vx_page_bits(p) + (w >> 3);
-    unsigned s = (unsigned)(w & 7);
-    uint32_t cur;
-    memcpy(&cur, b, 4);
-    cur = (cur & ~((uint32_t)((1u << n) - 1) << s)) | pat << s;
-    memcpy(b, &cur, 4);
-}
-// Returns the bits of [n] words, at most 16, from word [from] of an array
-// whose elements of [esz] bytes have layout [mask].
-__attribute__((always_inline))
-static inline uint32_t vx_pattern(uint64_t mask, size_t esz, size_t from, size_t n) {
-    size_t period = esz / 8;
-    if (esz > 512 || period == 0) {
-        period = 1;
-        mask = mask != 0;
-    }
-    uint32_t pat = 0;
-    for (size_t i = 0; i < n; i++) pat |= (uint32_t)((mask >> ((from + i) % period)) & 1) << i;
-    return pat;
-}
-
-// Gives the page object [p] of [size] bytes the layout [mask], repeated
-// every [esz] bytes.
-static void vx_bits_set(char *p, size_t size, uint64_t mask, size_t esz) {
-    size_t n = size / 8;
-    for (size_t i = 0; i < n; i += 16) vx_bits_put(p + i * 8, n - i < 16 ? n - i : 16, vx_pattern(mask, esz, i, n - i < 16 ? n - i : 16));
+    for (uintptr_t a = start; a + sizeof(void *) <= (uintptr_t)hi; a += sizeof(void *)) vx_mark_word(m, *(uintptr_t *)a);
 }
 
 // Reports whether word [i] of the large object [l] may hold a pointer.
@@ -692,32 +697,31 @@ static inline bool vx_large_word(const vx_large *l, size_t i) {
     return (l->mask >> (i % (l->esz / 8))) & 1;
 }
 
-// Scans the words of the marked object [obj] of [size] bytes that may hold
-// pointers.
+// Scans the words of the marked object [obj] that may hold pointers, as
+// told by the span info [info].
 __attribute__((no_sanitize_address, always_inline))
-static inline void vx_scan_object(vx_heap *h, vx_page_cache *cache, char *obj, size_t size) {
-    if (size & VX_SPAN_LARGE) {
-        size &= ~VX_SPAN_LARGE;
-        vx_large *l = (vx_large *)obj - 1;
-        if (l->esz > 512 || l->esz < 8 || l->mask == ~(uint64_t)0) {
-            vx_scan(h, cache, obj, obj + size);
-            return;
-        }
-        size_t period = l->esz / 8, n = size / 8;
-        uint64_t mask = l->mask & (period == 64 ? ~(uint64_t)0 : ((uint64_t)1 << period) - 1);
-        for (size_t e = 0; e < n; e += period) {
-            for (uint64_t b = mask; b; b &= b - 1) {
-                size_t i = e + (size_t)__builtin_ctzll(b);
-                if (i < n) vx_mark_word(h, cache, ((uintptr_t *)obj)[i]);
-            }
-        }
+static inline void vx_scan_object(vx_marker *m, char *obj, uintptr_t info) {
+    if (info & VX_SPAN_ALL) {
+        vx_scan(m, obj, obj + (info >> 2));
         return;
     }
-    const uint8_t *bits = vx_page_bits(obj);
-    size_t w = ((uintptr_t)obj & (VX_PAGE_SIZE - 1)) >> 3, n = size / 8;
-    for (size_t i = 0; i < n; i += 56) {
-        for (uint64_t b = vx_bits_get(bits, w + i, n - i < 56 ? n - i : 56); b; b &= b - 1) {
-            vx_mark_word(h, cache, ((uintptr_t *)obj)[i + (size_t)__builtin_ctzll(b)]);
+    size_t n, period;
+    uint64_t mask;
+    if (info & VX_SPAN_LARGE) {
+        const vx_large *l = (const vx_large *)obj - 1;
+        n = (info >> 2) / 8;
+        period = l->esz / 8;
+        mask = l->mask & (period == 64 ? ~(uint64_t)0 : ((uint64_t)1 << period) - 1);
+    } else {
+        const vx_page *pg = (const vx_page *)info;
+        n = pg->size / 8;
+        period = pg->period;
+        mask = pg->mask;
+    }
+    for (size_t e = 0; e < n; e += period) {
+        for (uint64_t b = mask; b; b &= b - 1) {
+            size_t i = e + (size_t)__builtin_ctzll(b);
+            if (i < n) vx_mark_word(m, ((uintptr_t *)obj)[i]);
         }
     }
 }
@@ -727,13 +731,13 @@ static inline void vx_scan_object(vx_heap *h, vx_page_cache *cache, char *obj, s
 static bool vx_is_pointer_word(char *obj, size_t off) {
     vx_page *pg = vx_page_of((uintptr_t)obj);
     if (!pg) return vx_large_word((vx_large *)obj - 1, off / 8);
-    return vx_bits_get(vx_page_bits(obj), (((uintptr_t)obj & (VX_PAGE_SIZE - 1)) + off) >> 3, 1);
+    return (pg->mask >> (off / 8 % pg->period)) & 1;
 }
 
 __attribute__((no_sanitize_address))
 static void vx_mark_range(const char *lo, const char *hi) {
-    vx_page_cache cache = {0, NULL};
-    vx_scan(&vx_h, &cache, lo, hi);
+    vx_marker m = vx_marker_of(&vx_h);
+    vx_scan(&m, lo, hi);
 }
 
 // A part of a struct of globals that may hold pointers: the [size] bytes
@@ -747,15 +751,14 @@ typedef struct vx_root {
 // [n] parts at [parts].
 __attribute__((no_sanitize_address))
 static void vx_mark_roots_at(const char *base, const vx_root *parts, size_t n) {
-    vx_heap *h = &vx_h;
-    vx_page_cache cache = {0, NULL};
+    vx_marker m = vx_marker_of(&vx_h);
     for (size_t i = 0; i < n; i++) {
         const char *p = base + parts[i].off;
         if (parts[i].size > 512) {
-            vx_scan(h, &cache, p, p + parts[i].size);
+            vx_scan(&m, p, p + parts[i].size);
             continue;
         }
-        for (uint64_t b = parts[i].mask; b; b &= b - 1) vx_mark_word(h, &cache, ((const uintptr_t *)p)[__builtin_ctzll(b)]);
+        for (uint64_t b = parts[i].mask; b; b &= b - 1) vx_mark_word(&m, ((const uintptr_t *)p)[__builtin_ctzll(b)]);
     }
 }
 
@@ -763,10 +766,10 @@ static void vx_mark_roots_at(const char *base, const vx_root *parts, size_t n) {
 __attribute__((no_sanitize_address))
 static void vx_mark_gray(void) {
     vx_heap *h = &vx_h;
-    vx_page_cache cache = {0, NULL};
+    vx_marker m = vx_marker_of(h);
     while (h->gray_len > 0) {
         vx_span s = h->gray[--h->gray_len];
-        vx_scan_object(h, &cache, s.ptr, s.size);
+        vx_scan_object(&m, s.ptr, s.info);
     }
 }
 
@@ -822,7 +825,7 @@ static void vx_mark_remembered(bool major) {
         if (!vx_object_at((uintptr_t)vx_h.rem[i], &start, &size, &marked, &atomic)) continue;
         vx_page *pg = vx_page_of((uintptr_t)start);
         if (pg) pg->marks[(size_t)(start - pg->start) / pg->size] &= 1;
-        if (!major && marked && !atomic) vx_gray_push(start, pg ? size : size | VX_SPAN_LARGE);
+        if (!major && marked && !atomic) vx_gray_push(start, pg ? vx_page_info(pg) : vx_large_info((vx_large *)start - 1));
     }
     vx_h.rem_len = vx_h.rem_done = 0;
 }
@@ -973,9 +976,12 @@ static void vx_collect(void) {
     // Sweep: rebuild the free lists from the unmarked objects, keeping the
     // marks. A page with nothing live is empty again, and a full one has
     // nothing to add.
-    memset(vx_free, 0, sizeof(vx_free));
-    memset(vx_h.bump, 0, sizeof(vx_h.bump));
-    memset(vx_h.bump_end, 0, sizeof(vx_h.bump_end));
+    for (size_t c = 0; c < VX_CLASSES; c++) {
+        for (int a = 0; a < 2; a++) vx_h.kinds[a][c].free = vx_h.kinds[a][c].bump = vx_h.kinds[a][c].bump_end = NULL;
+    }
+    if (vx_h.mixed_len > 0) {
+        for (size_t i = 0; i < VX_MIXED; i++) vx_h.mixed[i].kind = (vx_kind){NULL, NULL, NULL};
+    }
     vx_h.page_scan = 0;
     vx_heap_bytes = 0;
     for (size_t p = 0; p < vx_pages_len; p++) {
@@ -987,8 +993,7 @@ static void vx_collect(void) {
         }
         vx_heap_bytes += (size_t)pg->live * pg->size;
         if (pg->live == pg->count) continue;
-        int cls = vx_class_of[pg->size / 16];
-        void **list = &vx_free[pg->atomic][cls];
+        void **list = &pg->kind->free;
         for (uint32_t i = pg->count; i-- > 0;) {
             if (pg->marks[i]) continue;
             void **obj = (void **)(pg->start + (size_t)i * pg->size);
@@ -1028,6 +1033,65 @@ static void *vx_alloc_large(size_t n, uint64_t mask, size_t esz) {
     return l + 1;
 }
 
+// Returns the period in words of the layout [mask] repeating every [esz]
+// bytes, as a page holds it: 0 when no word holds a pointer, 1 when every
+// word may, and otherwise the words per element.
+__attribute__((always_inline))
+static inline uint32_t vx_period(uint64_t mask, size_t esz) {
+    if (mask == 0) return 0;
+    if (esz > 512 || esz < 16 || esz % 8 != 0) return 1;
+    size_t period = esz / 8;
+    uint64_t low = period == 64 ? ~(uint64_t)0 : ((uint64_t)1 << period) - 1;
+    return (mask & low) == low || (mask & low) == 0 ? 1 : (uint32_t)period;
+}
+
+static inline uint32_t vx_kind_key(size_t cls, uint32_t period) { return (uint32_t)(cls + 1) | period << 8; }
+
+// Returns a number that tells apart the mixed kinds whose layouts repeat
+// within 16 words, so the inlined allocation checks its kind with one
+// comparison.
+static inline uint32_t vx_kind_tag(size_t cls, uint64_t mask, uint32_t period) {
+    return period <= 16 ? vx_kind_key(cls, period) << 16 | (uint32_t)mask : 0;
+}
+
+// Returns the slot of [VX_MIXED] where the kind of class [cls] with the
+// mixed layout [mask] every [period] words is looked for first.
+__attribute__((always_inline))
+static inline size_t vx_kind_slot(size_t cls, uint64_t mask, uint32_t period) {
+    return (size_t)(((mask ^ (uint64_t)vx_kind_key(cls, period) << 52) * 0x9E3779B97F4A7C15ull) >> 56) & (VX_MIXED - 1);
+}
+
+// Returns the kind of class [cls] with layout [mask] every [period] words,
+// adding it to the mixed kinds if it is new. When they are three quarters
+// full, a new mixed layout is treated as all pointers.
+static vx_kind *vx_kind_get(vx_heap *h, size_t cls, uint64_t *mask, uint32_t *period) {
+    if (*period > 1) {
+        uint32_t key = vx_kind_key(cls, *period);
+        uint64_t m = *mask & (*period == 64 ? ~(uint64_t)0 : ((uint64_t)1 << *period) - 1);
+        for (size_t i = vx_kind_slot(cls, m, *period);; i = (i + 1) & (VX_MIXED - 1)) {
+            vx_mixed *k = &h->mixed[i];
+            if (k->key == key && k->mask == m) {
+                *mask = m;
+                return &k->kind;
+            }
+            if (k->key != 0) continue;
+            if (h->mixed_len * 4 >= VX_MIXED * 3) break;
+            if (h->mixed_len++ == 0) {
+                h->mixed = calloc(VX_MIXED, sizeof(vx_mixed));
+                if (!h->mixed) vx_out_of_memory();
+                k = &h->mixed[i];
+            }
+            k->key = key;
+            k->tag = vx_kind_tag(cls, m, *period);
+            k->mask = *mask = m;
+            return &k->kind;
+        }
+        *period = 1;
+    }
+    *mask = *period;
+    return &h->kinds[*period == 0][cls];
+}
+
 static void *vx_alloc_block(size_t n, uint64_t mask, size_t esz) {
     vx_heap *h = &vx_h;
     bool atomic = mask == 0;
@@ -1041,16 +1105,17 @@ static void *vx_alloc_block(size_t n, uint64_t mask, size_t esz) {
     if (n > VX_SMALL_MAX) {
         p = vx_alloc_large(n, mask, esz);
     } else {
-        int cls = vx_class_of[(n + 15) / 16];
+        size_t cls = vx_class_of[(n + 15) / 16];
         n = vx_class_size[cls];
-        void **list = &h->free[atomic][cls];
-        if (*list) {
-            p = *list;
-            *list = *(void **)p;
+        uint32_t period = vx_period(mask, esz);
+        vx_kind *k = vx_kind_get(h, cls, &mask, &period);
+        if (k->free) {
+            p = k->free;
+            k->free = *(void **)p;
         } else {
-            if (h->bump[atomic][cls] == h->bump_end[atomic][cls]) vx_page_new(cls, atomic);
-            p = h->bump[atomic][cls];
-            h->bump[atomic][cls] += n;
+            if (k->bump == k->bump_end) vx_page_new(k, cls, mask, period);
+            p = k->bump;
+            k->bump += n;
         }
         if (atomic) {
             *(void **)p = NULL;
@@ -1064,7 +1129,6 @@ static void *vx_alloc_block(size_t n, uint64_t mask, size_t esz) {
         } else {
             memset(p, 0, n);
         }
-        if (!atomic) vx_bits_set(p, n, mask, esz);
     }
     h->heap_bytes += n;
     return p;
@@ -1074,33 +1138,42 @@ static void *vx_alloc_block(size_t n, uint64_t mask, size_t esz) {
 // bytes; a mask of 0 means they never hold pointers.
 //
 // The common case is inlined where it happens: an object of up to 128
-// bytes, from its class's free list or the page the class allocates from
-// in order, when no collection is due. The class and the layout bits are
-// worked out here rather than looked up, so for a constant size and layout
-// they are constants.
+// bytes, from its kind's free list or the page the kind allocates from in
+// order, when no collection is due. The class and the kind are worked out
+// here rather than looked up, so for a constant size and layout they are
+// constants, and objects with no pointers or only pointers take the same
+// instructions as an untyped allocation.
 __attribute__((always_inline))
 static inline void *vx_alloc_t(size_t n, uint64_t mask, size_t esz) {
-    bool atomic = mask == 0;
+    uint32_t period = vx_period(mask, esz);
     if (n - 1 < 128 && !vx_gc_stress) {
         vx_heap *h = &vx_h;
         size_t cls = (n - 1) >> 4, size = (cls + 1) << 4;
-        if (__builtin_expect(h->heap_bytes + size <= h->gc_next, 1)) {
-            void **list = &h->free[atomic][cls];
-            void *p = *list;
+        vx_kind *k;
+        if (period <= 1) {
+            k = &h->kinds[period == 0][cls];
+        } else if (period <= 16) {
+            uint64_t m = mask & (((uint64_t)1 << period) - 1);
+            vx_mixed *x = &h->mixed[vx_kind_slot(cls, m, period)];
+            k = x->tag == vx_kind_tag(cls, m, period) ? &x->kind : NULL;
+        } else {
+            k = NULL;
+        }
+        if (__builtin_expect(k != NULL && h->heap_bytes + size <= h->gc_next, 1)) {
+            void *p = k->free;
             if (p) {
-                *list = *(void **)p;
-            } else if (h->bump[atomic][cls] != h->bump_end[atomic][cls]) {
-                p = h->bump[atomic][cls];
-                h->bump[atomic][cls] += size;
+                k->free = *(void **)p;
+            } else if (k->bump != k->bump_end) {
+                p = k->bump;
+                k->bump += size;
             }
             if (__builtin_expect(p != NULL, 1)) {
                 h->heap_bytes += size;
                 uint64_t *q = p;
                 q[0] = 0;
-                if (!atomic) {
+                if (period != 0) {
                     q[1] = 0;
                     for (size_t i = 2; i < size / 8; i++) q[i] = 0;
-                    vx_bits_put(p, size / 8, vx_pattern(mask, esz, 0, size / 8));
                 }
                 return p;
             }
@@ -1151,9 +1224,10 @@ static uint64_t vx_mask_of(const void *p, size_t esz) {
     vx_page *pg = vx_page_of((uintptr_t)p);
     if (pg) {
         if (pg->atomic) return 0;
-        if (esz > 512 || esz < 8) return ~(uint64_t)0;
-        size_t w = ((uintptr_t)p & (VX_PAGE_SIZE - 1)) >> 3, n = esz / 8;
-        return n <= 56 ? vx_bits_get(vx_page_bits(p), w, n) : vx_bits_get(vx_page_bits(p), w, 56) | vx_bits_get(vx_page_bits(p), w + 56, n - 56) << 56;
+        if (esz > 512 || esz < 8 || pg->period == 1) return ~(uint64_t)0;
+        uint64_t mask = 0;
+        for (size_t i = 0; i < esz / 8; i++) mask |= ((pg->mask >> (i % pg->period)) & 1) << i;
+        return mask;
     }
     const vx_large *l = (const vx_large *)p - 1;
     if (l->atomic) return 0;
@@ -6217,6 +6291,7 @@ static void vx_heap_free(void) {
     free(vx_timers);
     free(vx_remote);
     free(vx_repr_set);
+    if (vx_h.mixed_len > 0) free(vx_h.mixed);
     for (int i = 0; i < vx_spare_len; i++) vx_stack_free(vx_spare_stacks[i], VX_TASK_STACK);
 }
 
