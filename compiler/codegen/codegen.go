@@ -239,10 +239,13 @@ func GenerateWith(info *types.Info, srcName string, opts Options) string {
 		if len(s.Interfaces) > 0 {
 			g.line("    const vx_desc *vx_t;")
 		}
+		var fields []string
 		for _, f := range s.Fields {
-			g.line("    %s;", decl(f.Type, "f_"+f.Name))
+			fields = append(fields, decl(f.Type, "f_"+f.Name))
+			g.line("    %s;", fields[len(fields)-1])
 		}
 		g.line("};")
+		g.layoutMacro(structName(s), fields)
 	}
 	for _, e := range info.Enums {
 		g.enumStruct(e)
@@ -307,6 +310,10 @@ func GenerateWith(info *types.Info, srcName string, opts Options) string {
 	g.line("    vx_argv = argv;")
 	g.line("    vx_init(__builtin_frame_address(0));")
 	g.line("    vx_files = vx_srcs;")
+	if vars != "" {
+		g.line("    vx_vars_parts = vx_v_parts;")
+		g.line("    vx_vars_len = vx_v_len;")
+	}
 	if consts != "" {
 		g.line("    vx_consts_init();")
 	}
@@ -721,7 +728,7 @@ func constructorSig(s *types.Struct) string {
 func (g *gen) constructor(s *types.Struct) {
 	g.line("")
 	g.line("static %s {", constructorSig(s))
-	g.line("    %s *o = vx_alloc(sizeof(%s));", structName(s), structName(s))
+	g.line("    %s *o = vx_alloc_obj(sizeof(%s), VXPM_%s);", structName(s), structName(s), structName(s))
 	if len(s.Interfaces) > 0 {
 		g.line("    o->vx_t = &desc_%s;", structIdent(s))
 	}
@@ -1720,15 +1727,18 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 
 	if len(caps) > 0 {
 		fmt.Fprintf(&g.lamDecls, "struct %s {", env)
+		var fields []string
 		for i, v := range caps {
 			field := fmt.Sprintf("c%d", i)
 			if v.Boxed() {
-				fmt.Fprintf(&g.lamDecls, " %s;", declPtr(v.Type, field))
+				fields = append(fields, declPtr(v.Type, field))
 			} else {
-				fmt.Fprintf(&g.lamDecls, " %s;", decl(v.Type, field))
+				fields = append(fields, decl(v.Type, field))
 			}
+			fmt.Fprintf(&g.lamDecls, " %s;", fields[i])
 		}
 		g.lamDecls.WriteString(" };\n")
+		fmt.Fprintf(&g.lamDecls, "#define VXPM_%s %s\n", env, structLayout("struct "+env, cFields(fields)))
 	}
 	fmt.Fprintf(&g.lamDecls, "static %s;\n", sig)
 	g.lams.WriteString(body.String())
@@ -1738,7 +1748,7 @@ func (g *gen) funcLit(e *ast.FuncLit) string {
 	}
 	ptr := g.temp()
 	var b strings.Builder
-	fmt.Fprintf(&b, "({ struct %s *%s = vx_alloc(sizeof(struct %s)); ", env, ptr, env)
+	fmt.Fprintf(&b, "({ struct %s *%s = vx_alloc_obj(sizeof(struct %s), VXPM_%s); ", env, ptr, env, env)
 	for i, init := range inits {
 		fmt.Fprintf(&b, "%s->c%d = %s; ", ptr, i, init)
 	}
@@ -2420,7 +2430,8 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 		case "Set":
 			return g.newSetCall(e, c)
 		case "StreamController":
-			return "vx_stream_new(" + valueSize(g.info.Types[e].(*types.Stream).Elem) + ")"
+			elem := g.info.Types[e].(*types.Stream).Elem
+			return "vx_stream_new(" + valueSize(elem) + ", " + layoutOf(elem) + ")"
 		}
 		return g.atLine(line, g.builtin(c, g.info.Types[e], line))
 	case types.MemberBuiltinCall:
@@ -2690,7 +2701,7 @@ func (g *gen) localFunc(s *ast.LocalFuncStmt) {
 		return
 	}
 	name := g.declare(v)
-	g.line("%s = vx_alloc(sizeof(%s));", declPtr(v.Type, name), ctype(v.Type))
+	g.line("%s = %s;", declPtr(v.Type, name), boxAlloc(v.Type))
 	g.vals[v], g.boxes[v] = "(*"+name+")", name
 	g.line("*%s = %s;", name, g.expr(s.Lit))
 	g.line("vx_remember(%s);", name)
@@ -2701,7 +2712,7 @@ func (g *gen) localFunc(s *ast.LocalFuncStmt) {
 func (g *gen) bindVar(v *types.Var, value string) {
 	if v.Boxed() {
 		name := g.declare(v)
-		g.line("%s = vx_alloc(sizeof(%s));", declPtr(v.Type, name), ctype(v.Type))
+		g.line("%s = %s;", declPtr(v.Type, name), boxAlloc(v.Type))
 		g.line("*%s = %s;", name, value)
 		if !flat(v.Type) {
 			g.line("vx_remember(%s);", name)

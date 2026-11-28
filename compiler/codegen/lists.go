@@ -132,7 +132,7 @@ func (g *gen) listMember(e *ast.CallExpr, c *types.Call, l *types.List, cs []str
 		if c.Args[0] != nil {
 			separator = cs[1]
 		}
-		return fmt.Sprintf("({ vx_list *%s = %s; vx_str %s = %s; vx_str *%s = vx_alloc(sizeof(vx_str) * (size_t)(2 * %s->len + 1)); int %s = 0; "+
+		return fmt.Sprintf("({ vx_list *%s = %s; vx_str %s = %s; vx_str *%s = vx_alloc_t(sizeof(vx_str) * (size_t)(2 * %s->len + 1), VX_PM_STR, sizeof(vx_str)); int %s = 0; "+
 			"for (int64_t %s = 0; %s < %s->len; %s++) { if (%s > 0) %s[%s++] = %s; %s[%s++] = %s; vx_remember(%s); } vx_str_join(%s, %s); })",
 			list, cs[0], sep, separator, parts, list, k,
 			i, i, list, i, i, parts, k, sep, parts, k, show(l.Elem, at), parts, k, parts)
@@ -240,10 +240,10 @@ func (g *gen) convertFunc(to, from types.Type) string {
 	case *types.Map:
 		f := from.(*types.Map)
 		v := g.convert(t.Value, f.Value, fmt.Sprintf("(*(%s *)(e + src->voff))", ctype(f.Value)))
-		body = fmt.Sprintf("vx_map *m = vx_map_new(src->kind, src->ksz, sizeof(%s)); m->khash = src->khash; m->keq = src->keq; "+
+		body = fmt.Sprintf("vx_map *m = vx_map_new(src->kind, src->ksz, 0, sizeof(%s), %s); m->emask |= src->emask & VX_ONES(src->ksz) << (VX_MAP_KEY / 8); m->khash = src->khash; m->keq = src->keq; "+
 			"for (int64_t i = 0; i < src->used; i++) { char *e = VX_MAP_ENTRY(src, i); if (VX_MAP_SEQ(e) == 0) continue; "+
 			"%s = %s; *(%s *)vx_map_set(m, e + VX_MAP_KEY) = v; } return m;",
-			ctype(t.Value), decl(t.Value, "v"), v, ctype(t.Value))
+			ctype(t.Value), layoutOf(t.Value), decl(t.Value, "v"), v, ctype(t.Value))
 		fmt.Fprintf(&g.codecDefs, "static vx_map *%s(vx_map *src) { %s }\n", name, body)
 	}
 	return name

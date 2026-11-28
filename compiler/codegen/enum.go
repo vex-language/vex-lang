@@ -43,6 +43,7 @@ func (g *gen) enumStruct(e *types.Enum) {
 		g.line("    const vx_desc *vx_t;")
 	}
 	g.line("    int32_t tag;")
+	var all []cField
 	if !e.Simple() {
 		g.line("    union {")
 		for _, cs := range e.Cases {
@@ -58,13 +59,23 @@ func (g *gen) enumStruct(e *types.Enum) {
 		g.line("    } u;")
 	}
 	g.line("};")
+	for _, cs := range e.Cases {
+		var fields []cField
+		for _, f := range cs.Fields {
+			fields = append(fields, cField{fmt.Sprintf("u.c_%s.f_%s", cs.Name, f.Name), ctype(f.Type)})
+		}
+		all = append(all, fields...)
+		g.line("#define VXPM_%s_%s %s", enumName(e), cid(cs.Name), structLayout(enumName(e), fields))
+	}
+	// An object whose case isn't known yet, while it is decoded.
+	g.line("#define VXPM_%s %s", enumName(e), structLayout(enumName(e), all))
 }
 
 func (g *gen) caseConstructor(cs *types.Case) {
 	e := enumName(cs.Enum)
 	g.line("")
 	g.line("static %s {", caseSig(cs))
-	g.line("    %s *o = vx_alloc(sizeof(%s));", e, e)
+	g.line("    %s *o = vx_alloc_obj(sizeof(%s), VXPM_%s_%s);", e, e, e, cid(cs.Name))
 	if len(cs.Enum.Interfaces) > 0 {
 		g.line("    o->vx_t = &desc_%s;", e)
 	}
@@ -262,6 +273,6 @@ func (g *gen) allCasesFunc(e *types.Enum) string {
 		for _, cs := range e.Cases {
 			items = append(items, caseFunc(cs)+"()")
 		}
-		return fmt.Sprintf("%s *items[] = {%s}; return vx_list_new(sizeof(%s *), %d, items);", enumName(e), strings.Join(items, ", "), enumName(e), len(items))
+		return fmt.Sprintf("%s *items[] = {%s}; return vx_list_new(sizeof(%s *), 1, %d, items);", enumName(e), strings.Join(items, ", "), enumName(e), len(items))
 	})
 }

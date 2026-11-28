@@ -39,6 +39,7 @@ func (g *gen) streamFunction(f *types.Func) {
 		sig = []string{"void"}
 	}
 	g.line("typedef struct { %s } ar_%s;", strings.Join(fields, " "), name)
+	g.layoutMacro("ar_"+name, fields)
 	g.line("static void en_%s(void *p) {", name)
 	g.line("    ar_%s *a = p;", name)
 	g.line("    bd_%s(%s);", name, strings.Join(args, ", "))
@@ -46,11 +47,11 @@ func (g *gen) streamFunction(f *types.Func) {
 	g.line("    vx_future_done(a->s->done, NULL);")
 	g.line("}")
 	g.line("static vx_stream *%s(%s) {", name, strings.Join(sig, ", "))
-	g.line("    ar_%s *a = vx_alloc(sizeof(ar_%s));", name, name)
+	g.line("    ar_%s *a = vx_alloc_obj(sizeof(ar_%s), VXPM_ar_%s);", name, name, name)
 	for _, n := range ns {
 		g.line("    a->%s = %s;", n, n)
 	}
-	g.line("    a->s = vx_stream_new(%s);", valueSize(elem))
+	g.line("    a->s = vx_stream_new(%s, %s);", valueSize(elem), layoutOf(elem))
 	g.line("    vx_remember(a);")
 	g.line("    vx_stream_start(a->s, en_%s, a);", name)
 	g.line("    return a->s;")

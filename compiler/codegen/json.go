@@ -72,7 +72,7 @@ func objectSet(jt, m, key, value string) string {
 }
 
 func newObject(jt string) string {
-	return fmt.Sprintf("vx_map_new(VX_KEY_STR, sizeof(vx_str), sizeof(%s))", jt)
+	return fmt.Sprintf("vx_map_new(VX_KEY_STR, sizeof(vx_str), VX_PM_STR, sizeof(%s), 1)", jt)
 }
 
 // Returns the name of the generated function giving a value of [t] as a
@@ -94,10 +94,10 @@ func (g *gen) toJSONFunc(t types.Type) string {
 	case *types.Optional:
 		fmt.Fprintf(&b, "if (!%s) return %s; return %s;", present(t, "v"), g.jsonCase("null"), g.toJSON(t.Elem, unwrap(t, "v")))
 	case *types.List:
-		fmt.Fprintf(&b, "vx_list *l = vx_list_new(sizeof(%s), 0, NULL); for (int64_t i = 0; i < v->len; i++) { %s x = %s; vx_list_push(l, &x); } return %s;",
+		fmt.Fprintf(&b, "vx_list *l = vx_list_new(sizeof(%s), 1, 0, NULL); for (int64_t i = 0; i < v->len; i++) { %s x = %s; vx_list_push(l, &x); } return %s;",
 			jt, jt, g.toJSON(t.Elem, fmt.Sprintf("((%s*)v->data)[i]", ctype(t.Elem))), g.jsonCase("list", "l"))
 	case *types.Set:
-		fmt.Fprintf(&b, "vx_list *l = vx_list_new(sizeof(%s), 0, NULL); vx_map_iter it = vx_map_iter_new(v); for (char *e; (e = vx_map_next(v, &it));) { %s x = %s; vx_list_push(l, &x); } return %s;",
+		fmt.Fprintf(&b, "vx_list *l = vx_list_new(sizeof(%s), 1, 0, NULL); vx_map_iter it = vx_map_iter_new(v); for (char *e; (e = vx_map_next(v, &it));) { %s x = %s; vx_list_push(l, &x); } return %s;",
 			jt, jt, g.toJSON(t.Elem, fmt.Sprintf("*(%s*)(e + VX_MAP_KEY)", ctype(t.Elem))), g.jsonCase("list", "l"))
 	case *types.Map:
 		fmt.Fprintf(&b, "vx_map *m = %s; vx_map_iter it = vx_map_iter_new(v); for (char *e; (e = vx_map_next(v, &it));) { %s x = %s; *(%s*)vx_map_set(m, e + VX_MAP_KEY) = x; } return %s;",
@@ -229,7 +229,7 @@ func (g *gen) fromJSONFunc(t types.Type) string {
 		g.ind--
 		g.line("}")
 		g.line("vx_list *src = j->u.c_list.f_items;")
-		g.line("vx_list *l = vx_list_new(sizeof(%s), 0, NULL);", ctype(t.Elem))
+		g.line("vx_list *l = vx_list_new(sizeof(%s), %s, 0, NULL);", ctype(t.Elem), layoutOf(t.Elem))
 		g.line("for (int64_t i = 0; i < src->len; i++) {")
 		g.line("    vx_jpath q = {p, {NULL, 0}, i};")
 		g.line("    %s = %s(((%s*)src->data)[i], &q, vx_err);", decl(t.Elem, "x"), g.fromJSONFunc(t.Elem), jt)
@@ -259,7 +259,7 @@ func (g *gen) fromJSONFunc(t types.Type) string {
 		g.ind--
 		g.line("}")
 		g.line("vx_map *src = j->u.c_object.f_fields;")
-		g.line("vx_map *m = vx_map_new(VX_KEY_STR, sizeof(vx_str), sizeof(%s));", ctype(t.Value))
+		g.line("vx_map *m = vx_map_new(VX_KEY_STR, sizeof(vx_str), VX_PM_STR, sizeof(%s), %s);", ctype(t.Value), layoutOf(t.Value))
 		g.line("vx_map_iter it = vx_map_iter_new(src);")
 		g.line("for (char *e; (e = vx_map_next(src, &it));) {")
 		g.line("    vx_jpath q = {p, *(vx_str *)(e + VX_MAP_KEY), -1};")

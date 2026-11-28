@@ -79,13 +79,16 @@ func (g *gen) presize(body *ast.Block) string {
 // scanned by the collector.
 func newList(t types.Type, n, capacity, items string) string {
 	if capacity == "0" {
-		f := "vx_list_new"
 		if flat(t) {
-			f = "vx_list_flat"
+			return fmt.Sprintf("vx_list_flat(sizeof(%s), %s, %s)", ctype(t), n, items)
 		}
-		return fmt.Sprintf("%s(sizeof(%s), %s, %s)", f, ctype(t), n, items)
+		return fmt.Sprintf("vx_list_new(sizeof(%s), %s, %s, %s)", ctype(t), layoutOf(t), n, items)
 	}
-	return fmt.Sprintf("vx_list_make(sizeof(%s), %s, %s, %s, %t)", ctype(t), n, capacity, items, flat(t))
+	mask := "0"
+	if !flat(t) {
+		mask = layoutOf(t)
+	}
+	return fmt.Sprintf("vx_list_make(sizeof(%s), %s, %s, %s, %s)", ctype(t), n, capacity, items, mask)
 }
 
 // Returns C code adding [v] to the end of list [l] of [t]. A value with

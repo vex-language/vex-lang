@@ -64,7 +64,7 @@ func (g *gen) codec(t types.Type) string {
 	case *types.Struct:
 		name := structName(t)
 		snd.WriteString("if (vx_enc_ref(e, v)) return;")
-		fmt.Fprintf(&rcv, "%s *o = vx_dec_ref(d); if (o) return o; o = vx_alloc(sizeof(%s)); ", name, name)
+		fmt.Fprintf(&rcv, "%s *o = vx_dec_ref(d); if (o) return o; o = vx_alloc_obj(sizeof(%s), VXPM_%s); ", name, name, name)
 		if len(t.Interfaces) > 0 {
 			fmt.Fprintf(&rcv, "o->vx_t = &desc_%s; ", structIdent(t))
 		}
@@ -78,7 +78,7 @@ func (g *gen) codec(t types.Type) string {
 	case *types.Enum:
 		name := enumName(t)
 		snd.WriteString("if (vx_enc_ref(e, v)) return; vx_enc_put(e, &v->tag, 4); switch (v->tag) {")
-		fmt.Fprintf(&rcv, "%s *o = vx_dec_ref(d); if (o) return o; o = vx_alloc(sizeof(%s)); ", name, name)
+		fmt.Fprintf(&rcv, "%s *o = vx_dec_ref(d); if (o) return o; o = vx_alloc_obj(sizeof(%s), VXPM_%s); ", name, name, name)
 		if len(t.Interfaces) > 0 {
 			fmt.Fprintf(&rcv, "o->vx_t = &desc_%s; ", name)
 		}
@@ -160,13 +160,13 @@ func (g *gen) isolateCall(e *ast.CallExpr, c *types.Call) string {
 		fv := g.temp()
 		fmt.Fprintf(&pre, "vx_fn %s = %s; vx_enc %s = {0}; ", fv, code, enc)
 		if len(caps) > 0 {
-			fmt.Fprintf(&body, " struct env_%s *env = vx_alloc(sizeof(struct env_%s));", lam, lam)
+			fmt.Fprintf(&body, " struct env_%s *env = vx_alloc_obj(sizeof(struct env_%s), VXPM_env_%s);", lam, lam, lam)
 			for i, v := range caps {
 				m := g.codec(v.Type)
 				field := fmt.Sprintf("((struct env_%s *)%s.env)->c%d", lam, fv, i)
 				if v.Boxed() {
 					fmt.Fprintf(&pre, "snd_%s(&%s, *%s); ", m, enc, field)
-					fmt.Fprintf(&body, " env->c%d = vx_alloc(sizeof(%s)); vx_remember(env); *env->c%d = rcv_%s(d); vx_remember(env->c%d);", i, ctype(v.Type), i, m, i)
+					fmt.Fprintf(&body, " env->c%d = %s; vx_remember(env); *env->c%d = rcv_%s(d); vx_remember(env->c%d);", i, boxAlloc(v.Type), i, m, i)
 				} else {
 					fmt.Fprintf(&pre, "snd_%s(&%s, %s); ", m, enc, field)
 					fmt.Fprintf(&body, " env->c%d = rcv_%s(d); vx_remember(env);", i, m)
@@ -229,7 +229,7 @@ func (g *gen) isolateCall(e *ast.CallExpr, c *types.Call) string {
 	body.WriteString(" }\n")
 	g.codecDefs.WriteString(body.String())
 	if run {
-		return fmt.Sprintf("({ %svx_isolate_run(%s, &%s, %s); })", pre.String(), entry, enc, valueSize(ft.Result))
+		return fmt.Sprintf("({ %svx_isolate_run(%s, &%s, %s, %s); })", pre.String(), entry, enc, valueSize(ft.Result), layoutOf(ft.Result))
 	}
 	return fmt.Sprintf("({ %svx_isolate_start(%s, &%s, NULL); })", pre.String(), entry, enc)
 }
@@ -242,7 +242,8 @@ func (g *gen) channelCall(e *ast.CallExpr, c *types.Call, ch *types.Channel, cs 
 		return fmt.Sprintf("({ vx_chan *%s_c = %s; %s = %s; vx_enc %s = {0}; snd_%s(&%s, %s); vx_chan_send(%s_c, &%s, %d); })",
 			x, cs[0], decl(ch.Elem, x), cs[1], en, g.codec(ch.Elem), en, x, x, en, line)
 	case "receive":
-		return fmt.Sprintf("vx_chan_receive(%s, %s, sizeof(%s))", cs[0], g.filler(ch.Elem, true), ctype(&types.Optional{Elem: ch.Elem}))
+		opt := &types.Optional{Elem: ch.Elem}
+		return fmt.Sprintf("vx_chan_receive(%s, %s, sizeof(%s), %s)", cs[0], g.filler(ch.Elem, true), ctype(opt), layoutOf(opt))
 	case "receiveSync":
 		b, r := g.temp(), g.temp()
 		return fmt.Sprintf("({ char *%s = vx_chan_receive_sync(%s); %s %s = {0}; if (%s) { %s(%s, &%s); free(%s); } %s; })",

@@ -11,7 +11,7 @@ import (
 
 // Returns C code for a new, empty set of type [s].
 func (g *gen) newSet(s *types.Set) string {
-	return g.newTable(s.Elem, "0")
+	return g.newTable(s.Elem, "0, 0")
 }
 
 // Generates a list literal that makes a set: the list is built as usual,

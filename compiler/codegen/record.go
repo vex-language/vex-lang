@@ -48,6 +48,7 @@ func (g *gen) valueTypedefs() {
 			}
 			emit(t.Elem)
 			g.line("typedef struct { bool has; %s; } %s;", decl(t.Elem, "v"), name)
+			g.layoutMacro(name, []string{decl(t.Elem, "v")})
 		case *types.Record:
 			done[name] = true
 			var fields []string
@@ -56,6 +57,7 @@ func (g *gen) valueTypedefs() {
 				fields = append(fields, decl(ft, recordFields(t)[i])+";")
 			}
 			g.line("typedef struct { %s } %s;", strings.Join(fields, " "), name)
+			g.layoutMacro(name, fields)
 		case *types.Struct:
 			if u := t.Underlying(); u != nil {
 				emit(u)
