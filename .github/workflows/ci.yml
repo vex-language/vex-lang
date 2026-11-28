@@ -33,6 +33,57 @@ jobs:
       - name: Test
         run: go test -count=1 ./...
 
+  windows:
+    name: test (windows-latest, clang)
+    runs-on: windows-latest
+    timeout-minutes: 30
+    env:
+      LLVM_MINGW: llvm-mingw-20261117-ucrt-x86_64
+      LLVM_MINGW_SHA256: 4d002e330a0f703625aa5ccbc37e96f8f824413e163bfc7336774aabd2c3a412
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache-dependency-path: go.mod
+      - name: Cache LLVM-MinGW
+        id: llvm-mingw
+        uses: actions/cache@v4
+        with:
+          path: ${{ runner.temp }}/${{ env.LLVM_MINGW }}
+          key: ${{ env.LLVM_MINGW }}
+      - name: Install LLVM-MinGW
+        if: steps.llvm-mingw.outputs.cache-hit != 'true'
+        shell: pwsh
+        working-directory: ${{ runner.temp }}
+        run: |
+          $ProgressPreference = 'SilentlyContinue'
+          $zip = "$env:LLVM_MINGW.zip"
+          Invoke-WebRequest "https://github.com/mstorsjo/llvm-mingw/releases/download/20261117/$zip" -OutFile $zip
+          $hash = (Get-FileHash $zip -Algorithm SHA256).Hash
+          if ($hash -ne $env:LLVM_MINGW_SHA256) { throw "checksum mismatch for ${zip}: $hash" }
+          & "$env:SystemRoot\System32\tar.exe" -xf $zip
+          Remove-Item $zip
+      - name: Put clang on the PATH
+        shell: pwsh
+        run: |
+          $bin = Join-Path $env:RUNNER_TEMP "$env:LLVM_MINGW\bin"
+          $bin >> $env:GITHUB_PATH
+          "CC=$(Join-Path $bin 'clang.exe')" >> $env:GITHUB_ENV
+      - name: Build
+        run: ./build.sh
+      - name: Vet
+        run: go vet ./...
+      - name: Test
+        run: go test -count=1 ./...
+      - name: Run 200 random programs with known output
+        run: go test -count=1 ./tests -run TestGeneratedPrograms -programs 200
+      - name: Run 100 random map programs against a model
+        run: go test -count=1 ./tests -run TestMapOperations -maps 100
+
   sanitizers:
     name: sanitizers (ubuntu, clang)
     runs-on: ubuntu-latest
