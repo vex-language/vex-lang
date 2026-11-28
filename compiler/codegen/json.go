@@ -44,6 +44,9 @@ func (g *gen) jsonCase(name string, args ...string) string {
 
 // Returns C code for the `Json` value of [x], a value of [t].
 func (g *gen) toJSON(t types.Type, x string) string {
+	if u := wrapped(t); u != nil && ownEncode(t) == nil {
+		return g.toJSON(u, x)
+	}
 	switch t {
 	case types.Int:
 		return g.jsonCase("integer", x)
@@ -172,6 +175,9 @@ func ownDecode(t types.Type) *types.Func {
 // a `Json`. It takes the path to the value for errors, and stores a
 // `JsonError` in its last argument when the value doesn't fit.
 func (g *gen) fromJSONFunc(t types.Type) string {
+	if u := wrapped(t); u != nil && ownDecode(t) == nil {
+		return g.fromJSONFunc(u)
+	}
 	name := "fromjson_" + mangle(t)
 	if g.codecs[name] {
 		return name

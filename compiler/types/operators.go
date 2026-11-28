@@ -79,6 +79,10 @@ var compoundOperators = map[lexer.Kind]string{
 func (c *checker) binaryOperator(e *ast.BinaryExpr, s opOwner) Type {
 	written := strings.Trim(e.Op.String(), "'")
 	sname, kind := ownerName(s)
+	ext, _ := s.(*Struct)
+	if ext != nil && ext.Underlying() == nil {
+		ext = nil
+	}
 	name, ok := binaryOperators[e.Op]
 	var f *Func
 	if ok {
@@ -89,8 +93,12 @@ func (c *checker) binaryOperator(e *ast.BinaryExpr, s opOwner) Type {
 		switch {
 		case !ok:
 			c.errorAt(e, "", "'%s' works only on int, found %s", written, s)
+		case name == "==" && ext != nil:
+			c.errorAt(e, fmt.Sprintf("list Equatable on it: %s: Equatable", ext.header()), "values of type %s can't be compared with %s", s, written)
 		case name == "==":
 			c.errorAt(e, fmt.Sprintf("list Equatable on it to compare the fields: %s %s: Equatable", kind, sname), "values of type %s can't be compared with %s", s, written)
+		case name == "<" && ext != nil:
+			c.errorAt(e, fmt.Sprintf("list Comparable on it: %s: Comparable", ext.header()), "values of type %s can't be ordered with %s", s, written)
 		case name == "<":
 			c.errorAt(e, fmt.Sprintf("define it in %s: operator <(other: %s) -> bool", sname, sname), "values of type %s can't be ordered with %s", s, written)
 		default:

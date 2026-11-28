@@ -61,6 +61,10 @@ func (g *gen) patCond(p ast.Pattern, x string) string {
 		}
 		var conds []string
 		for _, a := range p.Args {
+			if wrapped(g.info.PatternStructs[p]) != nil {
+				conds = append(conds, g.patCond(a.Pattern, x))
+				continue
+			}
 			conds = append(conds, g.patCond(a.Pattern, fmt.Sprintf("%s->f_%s", x, a.Name.Name)))
 		}
 		return joinConds(conds)

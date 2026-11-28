@@ -119,7 +119,7 @@ func (c *checker) genStructRef(x ast.Expr) *genericStruct {
 		}
 		g := m.genStructs[id.Name]
 		if g != nil {
-			c.private(id, m, g.decl.Pub, "struct '"+id.Name+"'")
+			c.private(id, m, g.decl.Pub, kindName(g.decl)+" '"+id.Name+"'")
 		}
 		return g
 	}

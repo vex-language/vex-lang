@@ -56,6 +56,10 @@ func (g *gen) valueTypedefs() {
 				fields = append(fields, decl(ft, recordFields(t)[i])+";")
 			}
 			g.line("typedef struct { %s } %s;", strings.Join(fields, " "), name)
+		case *types.Struct:
+			if u := t.Underlying(); u != nil {
+				emit(u)
+			}
 		}
 	}
 	for _, name := range sortedKeys(g.opts) {

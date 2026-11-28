@@ -14,6 +14,9 @@ import (
 // Returns the mangled name of [t], making sure its encoder and decoder
 // are generated.
 func (g *gen) codec(t types.Type) string {
+	if u := wrapped(t); u != nil {
+		return g.codec(u)
+	}
 	m := mangle(t)
 	if g.codecs[m] {
 		return m

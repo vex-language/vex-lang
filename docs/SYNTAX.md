@@ -1116,6 +1116,31 @@ Inside an extension, the value is `self`, and its members can be used without `s
 - Interfaces are extended with methods only. A generic interface is named without type arguments, and its members use its own parameters, as for `extension Iterable` in [Iterables](#iterables-and-generators).
 - Optionals, records and function types can't be extended yet.
 
+### Extension types
+
+`extension type` makes a new type from an existing one, as in Dart 3. It wraps exactly one value, named in parentheses, and costs nothing at run time: a `UserId` is compiled as a plain `int`, creating one and reading `.value` do no work, and its methods take the `int` itself.
+
+```swift
+extension type UserId(value: int) {
+    fn isAdmin() -> bool => value < 100
+}
+extension type Email(value: string)      // the body is optional
+
+let id = UserId(value: 42)
+let n: int = id.value
+fn load(id: UserId) { ... }
+load(42)        // error: expected UserId, found int (wrap it: UserId(value: 42))
+```
+
+- It is a distinct type: an `int` isn't a `UserId` and a `UserId` isn't an `int`, in either direction. Wrap a value with `UserId(value: ...)` and unwrap it with `.value`.
+- Only the members in its body and in extensions of it are available: `id.abs()` is an error, even though `int` has `abs`. Write `id.value.abs()`.
+- The body holds methods, getters, operators, static methods and constants, used without `self.` as in a struct. It has no other fields, no `init` block and no setters: the value never changes. `id.copy(value: 7)` makes a new one.
+- `: Equatable`, `Hashable`, `Comparable` and `Codable` give it `==`, hashing (so it can be a map key), `<` and JSON from the value it wraps, which must have them. A `Codable` one is written to JSON as the plain value: `"ann@example.com"`, not an object.
+- It prints like a struct, `UserId(value: 42)`, unless it has a `fn toString() -> string`.
+- It works in lists, maps, optionals and records, can be generic (`extension type Box<T>(value: T)`), matches patterns such as `UserId(value: 42)` and `UserId(:value)`, and can be a constant: `static const root = UserId(value: 0)`.
+- `pub extension type` makes the type and its value usable from other modules; its methods need their own `pub`.
+- It can't list other interfaces, so it is never an interface value, and `is`/`as?` tests on interface values never name one: having no wrapper, its values don't carry a type tag. Use a struct to implement an interface.
+
 ## Modules
 
 A folder is a module: its `.vx` files share their names and use each other without imports. A project is a folder with a `package.toml`, and its top folder is the root module, which holds `main`.
@@ -2127,7 +2152,7 @@ var cache: Cache<string> = [:]
 - An alias of an interface can be listed after `:` and used as a constraint: `struct Square: S`, `fn f<T: S>(x: T)`.
 - `pub typedef` makes the alias usable from other modules as `shapes.Point`.
 - Aliases are declared at the top level of a file, and can't refer to themselves; use a struct or enum for a type that contains itself.
-- An alias doesn't make a new type: `typedef UserId = int` still accepts any `int`. Distinct wrapper types are planned as extension types.
+- An alias doesn't make a new type: `typedef UserId = int` still accepts any `int`. For a distinct type, use an [extension type](#extension-types).
 
 ## Memory
 

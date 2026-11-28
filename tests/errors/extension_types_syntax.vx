@@ -1,0 +1,25 @@
+extension type Empty()
+extension type Pair(a: int, b: int)
+extension type Untyped(value)
+extension type Defaulted(value: int = 0)
+extension type NoParens: Equatable
+extension type WithField(value: int) {
+    extra: int
+}
+extension type WithInit(value: int) {
+    init {
+        println(value)
+    }
+}
+extension type WithSetter(value: int) {
+    set double(v: int) {}
+}
+
+// error: 1:21: an extension type wraps exactly one value
+// error: 2:29: an extension type wraps exactly one value
+// error: 3:29: the wrapped value 'value' needs a type
+// error: 4:37: the wrapped value can't have a default
+// error: 5:24: expected '(' and the value NoParens wraps, found ':'
+// error: 7:5: an extension type holds only the value in its parentheses
+// error: 10:5: extension types have no init block
+// error: 15:5: extension types never change, so they can't have setters

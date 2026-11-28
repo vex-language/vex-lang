@@ -409,7 +409,7 @@ func (c *checker) qualifiedType(te *ast.NamedType) Type {
 		return Invalid
 	}
 	if g := m.genStructs[te.Name]; g != nil {
-		if c.private(te, m, g.decl.Pub, "struct '"+te.Name+"'") {
+		if c.private(te, m, g.decl.Pub, kindName(g.decl)+" '"+te.Name+"'") {
 			return Invalid
 		}
 		if len(te.Args) == 0 {
@@ -508,13 +508,13 @@ func (c *checker) moduleCall(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		return c.genericFuncCall(e, g, want)
 	case m.genStructs[name] != nil:
 		g := m.genStructs[name]
-		if c.private(id, m, g.decl.Pub, "struct '"+name+"'") {
+		if c.private(id, m, g.decl.Pub, kindName(g.decl)+" '"+name+"'") {
 			return fail()
 		}
 		return c.genericStructCall(e, g, want)
 	case m.structs[name] != nil && m.structs[name].Decl != nil:
 		s := m.structs[name]
-		if c.private(id, m, s.Decl.Pub, "struct '"+name+"'") || c.constructPrivate(e, s) {
+		if c.private(id, m, s.Decl.Pub, kindName(s.Decl)+" '"+name+"'") || c.constructPrivate(e, s) {
 			return fail()
 		}
 		return c.construct(e, s)
@@ -584,7 +584,7 @@ func (c *checker) moduleIdent(id *ast.Ident) Type {
 func (c *checker) moduleRef(id *ast.Ident) (*Struct, *Enum) {
 	m := c.imported(id.Module)
 	if s := m.structs[id.Name]; s != nil && s.Decl != nil {
-		c.private(id, m, s.Decl.Pub, "struct '"+id.Name+"'")
+		c.private(id, m, s.Decl.Pub, kindName(s.Decl)+" '"+id.Name+"'")
 		return s, nil
 	}
 	if e := m.enums[id.Name]; e != nil {

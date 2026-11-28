@@ -14,6 +14,9 @@ import (
 // Returns a C condition telling whether [a] and [b], two values of [t], are
 // equal.
 func (g *gen) eq(t types.Type, a, b string) string {
+	if u := wrapped(t); u != nil && t.(*types.Struct).Operator("==") == nil {
+		return g.eq(u, a, b)
+	}
 	switch t := t.(type) {
 	case *types.Enum:
 		if f := t.Operator("=="); f != nil {
@@ -131,6 +134,9 @@ func (g *gen) hashOf(t types.Type, x string) string {
 	case *types.Struct:
 		if m := t.HashMethod(); m != nil {
 			return fmt.Sprintf("vx_mix((uint64_t)%s)", g.memberCall(m, t, x))
+		}
+		if u := t.Underlying(); u != nil {
+			return g.hashOf(u, x)
 		}
 	}
 	switch t {

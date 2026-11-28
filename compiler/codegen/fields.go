@@ -19,6 +19,12 @@ func (g *gen) copyCall(c *types.Call, rank []int) string {
 			givenRank = append(givenRank, rank[i])
 		}
 	}
+	if wrapped(c.Struct) != nil {
+		if c.Keep[0] {
+			return g.expr(c.Recv)
+		}
+		return g.orderedBy([]ast.Expr{c.Recv, given[0]}, []int{-1, givenRank[0]}, func(cs []string) string { return cs[1] })
+	}
 	return g.orderedBy(append([]ast.Expr{c.Recv}, given...), append([]int{-1}, givenRank...), func(cs []string) string {
 		src := g.temp()
 		var args []string

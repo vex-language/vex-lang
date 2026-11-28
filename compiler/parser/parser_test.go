@@ -551,6 +551,34 @@ typedef Point = shapes.Point
 	}
 }
 
+func TestExtensionTypes(t *testing.T) {
+	src := `extension type UserId(value: int): Hashable {
+    fn isAdmin() -> bool => value < 100
+}
+pub extension type Box<T>(value: T)
+extension type Email(
+    address: string,
+)
+`
+	f, errs := parse(t, src)
+	if errs != nil {
+		t.Fatalf("unexpected errors:\n%v", errs)
+	}
+	want := []string{
+		"(extension type UserId: Hashable let field value: int (fn isAdmin -> bool (=> (< value 100))))",
+		"(pub extension type Box<T> pub let field value: T)",
+		"(extension type Email let field address: string)",
+	}
+	if len(f.Decls) != len(want) {
+		t.Fatalf("got %d declarations, want %d", len(f.Decls), len(want))
+	}
+	for i, d := range f.Decls {
+		if got := ast.Sexpr(d); got != want[i] {
+			t.Errorf("decl %d\n got: %s\nwant: %s", i, got, want[i])
+		}
+	}
+}
+
 func TestExtensions(t *testing.T) {
 	src := `extension string {
     fn shout() -> string => upper()

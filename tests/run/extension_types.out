@@ -1,0 +1,48 @@
+42
+UserId(value: 42)
+UserId(value: 42)
+true
+UserId(value: 43)
+user #42
+loading 42
+UserId(value: 0)
+UserId(value: 5)
+nil
+UserId(value: 1)
+true
+true
+false
+[UserId(value: 2), UserId(value: 5), UserId(value: 9)]
+true
+UserId(value: 8)
+Ann
+[UserId(value: 42): "Ann", UserId(value: 7): "Bob"]
+got 42
+nil
+UserId(value: 0)
+forty-two
+value 5
+[UserId(value: 3), UserId(value: 4)]
+[UserId(value: 1), UserId(value: 2)]
+Email(value: "ann@example.com")
+true
+22.5°C
+[22.5°C]
+hi
+Box<int>(value: 3)
+[Ranked<string>(value: "a"), Ranked<string>(value: "b")]
+2
+Tags(value: ["new", "hot"])
+{"id":1,"email":"ann@example.com"}
+ann@example.com
+[Email(value: "a@b.c")]
+ann@example.com
+ann@example.com
+none
+MaybeInt(value: nil)
+MaybeInt(value: 3)
+true
+8
+Counter(value: 8)
+[1, 2, 3]
+42

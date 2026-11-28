@@ -311,8 +311,13 @@ type conformer struct {
 
 // Resolves the interfaces [s] declares and checks that it implements them.
 func (c *checker) conformances(s *Struct) {
+	decls := s.Decl.Interfaces
+	if s.Decl.Extension {
+		c.extensionMarkers(s)
+		decls = nil
+	}
 	c.conform(conformer{
-		name: s.Name, node: s.Decl.Name, kind: "struct", decls: s.Decl.Interfaces,
+		name: s.Name, node: s.Decl.Name, kind: "struct", decls: decls,
 		ifaces: &s.Interfaces, methods: &s.Methods,
 		field: func(name string) *Field { return s.Field(name) },
 		owns:  func(m *Func) bool { return m.Owner == s },

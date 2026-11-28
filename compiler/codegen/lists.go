@@ -13,11 +13,16 @@ import (
 func (g *gen) less(t types.Type, a, b string) string {
 	switch s := t.(type) {
 	case *types.Struct:
-		return g.operator(lexer.Lt, s.Operator("<"), t, a, b)
+		if f := s.Operator("<"); f != nil {
+			return g.operator(lexer.Lt, f, t, a, b)
+		}
 	case *types.Enum:
 		if f := s.Operator("<"); f != nil {
 			return g.operator(lexer.Lt, f, t, a, b)
 		}
+	}
+	if u := wrapped(t); u != nil {
+		return g.less(u, a, b)
 	}
 	return binop(lexer.Lt, t, a, b, 0)
 }

@@ -146,7 +146,7 @@ func Generate(info *types.Info, srcName string) string {
 	// function values whose declarations must precede them.
 	var defs strings.Builder
 	g.b = &defs
-	for _, s := range info.Structs {
+	for _, s := range heapStructs(info) {
 		g.constructor(s)
 	}
 	for _, e := range info.Enums {
@@ -180,7 +180,7 @@ func Generate(info *types.Info, srcName string) string {
 	g.line("")
 	g.line("// --- Program ---")
 	g.line("")
-	for _, s := range info.Structs {
+	for _, s := range heapStructs(info) {
 		g.line("typedef struct %s %s;", structName(s), structName(s))
 	}
 	for _, e := range info.Enums {
@@ -188,7 +188,7 @@ func Generate(info *types.Info, srcName string) string {
 	}
 	g.valueTypedefs()
 	g.descType()
-	for _, s := range info.Structs {
+	for _, s := range heapStructs(info) {
 		g.line("struct %s {", structName(s))
 		if len(s.Interfaces) > 0 {
 			g.line("    const vx_desc *vx_t;")
@@ -202,7 +202,7 @@ func Generate(info *types.Info, srcName string) string {
 		g.enumStruct(e)
 	}
 	g.line("")
-	for _, s := range info.Structs {
+	for _, s := range heapStructs(info) {
 		g.line("static %s;", constructorSig(s))
 	}
 	for _, e := range info.Enums {
@@ -307,6 +307,27 @@ func (g *gen) line(format string, args ...any) {
 // --- Names and types ---
 
 func structName(s *types.Struct) string { return "S_" + structIdent(s) }
+
+// Returns the type the extension type [t] compiles to, or nil when [t]
+// isn't an extension type.
+func wrapped(t types.Type) types.Type {
+	if s, ok := t.(*types.Struct); ok {
+		return s.Underlying()
+	}
+	return nil
+}
+
+// Returns the structs that are created as C structs: all but the
+// extension types.
+func heapStructs(info *types.Info) []*types.Struct {
+	var out []*types.Struct
+	for _, s := range info.Structs {
+		if s.Underlying() == nil {
+			out = append(out, s)
+		}
+	}
+	return out
+}
 
 // Returns a C-safe name for [s]: its name, with the type arguments of a
 // generic instance spelled out, as in `Box__int`.
@@ -424,6 +445,9 @@ func ctype(t types.Type) string {
 	case *types.Record:
 		return "rec_" + mangle(t)
 	case *types.Struct:
+		if u := t.Underlying(); u != nil {
+			return ctype(u)
+		}
 		return structName(t) + " *"
 	case *types.FuncType:
 		return "vx_fn"
@@ -642,7 +666,7 @@ func (g *gen) signature(f *types.Func, define bool) string {
 func (g *gen) params(f *types.Func, define bool) []string {
 	var params []string
 	if f.Owner != nil && !f.Static {
-		params = append(params, structName(f.Owner)+" *self")
+		params = append(params, decl(f.Owner, "self"))
 	}
 	if f.Enum != nil && !f.Static {
 		params = append(params, enumName(f.Enum)+" *self")
@@ -903,6 +927,12 @@ func (g *gen) repr(name string, t types.Type) {
 		g.line("    }")
 		g.line("    vx_buf_add(b, VX_LIT(\"]\"));")
 	case *types.Struct:
+		if u := t.Underlying(); u != nil {
+			g.line("    %s", writeLit("b", t.Name+"("+t.Fields[0].Name+": "))
+			g.line("    %s", write(u, "b", "v"))
+			g.line("    vx_buf_add(b, VX_LIT(\")\"));")
+			break
+		}
 		g.line("    if (vx_repr_enter(v)) {")
 		g.line("        %s", writeLit("b", t.Name+"(...)"))
 		g.line("        return;")
@@ -1784,6 +1814,9 @@ func (g *gen) value(e ast.Expr) string {
 			}
 			return g.varName(u)
 		case *types.Field:
+			if wrapped(u.Owner) != nil {
+				return g.selfRef()
+			}
 			return g.selfRef() + "->f_" + u.Name
 		case *types.Property:
 			return g.memberCall(u.Get, g.selfType(), g.selfRef())
@@ -1989,6 +2022,9 @@ func (g *gen) value(e ast.Expr) string {
 			return g.memberCall(m.Property.Get, g.info.Types[e.X], x)
 		}
 		if m.Field != nil {
+			if wrapped(m.Field.Owner) != nil {
+				return x
+			}
 			return fmt.Sprintf("%s->f_%s", x, m.Field.Name)
 		}
 		if g.info.Types[e.X] == types.String {
@@ -2072,6 +2108,9 @@ func unchecked(k lexer.Kind, a, b string) string {
 // Returns C code applying the binary operator [k] to [a] and [b], whose
 // type is [t].
 func binop(k lexer.Kind, t types.Type, a, b string, line int) string {
+	if u := wrapped(t); u != nil {
+		return binop(k, u, a, b, line)
+	}
 	if t == types.String {
 		switch k {
 		case lexer.Plus:
@@ -2218,6 +2257,9 @@ func (g *gen) callCode(e *ast.CallExpr) string {
 			return g.callee(e, c.Func) + "(" + g.args(e, cs) + ")"
 		})
 	case types.ConstructorCall:
+		if wrapped(c.Struct) != nil {
+			return g.expr(c.Args[0])
+		}
 		return g.orderedBy(c.Args, rank, func(cs []string) string {
 			return "new_" + structName(c.Struct) + "(" + strings.Join(cs, ", ") + ")"
 		})

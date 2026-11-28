@@ -230,7 +230,11 @@ func (c *checker) mismatch(n ast.Node, want, got Type, what string) {
 	if what != "" {
 		msg = what + ": " + msg
 	}
-	c.errorAt(n, conversionHint(want, got), "%s", msg)
+	hint := c.wrapHint(n, want, got)
+	if hint == "" {
+		hint = conversionHint(want, got)
+	}
+	c.errorAt(n, hint, "%s", msg)
 }
 
 // Suggests how to turn a [got] value into a [want] value.
@@ -251,6 +255,9 @@ func conversionHint(want, got Type) string {
 		return "it may be nil: unwrap it with if let, or give a default with ?? value"
 	}
 	if i, ok := want.(*Interface); ok {
+		if s, ok := got.(*Struct); ok && s.Underlying() != nil {
+			return "extension types can't become interface values; use a struct"
+		}
 		if s, ok := got.(*Struct); ok {
 			return fmt.Sprintf("declare it: struct %s: %s", s.Name, i.Name)
 		}
@@ -448,6 +455,7 @@ func (c *checker) collect() {
 		}
 	}
 	c.checkStructCycles()
+	c.checkExtensionTypes()
 	c.checkDefaults()
 	c.checkEquality()
 	c.checkCodable()
@@ -460,11 +468,11 @@ func (c *checker) declareStruct(sd *ast.StructDecl) {
 		return
 	}
 	if g := c.genStructs[s.Name]; g != nil {
-		c.errorAt(sd.Name, "", "struct '%s' is already declared on line %d", s.Name, g.decl.Pos().Line)
+		c.errorAt(sd.Name, "", "%s '%s' is already declared on line %d", kindName(sd), s.Name, g.decl.Pos().Line)
 		return
 	}
 	if prev := c.structs[s.Name]; prev != nil {
-		c.errorAt(sd.Name, "", "struct '%s' is already declared on line %d", s.Name, prev.Decl.Pos().Line)
+		c.errorAt(sd.Name, "", "%s '%s' is already declared on line %d", kindName(sd), s.Name, prev.Decl.Pos().Line)
 		return
 	}
 	c.structs[s.Name] = s
