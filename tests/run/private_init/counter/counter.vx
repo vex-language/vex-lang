@@ -1,0 +1,26 @@
+/// A counter whose `init` sets fields other modules can't see.
+pub struct Counter {
+    pub let start: int
+    count = 0
+
+    init {
+        count = start
+    }
+
+    pub fn next() -> int {
+        count += 1
+        return count
+    }
+}
+
+/// A generic box whose `init` sets a private field.
+pub struct Box<T> {
+    pub let value: T
+    size: int = 0
+
+    init {
+        size = 1
+    }
+
+    pub fn len() -> int => size
+}

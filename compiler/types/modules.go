@@ -114,6 +114,9 @@ func (c *checker) register(d ast.Decl, u *unit) {
 		for _, m := range d.Methods {
 			c.units[m] = u
 		}
+		if d.Init != nil {
+			c.units[d.Init] = u
+		}
 	case *ast.EnumDecl:
 		for _, m := range d.Methods {
 			c.units[m] = u

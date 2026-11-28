@@ -1,0 +1,8 @@
+// An init block of a struct from another module can set its private fields.
+import "counter"
+
+fn main() {
+    let c = counter.Counter(start: 10)
+    println(c.next(), c.next())
+    println(counter.Box(value: "a").len(), counter.Box<int>(value: 2).len())
+}
