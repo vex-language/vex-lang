@@ -957,9 +957,21 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 			return &List{Elem: x.Value}
 		}
 	}
-	if x == String && name == "len" {
-		c.info.Members[e] = &Member{Builtin: "len"}
-		return Int
+	if x == String {
+		switch name {
+		case "len":
+			c.info.Members[e] = &Member{Builtin: "len"}
+			return Int
+		case "isEmpty":
+			c.info.Members[e] = &Member{Builtin: "isEmpty"}
+			return Bool
+		case "count":
+			// Swift's count is the length; here count(text) counts matches.
+			if _, ok := want.(*FuncType); !ok {
+				c.errorAt(e.Name, "use .len for the length; count(text) counts how often text appears", "count is a method, not a property")
+				return Invalid
+			}
+		}
 	}
 	if x == Range {
 		switch name {
@@ -1013,7 +1025,11 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 	if c.recvUnavailable(e.Name, x, name) {
 		return Invalid
 	}
-	c.errorAt(e.Name, didYouMean(name, builtinMemberNames(x)), "%s has no member '%s'", x, name)
+	hint := didYouMean(name, builtinMemberNames(x))
+	if x == String && (name == "length" || name == "size") {
+		hint = "use .len"
+	}
+	c.errorAt(e.Name, hint, "%s has no member '%s'", x, name)
 	return Invalid
 }
 

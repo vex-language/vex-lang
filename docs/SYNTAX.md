@@ -1027,7 +1027,7 @@ fn helper() { }                         // private to models
 - Another module can only create a struct whose private fields all have defaults. Otherwise give it a `pub static fn` that creates it.
 - `vex:` modules come with the compiler:
   - `vex:math`: `abs`, `min`, `max`, `clamp`, `pow` and `gcd` for integers and comparable values; `sqrt`, `cbrt`, `powf`, `exp`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `hypot`, `floor`, `ceil`, `round`, `trunc`, `absf` and `pi()` for floats
-  - `vex:strings`: `repeat`, `join`, `padLeft`, `padRight`
+  - `vex:strings`: `repeat`, `join`, `padLeft`, `padRight`, which are also the methods `s.repeat(n)`, `parts.join(sep)`, `s.padStart(width, with: fill)` and `s.padEnd(width, with: fill)`
   - `vex:time`: `nanos()` for measuring, `unix()` for the date, `sleep(ms)`, a future that completes after `ms` milliseconds, and `timeout(future, ms)` (see [Cancellation](#cancellation-and-timeouts))
   - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, and failures throw an `Error` naming the path and the reason
   - `vex:json`: `encode`, `decode`, `parse` and `write`, and the `Json` and `JsonError` enums (see [JSON](#json))
@@ -1877,9 +1877,13 @@ $ vex test
 | `expect(cond, msg)` | In tests, report `cond` as failed without stopping the test; see [Tests](#tests) |
 | `list.len`, `.push(x)`, `.sort()`, `.filter(f)`, `.map(f)`, `.join(sep)` and the rest | List members; see [Lists](#lists) |
 | `map.len`, `.keys`, `.values`, `.contains(k)`, `.remove(k)` | Map members |
-| `s.len`, `.upper()`, `.lower()`, `.contains(x)`, `.split(sep)` | String members. `len` counts Unicode code points, so an emoji with a modifier counts as more than one; `upper` and `lower` change only the letters A–Z for now |
+| `s.len`, `.isEmpty`, `.upper()`, `.lower()`, `.capitalize()`, `.contains(x)` | String members. `len` counts Unicode code points, so an emoji with a modifier counts as more than one; `upper`, `lower` and `capitalize` (the first character upper case) change only the letters A–Z for now |
+| `.split(sep)`, `.split(sep, limit: n)` | The parts between each `sep`. With a `limit` above 0, as in Kotlin, at most that many parts, the last holding the rest: `"k=v=w".split("=", limit: 2)` is `["k", "v=w"]` |
 | `.replace(old, with)`, `.trim()`, `.trimStart()`, `.trimEnd()` | New strings: every `old` replaced; spaces, tabs and line endings removed from the ends |
-| `.startsWith(x)`, `.endsWith(x)`, `.indexOf(x)` | `indexOf` gives an `int?`: the index of the first match, or `nil` |
+| `.startsWith(x)`, `.endsWith(x)`, `.indexOf(x)`, `.lastIndexOf(x)` | The index functions give an `int?`: the index of the first or last match, or `nil` |
+| `.count(x)` | How many times `x` appears, without overlapping: `"aaaa".count("aa")` is 2. The length is `len`, not `count` |
+| `.padStart(width)`, `.padEnd(width, with: ".")` | Copies of `with` (a space when left out) added at the start or end until the string is `width` characters long, the last copy cut short when needed: `"7".padStart(3, with: "0")` is `"007"`. A longer string stays as it is |
+| `.repeat(n)`, `.reversed()` | The string `n` times (`""` when `n` is 0 or less); the characters in reverse order |
 | `.substring(from, to)`, `.chars()`, `.lines()` | The characters from `from` up to `to`, as `s[from..to]` gives them; each character; each line without its line ending. Indexes count characters, as `len` does, and an index out of range stops the program |
 
 ## Types

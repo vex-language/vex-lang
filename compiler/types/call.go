@@ -1002,19 +1002,25 @@ func builtinMember(recv Type, name string) *memberSig {
 	}
 	if recv == String {
 		switch name {
-		case "upper", "lower":
+		case "upper", "lower", "capitalize", "reversed":
 			return &memberSig{nil, String}
 		case "contains":
 			return &memberSig{[]slot{{name: "text", typ: String}}, Bool}
+		case "count":
+			return &memberSig{[]slot{{name: "text", typ: String}}, Int}
 		case "split":
-			return &memberSig{[]slot{{name: "separator", typ: String}}, &List{Elem: String}}
+			return &memberSig{[]slot{{name: "separator", typ: String}, {name: "limit", typ: Int, optional: true}}, &List{Elem: String}}
+		case "repeat":
+			return &memberSig{[]slot{{name: "count", typ: Int}}, String}
+		case "padStart", "padEnd":
+			return &memberSig{[]slot{{name: "width", typ: Int}, {name: "with", typ: String, optional: true}}, String}
 		case "replace":
 			return &memberSig{[]slot{{name: "old", typ: String}, {name: "with", typ: String}}, String}
 		case "trim", "trimStart", "trimEnd":
 			return &memberSig{nil, String}
 		case "startsWith", "endsWith":
 			return &memberSig{[]slot{{name: "text", typ: String}}, Bool}
-		case "indexOf":
+		case "indexOf", "lastIndexOf":
 			return &memberSig{[]slot{{name: "text", typ: String}}, &Optional{Elem: Int}}
 		case "substring":
 			return &memberSig{[]slot{{name: "from", typ: Int}, {name: "to", typ: Int}}, String}
@@ -1050,8 +1056,9 @@ func builtinMemberNames(recv Type) []string {
 		return []string{"start", "end", "len", "isEmpty", "contains", "step", "reversed", "toList"}
 	}
 	if recv == String {
-		return []string{"len", "upper", "lower", "contains", "split", "replace", "trim", "trimStart", "trimEnd",
-			"startsWith", "endsWith", "indexOf", "substring", "chars", "lines"}
+		return []string{"len", "isEmpty", "upper", "lower", "capitalize", "contains", "count", "split", "replace",
+			"trim", "trimStart", "trimEnd", "startsWith", "endsWith", "indexOf", "lastIndexOf", "substring",
+			"chars", "lines", "repeat", "padStart", "padEnd", "reversed"}
 	}
 	return nil
 }
