@@ -2,9 +2,20 @@
 import "vex:fs"
 import "vex:os"
 import "vex:strings"
+import "vex:time"
+
+// Returns a new, empty folder.
+fn tempDir() throws -> string {
+    if os.target == .windows {
+        let dir = (os.env("TEMP") ?? ".") + "\\vex-fsos-{time.nanos()}"
+        try fs.makeDir(dir)
+        return dir
+    }
+    return (try os.output("mktemp -d")).split("\n")[0]
+}
 
 fn main() throws {
-    let tmp = (try os.output("mktemp -d")).split("\n")[0]
+    let tmp = try tempDir()
     let dir = tmp + "/a/b"
     try fs.makeDir(dir)
     try fs.makeDir(dir)
@@ -47,13 +58,25 @@ fn main() throws {
     println(os.args(), os.env("VEX_UNSET_VARIABLE_42"))
     os.setEnv("VEX_FSOS", "from vex")
     println(os.env("VEX_FSOS") ?? "unset")
-    print(try os.output("echo \"$VEX_FSOS\" | tr a-z A-Z"))
-    println(try os.run("exit 7"), try os.run("true"))
-    let failed = try os.output("echo partial; exit 3") catch { "exit 3 caught" }
-    println(failed)
+    // Commands run in cmd on Windows, and in sh elsewhere.
+    if os.target == .windows {
+        print((try os.output("echo %VEX_FSOS%")).upper())
+        println(try os.run("exit 7"), try os.run("exit 0"))
+        let failed = try os.output("echo partial & exit 3") catch { "exit 3 caught" }
+        println(failed)
+    } else {
+        print(try os.output("echo \"$VEX_FSOS\" | tr a-z A-Z"))
+        println(try os.run("exit 7"), try os.run("true"))
+        let failed = try os.output("echo partial; exit 3") catch { "exit 3 caught" }
+        println(failed)
+    }
     println((try os.cwd()).len > 0)
 
-    try os.run("rm -rf '{tmp}'")
+    if os.target == .windows {
+        try os.run("rmdir /s /q \"{tmp}\"")
+    } else {
+        try os.run("rm -rf '{tmp}'")
+    }
     println(fs.exists(tmp))
     os.exit(0)
 }
