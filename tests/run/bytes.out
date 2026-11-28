@@ -1,0 +1,27 @@
+Bytes(0 bytes) 0 true
+Bytes(2 bytes: 48 69) 2 false 72 105
+Bytes(3 bytes: 00 00 00) Bytes(4 bytes: 00 7f 80 ff)
+Bytes(5 bytes: 48 65 6c 6c 6f) 6
+48656c6c6f [72, 101, 108, 108, 111] Hello
+Bytes(4 bytes: 48 69 0a ff) Bytes(0 bytes) nil nil
+nil nil nil
+€ true
+Bytes(2 bytes: 65 6c) Bytes(2 bytes: 48 65) Bytes(2 bytes: 6c 6f) Bytes(3 bytes: 48 6c 6f) Bytes(0 bytes)
+Bytes(5 bytes: 4a 65 6c 6c 70) Bytes(5 bytes: 48 65 6c 6c 6f) Jellp
+Bytes(2 bytes: 00 65) 72
+20 Bytes(20 bytes: 4a 65 6c 6c 70 48 65 6c 6c 6f 4a 65 6c 6c 70 48 65 6c 6c 6f)
+256 32640 Bytes(256 bytes: 00 01 02 03 04 05 06 07 08 09 0a 0b 0c 0d 0e 0f 10 11 12 13 14 15 16 17 18 19 1a 1b 1c 1d 1e 1f ...)
+0 97 1 98 2 99 
+true false false false
+hello missing [Bytes(5 bytes: 48 65 6c 6c 6f): "hello", Bytes(0 bytes): "empty"]
+true true
+interpolated: Bytes(5 bytes: 48 65 6c 6c 6f)
+{"name":"greeting","data":"SGVsbG8="}
+true Bytes(5 bytes: 48 65 6c 6c 6f)
+Bytes(4 bytes: 00 01 02 ff)
+data: expected base64 text
+Hello! 5
+261 true Bytes(5 bytes: 48 65 6c 6c 6f) 261
+262 7
+Bytes(0 bytes)
+can't read TMP/missing.bin: No such file or directory

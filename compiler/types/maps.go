@@ -26,7 +26,7 @@ func mapKeyType(t Type) bool {
 		}
 		return true
 	}
-	return t == Int || t == Bool || t == String
+	return t == Int || t == Bool || t == String || t == Bytes
 }
 
 func (c *checker) mapType(te *ast.MapType) Type {

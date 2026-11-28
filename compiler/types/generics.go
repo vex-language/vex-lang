@@ -742,11 +742,11 @@ func constraintHint(cst string) string {
 	case "Comparable":
 		return "Comparable types are int, float, string, enums whose cases carry no values and structs that define operator < and operator =="
 	case "Hashable":
-		return "Hashable types are int, string, bool, enums whose cases carry no values, records of those, and structs and enums that list Hashable"
+		return "Hashable types are int, string, bool, Bytes, enums whose cases carry no values, records of those, and structs and enums that list Hashable"
 	case "Codable":
 		return codableHint(Void)
 	}
-	return "Equatable types are int, float, bool, string, enums whose cases carry no values, structs that define operator ==, structs and enums that list Equatable or Hashable, and lists, maps, optionals and records of those"
+	return "Equatable types are int, float, bool, string, Bytes, enums whose cases carry no values, structs that define operator ==, structs and enums that list Equatable or Hashable, and lists, maps, optionals and records of those"
 }
 
 // Reports whether [t] meets the built-in [constraint].

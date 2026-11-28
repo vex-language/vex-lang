@@ -56,6 +56,8 @@ func (g *gen) toJSON(t types.Type, x string) string {
 		return g.jsonCase("boolean", x)
 	case types.String:
 		return g.jsonCase("text", x)
+	case types.Bytes:
+		return g.jsonCase("text", "vx_bytes_base64("+x+")")
 	}
 	if j, _ := g.jsonTypes(); t == types.Type(j) {
 		return x
@@ -307,6 +309,14 @@ func (g *gen) fromJSONFunc(t types.Type) string {
 		case types.String:
 			g.line("if (%s) return j->u.c_text.f_value;", is("text"))
 			want("a string")
+		case types.Bytes:
+			g.line("if (%s) {", is("text"))
+			g.line("    vx_list *b = vx_bytes_from_base64(j->u.c_text.f_value);")
+			g.line("    if (b) return b;")
+			g.line("    *vx_err = vx_jfail(p, VX_LIT(\"expected base64 text\"));")
+			g.line("    return NULL;")
+			g.line("}")
+			want("a base64 string")
 		default:
 			if jt, _ := g.jsonTypes(); t == types.Type(jt) {
 				g.line("(void)p; (void)vx_err;")

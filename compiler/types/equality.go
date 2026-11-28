@@ -157,7 +157,7 @@ func keyHint(t Type) string {
 	case *TypeParam:
 		return fmt.Sprintf("require it: <%s: Hashable>", t.Name)
 	}
-	return "use int, string, bool, a record of those, or a struct or enum that lists Hashable"
+	return "use int, string, bool, Bytes, a record of those, or a struct or enum that lists Hashable"
 }
 
 // Reports whether the struct or enum whose method is being checked has a
@@ -187,7 +187,7 @@ func reference(t Type) bool {
 	case *Enum:
 		return !t.Simple()
 	}
-	return false
+	return t == Bytes
 }
 
 // Checks `a === b` or `a !== b`.

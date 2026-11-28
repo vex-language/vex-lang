@@ -67,7 +67,7 @@ func (c *checker) nativeTypes(f *Func) {
 			c.callbackType(ft, at)
 			continue
 		}
-		if p.Type != Invalid && !cValue(p.Type) {
+		if p.Type != Invalid && !cValue(p.Type) && !runtimeValue(f, p.Type) {
 			c.errorAt(at, hint, "%s can't be %s", p.Type, what)
 		}
 	}
@@ -76,6 +76,7 @@ func (c *checker) nativeTypes(f *Func) {
 	case r == Void || r == Invalid:
 	case future && f.Decl.Extern && strings.HasPrefix(f.Decl.CName, "vx_"):
 		// Runtime functions, used by the standard library, may give futures.
+	case runtimeValue(f, r):
 	case f.Decl.Export && (r == String || Identical(r, &Optional{Elem: String})):
 		c.errorAt(f.Decl.Result, "return a handle, or let C pass in a buffer", "export functions can't return strings yet, since C would hold memory Vex manages")
 	case !cValue(r):
@@ -96,6 +97,15 @@ func (c *checker) nativeTypes(f *Func) {
 			c.errorAt(f.Decl.Name, "choose a name that doesn't start with vx_", "names starting with vx_ are kept for the Vex runtime")
 		}
 	}
+}
+
+// Reports whether [t] is Bytes or Bytes?, which runtime functions, used by
+// the standard library, may take and give as [f] does.
+func runtimeValue(f *Func, t Type) bool {
+	if o, ok := t.(*Optional); ok {
+		t = o.Elem
+	}
+	return t == Bytes && f.Decl.Extern && strings.HasPrefix(f.Decl.CName, "vx_")
 }
 
 // Reports whether values of [t] can be passed to and from C.

@@ -362,7 +362,7 @@ let empty: [string: int] = [:]
 ```
 
 - Loops visit entries in the order their keys were first added. A loop sees the entries that existed when it started; entries removed during the loop are skipped.
-- Keys can be `int`, `string`, `bool`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable` (see [Equality and hashing](#equality-and-hashing)). Values can be any type except an optional, since a missing key already reads as `nil`.
+- Keys can be `int`, `string`, `bool`, `Bytes`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable` (see [Equality and hashing](#equality-and-hashing)). Values can be any type except an optional, since a missing key already reads as `nil`.
 - Maps are shared references, like lists and structs.
 - `m[k] += 1` is an error, since the key may be missing. Write `m[k] = (m[k] ?? 0) + 1`, or `m.update(k) { it + 1 }` when the key is known to be there.
 - `?k: v` and `k: ?v` leave the entry out when the key or the value is nil (see [Null-aware elements](#lists)).
@@ -469,6 +469,45 @@ xs[(0..5).step(2)]      // [10, 30, 50]
 - A slice is a new list or string; changing it doesn't change the original, and it can't be assigned to.
 - A range that reaches outside the list or string stops the program, as an index does.
 - A string can't be indexed by an `int`. `s[i..=i]` gives the character at `i` as a string.
+
+## Bytes
+
+`Bytes` holds binary data, such as file contents or network packets, one byte per element, like Swift's `Data` or Dart's `Uint8List`. Each byte reads as an `int` from 0 to 255:
+
+```swift
+var header = Bytes()                       // empty
+let zeros = Bytes(count: 16)               // 16 zero bytes
+let magic = Bytes([0x89, 0x50, 0x4e, 0x47])
+let text = "Hello".toBytes()               // the UTF-8 bytes of a string
+let key = Bytes.fromHex("48690aff")        // Bytes?, nil unless pairs of hex digits
+
+header.push(0x01)
+header.append(magic)
+header[0] = 0x02
+println(header.len, header[1], header[1..3])
+for byte in text { total += byte }
+
+println(text.toHex())                      // 48656c6c6f
+println(text.decodeUtf8() ?? "binary")     // Hello
+println(text)                              // Bytes(5 bytes: 48 65 6c 6c 6f)
+```
+
+| Member | Result |
+|---|---|
+| `.len`, `.isEmpty` | Properties |
+| `b[i]`, `b[i] = x` | Read or change one byte |
+| `b[a..b]` and the other [slices](#ranges) | New `Bytes` with a copy of those bytes |
+| `.push(x)`, `.append(other)` | Add a byte, or every byte of other `Bytes`, to the end |
+| `.copy()`, `.toList()` | A separate `Bytes` with the same bytes; the bytes as an `[int]` |
+| `.toHex()` | Two lowercase hex digits a byte |
+| `.decodeUtf8()` | The bytes as a `string?`, `nil` when they aren't valid UTF-8 |
+
+- `Bytes` are shared references, like lists: `let` stops the name being reassigned, not the bytes being changed.
+- Storing a value outside 0 to 255, with `push`, `b[i] = x` or `Bytes([...])`, stops the program, as does an index out of range.
+- Two `Bytes` are `==` when they hold the same bytes, and they can be map keys; don't change `Bytes` while they are a key. Printing shows the first 32 bytes in hex.
+- `Bytes` can be sent to other isolates, which get a copy, and are Codable: JSON holds them as a base64 string.
+- `vex:fs` reads and writes them with `fs.readBytes(path)`, `fs.writeBytes(path, data)` and `fs.appendBytes(path, data)`.
+- A struct, enum or interface called `Bytes` hides the built-in one in its module.
 
 ## Iterables and generators
 
@@ -788,7 +827,7 @@ let grid: [(int, int): string] = [(0, 0): "origin"]
 - A struct that writes its own `operator ==` and lists `Hashable` must also write `fn hash() -> int`, so that equal values hash the same. `hash` takes no parameters.
 - `hash(a, b, ...)` combines the hashes of its arguments into an `int`. Inside a type whose `hash` method takes parameters, `hash(x)` calls that method.
 - Lists compare element by element, maps entry by entry and sets item by item whatever their order, optionals by their value or both `nil`, and records field by field. Each works when its elements have `==`.
-- `===` and `!==` tell whether two references are the same object: structs, lists, maps, sets, interface values, C handles and enums whose cases carry values. They don't apply to ints, strings and other values.
+- `===` and `!==` tell whether two references are the same object: structs, lists, maps, sets, `Bytes`, interface values, C handles and enums whose cases carry values. They don't apply to ints, strings and other values.
 - Records of key types are hashable, so they can be map keys without declaring anything.
 
 ## Generics
@@ -1202,7 +1241,7 @@ fn helper() { }                         // private to models
   - `vex:math`: `abs`, `min`, `max`, `clamp`, `pow` and `gcd` for integers and comparable values; `sqrt`, `cbrt`, `powf`, `exp`, `log`, `log2`, `log10`, `sin`, `cos`, `tan`, `asin`, `acos`, `atan`, `atan2`, `hypot`, `floor`, `ceil`, `round`, `trunc`, `absf` and `pi()` for floats
   - `vex:strings`: `repeat`, `join`, `padLeft`, `padRight`, which are also the methods `s.repeat(n)`, `parts.join(sep)`, `s.padStart(width, with: fill)` and `s.padEnd(width, with: fill)`
   - `vex:time`: `nanos()` for measuring, `unix()` for the date, `sleep(ms)`, a future that completes after `ms` milliseconds, and `timeout(future, ms)` (see [Cancellation](#cancellation-and-timeouts))
-  - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, and failures throw an `Error` naming the path and the reason
+  - `vex:fs`: `read`, `write`, `append`, `exists`, `isDir`, `size`, `remove`, `makeDir`, `list`; files are text, or [`Bytes`](#bytes) with `readBytes`, `writeBytes` and `appendBytes`, and failures throw an `Error` naming the path and the reason
   - `vex:json`: `encode`, `decode`, `parse` and `write`, and the `Json` and `JsonError` enums (see [JSON](#json))
   - `vex:isolate`: `run` and `spawn`, which start work on other cores (see Isolates), and `cores()`
   - `vex:os`: `args()`, `env`, `setEnv`, `exit`, `cwd`, `run` (a shell command, printing to the terminal; returns its exit status) and `output` (returns what it printed; throws on a non-zero status), and `target` and `arch`, the system the program is built for (see [Platform conditionals](#platform-conditionals))
@@ -1253,7 +1292,7 @@ fn main() throws {
 }
 ```
 
-- Codable types are `int`, `float`, `bool`, `string`, lists, sets, maps with `string` keys and optionals of those, and structs and enums that list `Codable`. Every field of a Codable type must be Codable; a generic one asks for it with `<T: Codable>`.
+- Codable types are `int`, `float`, `bool`, `string`, `Bytes` (as a base64 string), lists, sets, maps with `string` keys and optionals of those, and structs and enums that list `Codable`. Every field of a Codable type must be Codable; a generic one asks for it with `<T: Codable>`.
 - A struct is an object with a key for each field, in the order they are declared. A missing key takes the field's default, or `nil` for an optional; without either it is an error.
 - An enum case without values is its name as a string, `"admin"`, or its raw value when the enum has them. A case with values is an object with one key, the case's name: `{"circle": {"radius": 2.0}}`.
 - An `int` reads only whole numbers. A `float` reads any number, and writes non-finite values as `null`.
@@ -2092,10 +2131,11 @@ $ vex test
 | `.padStart(width)`, `.padEnd(width, with: ".")` | Copies of `with` (a space when left out) added at the start or end until the string is `width` characters long, the last copy cut short when needed: `"7".padStart(3, with: "0")` is `"007"`. A longer string stays as it is |
 | `.repeat(n)`, `.reversed()` | The string `n` times (`""` when `n` is 0 or less); the characters in reverse order |
 | `.substring(from, to)`, `.chars()`, `.lines()` | The characters from `from` up to `to`, as `s[from..to]` gives them; each character; each line without its line ending. Indexes count characters, as `len` does, and an index out of range stops the program |
+| `.toBytes()` | The string's UTF-8 bytes as [`Bytes`](#bytes) |
 
 ## Types
 
-The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, sets `Set<T>`, structs, enums, function types `fn(T) -> R` and `async fn(T) -> R`, optionals `T?`, records `(int, string)`, ranges `Range`, iterables `Iterable<T>` and futures `Future<T>`.
+The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, sets `Set<T>`, structs, enums, function types `fn(T) -> R` and `async fn(T) -> R`, optionals `T?`, records `(int, string)`, ranges `Range`, binary data `Bytes`, iterables `Iterable<T>` and futures `Future<T>`.
 
 - `let x = ...` takes its type from the value. An empty list or map needs the type written: `let xs: [int] = []`, `let m: [string: int] = [:]`.
 - Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.
@@ -2167,7 +2207,7 @@ error: index 5 is out of range for a list of length 3
  --> main.vx:12
 ```
 
-These cover list indexes out of range, `pop()` on an empty list, a list changed while it is being sorted, division by zero, integer overflow, shifts by less than 0 or more than 63, a radix outside 2 to 36, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`.
+These cover list and `Bytes` indexes out of range, values outside 0 to 255 stored in `Bytes`, `pop()` on an empty list, a list changed while it is being sorted, division by zero, integer overflow, shifts by less than 0 or more than 63, a radix outside 2 to 36, `int(...)` or `float(...)` of text that isn't a number, `panic(...)` and failed `assert(...)`. Recursion that never stops ends with `error: stack overflow` instead of a crash. Printing a struct that refers back to itself shows the repeat as `Name(...)`.
 
 ## Planned
 

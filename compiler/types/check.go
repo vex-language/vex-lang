@@ -821,6 +821,9 @@ func (c *checker) typeOf(te ast.TypeExpr) Type {
 		if te.Name == "Range" {
 			return Range
 		}
+		if te.Name == "Bytes" {
+			return Bytes
+		}
 		if cNumbers[te.Name] != "" {
 			c.errorAt(te, "use int or float here; sized C numbers convert at the call", "%s is only for the signatures of extern fn and export fn", te.Name)
 			return Invalid
@@ -1528,6 +1531,8 @@ func (c *checker) forLoop(s *ast.ForStmt, body func()) {
 		if s.Index != nil {
 			c.errorAt(s.Index, "write for i in r", "a range has no separate index")
 		}
+	} else if t == Bytes {
+		elem = Int
 	} else {
 		switch t := t.(type) {
 		case *List:

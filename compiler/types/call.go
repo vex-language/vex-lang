@@ -95,6 +95,9 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 	if name == "hash" && len(e.Args) > 0 && c.lookupVar(name) == nil && c.funcs[name] == nil && c.genFuncs[name] == nil && !c.ownHashWithParams() {
 		return c.hashCall(e)
 	}
+	if c.builtinBytes(name) {
+		return c.newBytes(e)
+	}
 	if name == "Channel" && c.lookupVar(name) == nil && c.structs[name] == nil && c.genStructs[name] == nil && c.funcs[name] == nil && c.enums[name] == nil {
 		return c.newChannel(e, want)
 	}
@@ -299,6 +302,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 			c.errorAt(m.Name, didYouMean(name, basicStaticNames(t)), "%s has no static method '%s'", t, name)
 		}
 		return Invalid
+	}
+	if id, ok := m.X.(*ast.Ident); ok && id.Module == "" && c.builtinBytes(id.Name) {
+		return c.bytesStatic(e, m)
 	}
 	if tp := c.typeParamRef(m.X); tp != nil {
 		return c.staticRequirementCall(e, m, tp, want)
@@ -1058,8 +1064,27 @@ func builtinMember(recv Type, name string) *memberSig {
 		}
 		return nil
 	}
+	if recv == Bytes {
+		switch name {
+		case "push":
+			return &memberSig{[]slot{{name: "byte", typ: Int}}, Void}
+		case "append":
+			return &memberSig{[]slot{{name: "other", typ: Bytes}}, Void}
+		case "copy":
+			return &memberSig{nil, Bytes}
+		case "toList":
+			return &memberSig{nil, &List{Elem: Int}}
+		case "toHex":
+			return &memberSig{nil, String}
+		case "decodeUtf8":
+			return &memberSig{nil, &Optional{Elem: String}}
+		}
+		return nil
+	}
 	if recv == String {
 		switch name {
+		case "toBytes":
+			return &memberSig{nil, Bytes}
 		case "upper", "lower", "capitalize", "reversed":
 			return &memberSig{nil, String}
 		case "contains":
@@ -1117,10 +1142,13 @@ func builtinMemberNames(recv Type) []string {
 	if recv == Range {
 		return []string{"start", "end", "len", "isEmpty", "contains", "step", "reversed", "toList"}
 	}
+	if recv == Bytes {
+		return []string{"len", "isEmpty", "push", "append", "copy", "toList", "toHex", "decodeUtf8"}
+	}
 	if recv == String {
 		return []string{"len", "isEmpty", "upper", "lower", "capitalize", "contains", "count", "split", "replace",
 			"trim", "trimStart", "trimEnd", "startsWith", "endsWith", "indexOf", "lastIndexOf", "substring",
-			"chars", "lines", "repeat", "padStart", "padEnd", "reversed"}
+			"chars", "lines", "repeat", "padStart", "padEnd", "reversed", "toBytes"}
 	}
 	return nil
 }

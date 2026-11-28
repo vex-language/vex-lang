@@ -103,7 +103,7 @@ func unsendable(t Type, seen map[Type]bool) string {
 		return ""
 	}
 	switch t {
-	case Int, Float, Bool, String, Range, Void, Invalid:
+	case Int, Float, Bool, String, Range, Bytes, Void, Invalid:
 		return ""
 	}
 	return t.String()
