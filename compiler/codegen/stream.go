@@ -21,6 +21,7 @@ func (g *gen) streamFunction(f *types.Func) {
 	g.line("")
 	g.line("static void bd_%s(%s) {", name, strings.Join(params, ", "))
 	g.ind++
+	g.enterFrame(traceName(f))
 	g.stmtsIn(f.Decl.Body.Stmts, nil)
 	g.ind--
 	g.line("}")

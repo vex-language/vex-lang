@@ -1182,16 +1182,16 @@ fn main() throws {
     }
     println(r)
     println(try parsers[0].parse(""))
-}`, "21 -1\n42 -1\nfailed: empty input\n0\n", "error: empty input\n"},
+}`, "21 -1\n42 -1\nfailed: empty input\n0\n", "error: empty input\n --> main.vx:13\n  at Plain.parse (main.vx:13)\n  at main (main.vx:34)\n"},
 		{"Error", `fn main() throws {
     println("start")
     throw Error("disk full")
-}`, "start\n", "error: disk full\n"},
+}`, "start\n", "error: disk full\n --> main.vx:3\n"},
 		{"enum", `enum E { gone(id: int) }
 fn get(id: int) throws(E) -> int { throw .gone(id: id) }
 fn main() throws(E) {
     println(try get(7))
-}`, "", "error: E.gone(id: 7)\n"},
+}`, "", "error: E.gone(id: 7)\n --> main.vx:2\n  at get (main.vx:2)\n  at main (main.vx:4)\n"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -1361,6 +1361,168 @@ func TestOutputBeforeErrorIsKept(t *testing.T) {
 	}
 }
 
+func TestStackTraces(t *testing.T) {
+	cases := []struct{ name, src, out, want string }{
+		{"calls", `struct Store {
+    items: [int]
+
+    fn get(i: int) -> int {
+        return items[i]
+    }
+}
+
+fn total(s: Store, n: int) -> int {
+    var sum = 0
+    let add = fn(i: int) {
+        sum += s.get(i)
+    }
+    for i in 0..n {
+        add(i)
+    }
+    return sum
+}
+
+fn main() {
+    let s = Store(items: [1, 2, 3])
+    println(total(s, 3))
+    println(total(s, 5))
+}
+`, "6\n", `error: index 3 is out of range for a list of length 3
+ --> main.vx:5
+  at Store.get (main.vx:5)
+  at closure in total (main.vx:12)
+  at total (main.vx:15)
+  at main (main.vx:23)
+`},
+		{"early return and defer", `fn check(n: int) -> int {
+    defer { println("left check {n}") }
+    if n > 1 {
+        return n
+    }
+    return 10 / n
+}
+
+fn main() {
+    println(check(5))
+    println(check(0))
+}
+`, "left check 5\n5\n", `error: division by zero
+ --> main.vx:6
+  at check (main.vx:6)
+  at main (main.vx:11)
+`},
+		{"caught error", `fn parse(s: string) throws -> int {
+    throw Error(message: "bad {s}")
+}
+
+fn read(s: string) -> int {
+    let n = try parse(s) catch { 0 }
+    return 1 / n
+}
+
+fn main() {
+    println(read("x"))
+}
+`, "", `error: division by zero
+ --> main.vx:7
+  at read (main.vx:7)
+  at main (main.vx:11)
+`},
+		{"recursion", `fn down(n: int) -> int {
+    if n == 0 {
+        return 1 / n
+    }
+    return down(n - 1)
+}
+
+fn main() {
+    println(down(4))
+}
+`, "", `error: division by zero
+ --> main.vx:3
+  at down (main.vx:3)
+  at down (main.vx:5)
+  ... repeated 3 more times
+  at main (main.vx:9)
+`},
+		{"async task", `async fn fetch(n: int) -> int {
+    let none: [Future<int>] = []
+    await all(none)
+    return check(n)
+}
+
+fn check(n: int) -> int {
+    assert(n > 0, "n must be positive")
+    return n
+}
+
+async fn main() {
+    let ok = fetch(1)
+    let bad = fetch(0)
+    println(await ok)
+    println(await bad)
+}
+`, "", `error: assertion failed: n must be positive
+ --> main.vx:8
+  at check (main.vx:8)
+  at fetch (main.vx:4)
+  in a task started by main (main.vx:14)
+`},
+		{"generator", `fn halves() -> Iterable<int> {
+    for i in 0..3 {
+        yield 4 / (2 - i)
+    }
+}
+
+fn main() {
+    for x in halves() {
+        println(x)
+    }
+}
+`, "2\n4\n", `error: division by zero
+ --> main.vx:3
+  at halves (main.vx:3)
+  at main (main.vx:8)
+`},
+		{"uncaught", `enum ParseError {
+    empty
+}
+
+fn parse(s: string) throws(ParseError) -> int {
+    if s.len == 0 {
+        throw .empty
+    }
+    return 1
+}
+
+fn load() throws(ParseError) -> int {
+    return try parse("")
+}
+
+fn main() throws(ParseError) {
+    println(try load())
+}
+`, "", `error: ParseError.empty
+ --> main.vx:7
+  at parse (main.vx:7)
+  at load (main.vx:13)
+  at main (main.vx:17)
+`},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			out, errOut, code := run(t, c.src, "")
+			if code != 1 || out != c.out {
+				t.Errorf("exit %d, stdout %q", code, out)
+			}
+			if errOut != c.want {
+				t.Errorf("stderr\n got: %q\nwant: %q", errOut, c.want)
+			}
+		})
+	}
+}
+
 // Compiles generated code with strict warnings, to catch sloppy C that the
 // normal build would hide.
 func TestGeneratedCodeIsWarningFree(t *testing.T) {
@@ -1451,7 +1613,7 @@ func TestRangeChecksLeftOut(t *testing.T) {
 func TestGeneratorAsksItself(t *testing.T) {
 	src := "var current: Iterator<int>? = nil\n\nfn selfish() -> Iterable<int> {\n    if let it = current {\n        let _x = it.next()\n    }\n    yield 1\n}\n\nfn main() {\n    let it = selfish().iterator()\n    current = it\n    println(it.next())\n}\n"
 	out, errOut, code := run(t, src, "")
-	if want := "error: a generator can't ask itself for its next value\n --> main.vx:3\n"; code != 1 || errOut != want || out != "" {
+	if want := "error: a generator can't ask itself for its next value\n --> main.vx:3\n  at selfish (main.vx:3)\n  at main (main.vx:13)\n"; code != 1 || errOut != want || out != "" {
 		t.Errorf("exit %d, stdout %q, stderr %q", code, out, errOut)
 	}
 }

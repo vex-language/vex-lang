@@ -71,7 +71,50 @@ static void vx_test_mark(void) {
 
 // --- Errors ---
 
-// Prints a runtime error with the source line and stops the program.
+// A call of a Vex function in progress, kept on the C stack. Each thread
+// and each task has its own chain, from the innermost call out.
+typedef struct vx_frame {
+    struct vx_frame *prev;
+    const char *name;
+    int line;                 // where this function last called another
+} vx_frame;
+
+static VX_TLS vx_frame *vx_top;
+
+static inline void vx_leave(vx_frame *f) { vx_top = f->prev; }
+
+// Starts the frame of the function [name]. The frame ends with the C
+// scope, however the function returns.
+#define VX_ENTER(name) \
+    vx_frame vx_fr __attribute__((cleanup(vx_leave))) = {vx_top, (name), 0}; \
+    vx_top = &vx_fr
+
+// The calls that led to a runtime error or a throw, innermost first. A
+// call repeated by recursion is kept once, with a count.
+#define VX_TRACE_MAX 64
+typedef struct {
+    const char *name;
+    int line;
+    int repeat;               // how many times the same call follows it
+    bool task;                // where the task running the calls above started
+} vx_trace_entry;
+
+typedef struct {
+    int n;
+    bool more;                // calls past the last entry were left out
+    vx_trace_entry e[VX_TRACE_MAX];
+} vx_trace_buf;
+
+// The last error thrown on this thread and the calls that threw it, shown
+// if it is passed up out of main.
+static VX_TLS void *vx_thrown;
+static VX_TLS int vx_thrown_line;
+static VX_TLS vx_trace_buf vx_thrown_trace;
+
+static void vx_trace(vx_frame *f, int line);
+
+// Prints a runtime error with the source line and the calls that led to
+// it, and stops the program.
 __attribute__((noreturn, format(printf, 2, 3)))
 static void vx_fail(int line, const char *fmt, ...) {
     vx_test_mark();
@@ -82,6 +125,7 @@ static void vx_fail(int line, const char *fmt, ...) {
     vfprintf(stderr, fmt, ap);
     va_end(ap);
     fprintf(stderr, "\n --> %s:%d\n", vx_files[line >> 20], line & 0xFFFFF);
+    vx_trace(vx_top, line);
     exit(1);
 }
 
@@ -226,6 +270,10 @@ struct vx_task {
     struct vx_future *waiting;// the future it waits for, while it waits
     vx_task **parked;         // where it is kept while it waits on a stream
     vx_task *parent;          // the task that started it; cancelling one cancels the other
+    vx_frame *frames;         // its innermost call, while it isn't running
+    const char *origin;       // the function that started it, for traces
+    int origin_line;
+    bool gen;                 // a generator's body, run by the task that asks for values
     void *asan_fake;
     const void *asan_bottom;
     size_t asan_size;
@@ -235,6 +283,81 @@ static VX_TLS vx_task vx_main_task;
 static VX_TLS vx_task *vx_cur;
 static VX_TLS vx_task **vx_tasks;          // every task that has started and not finished
 static VX_TLS size_t vx_tasks_len, vx_tasks_cap;
+
+static void vx_trace_add(vx_trace_buf *b, const char *name, int line, bool task) {
+    if (b->n > 0) {
+        vx_trace_entry *last = &b->e[b->n - 1];
+        if (!task && !last->task && last->name == name && last->line == line) {
+            last->repeat++;
+            return;
+        }
+    }
+    if (b->n == VX_TRACE_MAX) {
+        b->more = true;
+        return;
+    }
+    b->e[b->n++] = (vx_trace_entry){name, line, 0, task};
+}
+
+// Collects into [b] the calls from the frame [f] of the running task out,
+// where [f] is at [line]. A generator's calls go on with those of the task
+// asking it for a value; a task's end with where it was started.
+static void vx_trace_collect(vx_trace_buf *b, vx_frame *f, int line) {
+    b->n = 0;
+    b->more = false;
+    vx_task *t = vx_cur;
+    for (int steps = 0; steps < 100000 && !b->more; steps++) {
+        if (f) {
+            vx_trace_add(b, f->name, line, false);
+            f = f->prev;
+            if (f) line = f->line;
+            continue;
+        }
+        if (!t || t == &vx_main_task) break;
+        if (t->gen && t->caller) {
+            t = t->caller;
+            f = t->frames;
+            if (f) line = f->line;
+            continue;
+        }
+        if (t->origin) vx_trace_add(b, t->origin, t->origin_line, true);
+        break;
+    }
+}
+
+static void vx_trace_print(const vx_trace_buf *b) {
+    // A lone call of main says nothing the source line doesn't.
+    if (b->n == 0 || (b->n == 1 && !b->more && !b->e[0].task && b->e[0].repeat == 0 && strcmp(b->e[0].name, "main") == 0)) return;
+    for (int i = 0; i < b->n; i++) {
+        const vx_trace_entry *e = &b->e[i];
+        fprintf(stderr, e->task ? "  in a task started by %s (%s" : "  at %s (%s", e->name, vx_files[e->line >> 20]);
+        if (e->line & 0xFFFFF) fprintf(stderr, ":%d", e->line & 0xFFFFF);
+        fputs(")\n", stderr);
+        if (e->repeat) fprintf(stderr, "  ... repeated %d more time%s\n", e->repeat, e->repeat == 1 ? "" : "s");
+    }
+    if (b->more) fputs("  ... and more calls\n", stderr);
+}
+
+static void vx_trace(vx_frame *f, int line) {
+    vx_trace_buf b;
+    vx_trace_collect(&b, f, line);
+    vx_trace_print(&b);
+}
+
+// Records [err], thrown at [line], with the calls that led to it.
+static void *vx_throw(void *err, int line) {
+    vx_thrown = err;
+    vx_thrown_line = line;
+    vx_trace_collect(&vx_thrown_trace, vx_top, line);
+    return err;
+}
+
+// Returns [err], an error made from [old] as it was passed up, which takes
+// over the record of where [old] was thrown.
+static void *vx_rethrow(void *old, void *err) {
+    if (old == vx_thrown) vx_thrown = err;
+    return err;
+}
 
 
 static size_t vx_gc_stress;         // VEX_GC_STRESS=N: collect every N allocations
@@ -519,6 +642,7 @@ static void vx_mark_roots(void) {
     vx_mark_stack();
     vx_mark_range((const char *)&vx_fs_entries, (const char *)(&vx_fs_entries + 1));
     vx_mark_range((const char *)&vx_json_src, (const char *)(&vx_json_src + 1));
+    vx_mark_range((const char *)&vx_thrown, (const char *)(&vx_thrown + 1));
     if (vx_kept) vx_mark_range((const char *)vx_kept, (const char *)(vx_kept + vx_kept_len));
     if (vx_roots_lo) vx_mark_range(vx_roots_lo, vx_roots_hi);
     if (vx_vars_lo) vx_mark_range(vx_vars_lo, vx_vars_hi);
@@ -2777,11 +2901,17 @@ static int64_t vx_float_to_int(double v, int line) {
 // --- Errors ---
 
 // Stops the program after an error passed up out of main.
+// [err] is the error itself, which shows where it was thrown if it is
+// the last one thrown.
 __attribute__((noreturn))
-static void vx_uncaught(vx_str message) {
+static void vx_uncaught(vx_str message, void *err) {
     vx_test_mark();
     fflush(stdout);
     fprintf(stderr, "error: %.*s\n", (int)message.len, message.ptr);
+    if (err && err == vx_thrown) {
+        fprintf(stderr, " --> %s:%d\n", vx_files[vx_thrown_line >> 20], vx_thrown_line & 0xFFFFF);
+        vx_trace_print(&vx_thrown_trace);
+    }
     exit(1);
 }
 
@@ -4428,6 +4558,8 @@ static VX_TLS int vx_spare_len;
 static void vx_switch(vx_task *to, bool ending) {
     vx_task *from = vx_cur;
     vx_cur = to;
+    from->frames = vx_top;
+    vx_top = to->frames;
     vx_stack_base = to->top;
 #ifdef VX_ASAN
     __sanitizer_start_switch_fiber(ending ? NULL : &from->asan_fake, to->asan_bottom, to->asan_size);
@@ -4533,6 +4665,10 @@ static vx_task *vx_task_make(void (*entry)(void *), void *arg) {
 static void vx_go_f(void (*entry)(void *), void *arg, struct vx_future *f) {
     vx_task *t = vx_task_make(entry, arg);
     t->parent = vx_cur;
+    if (vx_top) {
+        t->origin = vx_top->name;
+        t->origin_line = vx_top->line;
+    }
     t->future = f;
     if (f) vx_future_own(f, t);
     if (vx_tasks_len == vx_tasks_cap) vx_tasks = vx_grow(vx_tasks, &vx_tasks_cap, sizeof(vx_task *));
@@ -4836,6 +4972,7 @@ static bool vx_gen_next(vx_gen *g, void *out) {
             vx_gens_next = vx_gens_len * 2 > 64 ? vx_gens_len * 2 : 64;
         }
         g->task = vx_task_make(vx_gen_main, g);
+        g->task->gen = true;
         if (vx_gens_len == vx_gens_cap) vx_gens = vx_grow(vx_gens, &vx_gens_cap, sizeof(vx_gen *));
         g->slot = vx_gens_len;
         vx_gens[vx_gens_len++] = g;
