@@ -397,6 +397,43 @@ for e in stock.entries { println(e.key, e.value) }
 - `filter` and `mapValues` visit the entries there were at the start, as a `for` loop does.
 - `update` never adds a key. To count with it, add the key when the result is `nil`: `if m.update(k, fn(n) => n + 1) == nil { m[k] = 1 }`. In an `if` condition the function goes in the parentheses, since a `{` there starts the body.
 
+## Sets
+
+A `Set<T>` holds values without repeats, as in Swift. A list literal makes a set wherever a set is expected:
+
+```swift
+let primes: Set<int> = [2, 3, 5, 7]
+var seen = Set<string>()             // empty
+let ids = Set([3, 1, 3])             // from a list: [3, 1]
+if seen.insert("ann") { println("first visit") }   // false when it was already there
+seen.remove("ann")                   // false when it wasn't there
+println(primes.len, primes.isEmpty, primes.contains(4))
+
+let both = primes.intersection([3, 4, 5])          // [3, 5]
+let merged = primes.union(ids)                     // [2, 3, 5, 7, 1]
+let rest = primes.subtracting([2])                 // [3, 5, 7]
+println(ids.isSubset(of: primes), primes == [7, 5, 3, 2])  // false true
+
+for p in primes { println(p) }
+let list = primes.toList()
+```
+
+| Member | Result |
+|---|---|
+| `.len`, `.isEmpty` | Properties |
+| `.contains(x)` | Whether `x` is in the set |
+| `.insert(x)`, `.remove(x)` | Change the set in place; they give whether it changed |
+| `.union(other)`, `.intersection(other)`, `.subtracting(other)` | New sets; `other` is a set or a list of the same items |
+| `.isSubset(of: other)` | Whether every item is in `other`, a set or a list |
+| `.toList()`, `.copy()` | A new list or set with the same items |
+
+- Sets keep the order items were first added, for loops, `toList()` and printing, which shows a set like a list: `[2, 3, 5, 7]`. Removing an item and inserting it again moves it to the end. A loop sees the items that were there when it started.
+- Items can be any map key type: `int`, `string`, `bool`, an enum whose cases carry no values, a record of key types, or a struct or enum that lists `Hashable` (see [Equality and hashing](#equality-and-hashing)).
+- Two sets are `==` when they hold the same items, whatever their order. `union`, `intersection` and `subtracting` keep the order of the set they are called on, with `union` adding the new items after.
+- Sets are shared references, like lists and maps. A constant set can't change; `copy()` gives one that can.
+- A set is Codable when its items are, and is written as a JSON list.
+- A struct, enum or interface called `Set` hides the built-in one in its module.
+
 ## Ranges
 
 `a..b` counts from `a` up to, not including, `b`, and `a..=b` includes `b`. Besides driving `for` loops, a range is a value of type `Range`, as in Kotlin:
@@ -750,8 +787,8 @@ let grid: [(int, int): string] = [(0, 0): "origin"]
 - `Equatable` needs every field to have `==`, and `Hashable` needs every field to be hashable, or a `float`. A generic struct lists the constraint on its parameter: `struct Box<T: Equatable>: Equatable`.
 - A struct that writes its own `operator ==` and lists `Hashable` must also write `fn hash() -> int`, so that equal values hash the same. `hash` takes no parameters.
 - `hash(a, b, ...)` combines the hashes of its arguments into an `int`. Inside a type whose `hash` method takes parameters, `hash(x)` calls that method.
-- Lists compare element by element, maps entry by entry whatever their order, optionals by their value or both `nil`, and records field by field. Each works when its elements have `==`.
-- `===` and `!==` tell whether two references are the same object: structs, lists, maps, interface values, C handles and enums whose cases carry values. They don't apply to ints, strings and other values.
+- Lists compare element by element, maps entry by entry and sets item by item whatever their order, optionals by their value or both `nil`, and records field by field. Each works when its elements have `==`.
+- `===` and `!==` tell whether two references are the same object: structs, lists, maps, sets, interface values, C handles and enums whose cases carry values. They don't apply to ints, strings and other values.
 - Records of key types are hashable, so they can be map keys without declaring anything.
 
 ## Generics
@@ -1191,7 +1228,7 @@ fn main() throws {
 }
 ```
 
-- Codable types are `int`, `float`, `bool`, `string`, lists, maps with `string` keys and optionals of those, and structs and enums that list `Codable`. Every field of a Codable type must be Codable; a generic one asks for it with `<T: Codable>`.
+- Codable types are `int`, `float`, `bool`, `string`, lists, sets, maps with `string` keys and optionals of those, and structs and enums that list `Codable`. Every field of a Codable type must be Codable; a generic one asks for it with `<T: Codable>`.
 - A struct is an object with a key for each field, in the order they are declared. A missing key takes the field's default, or `nil` for an optional; without either it is an error.
 - An enum case without values is its name as a string, `"admin"`, or its raw value when the enum has them. A case with values is an object with one key, the case's name: `{"circle": {"radius": 2.0}}`.
 - An `int` reads only whole numbers. A `float` reads any number, and writes non-finite values as `null`.
@@ -2021,6 +2058,7 @@ $ vex test
 | `expect(cond, msg)` | In tests, report `cond` as failed without stopping the test; see [Tests](#tests) |
 | `list.len`, `.push(x)`, `.sort()`, `.filter(f)`, `.map(f)`, `.join(sep)` and the rest | List members; see [Lists](#lists) |
 | `map.len`, `.isEmpty`, `.keys`, `.values`, `.entries`, `.contains(k)`, `.remove(k)`, `.getOrPut`, `.update`, `.filter`, `.mapValues` | Map members; see [Maps](#maps) |
+| `set.len`, `.contains(x)`, `.insert(x)`, `.remove(x)`, `.union(s)` and the rest | Set members; see [Sets](#sets) |
 | `s.len`, `.isEmpty`, `.upper()`, `.lower()`, `.capitalize()`, `.contains(x)` | String members. `len` counts Unicode code points, so an emoji with a modifier counts as more than one; `upper`, `lower` and `capitalize` (the first character upper case) change only the letters A–Z for now |
 | `.split(sep)`, `.split(sep, limit: n)` | The parts between each `sep`. With a `limit` above 0, as in Kotlin, at most that many parts, the last holding the rest: `"k=v=w".split("=", limit: 2)` is `["k", "v=w"]` |
 | `.replace(old, with)`, `.trim()`, `.trimStart()`, `.trimEnd()` | New strings: every `old` replaced; spaces, tabs and line endings removed from the ends |
@@ -2032,7 +2070,7 @@ $ vex test
 
 ## Types
 
-The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, structs, enums, function types `fn(T) -> R` and `async fn(T) -> R`, optionals `T?`, records `(int, string)`, ranges `Range`, iterables `Iterable<T>` and futures `Future<T>`.
+The types are `int` (64-bit), `float` (64-bit), `bool`, `string`, lists `[T]`, maps `[K: V]`, sets `Set<T>`, structs, enums, function types `fn(T) -> R` and `async fn(T) -> R`, optionals `T?`, records `(int, string)`, ranges `Range`, iterables `Iterable<T>` and futures `Future<T>`.
 
 - `let x = ...` takes its type from the value. An empty list or map needs the type written: `let xs: [int] = []`, `let m: [string: int] = [:]`.
 - Whole-number literals adapt to `float` where one is expected: `let price: float = 10`, `price * 2`.

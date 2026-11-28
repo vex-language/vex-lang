@@ -158,7 +158,7 @@ Goal: the language features real apps need before any UI work.
 - [ ] **V-111** GC stage 2: precise roots and object layouts (L)
 - [ ] **V-112** GC stage 3: generational collection (done), returning memory to the OS (XL)
 - [x] **V-149** Leave out the overflow and bounds checks the compiler proves can't fail, and the capacity check of presized list fills (M)
-- [ ] **V-171** `Set<T>` of Hashable values, with literals, `insert`, `remove`, `contains`, `union`, `intersection` and `subtracting` (M)
+- [x] **V-171** `Set<T>` of Hashable values, with literals, `insert`, `remove`, `contains`, `union`, `intersection` and `subtracting` (M)
 - [x] **V-172** Map helpers: `isEmpty`, `getOrPut`, `update`, `filter`, `mapValues`, `entries` (S)
 - [x] **V-173** String helpers: `isEmpty`, `lastIndexOf`, `count`, a `split` limit, `padStart`/`padEnd`, `reversed`, `capitalize`, and `vex:strings` functions as methods (S)
 - [x] **V-174** Format specs in interpolation: `"{x:.2}"`, `"{n:04}"`, `"{n:x}"` (M)
