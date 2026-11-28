@@ -3448,10 +3448,10 @@ static void vx_re_complement(vx_re_parser *ps, int start) {
 // character, or returns false for an unknown one.
 static bool vx_re_char_escape(vx_re_parser *ps, uint32_t *out) {
     char c = ps->p[ps->i];
-    const char *map = "n\nt\tr\rf\fv\v0";
-    for (const char *m = map; *m; m += 2) {
-        if (*m == c) {
-            *out = c == '0' ? 0 : (uint32_t)m[1];
+    static const char map[][2] = {{'n', '\n'}, {'t', '\t'}, {'r', '\r'}, {'f', '\f'}, {'v', '\v'}, {'0', 0}};
+    for (size_t k = 0; k < sizeof map / sizeof map[0]; k++) {
+        if (map[k][0] == c) {
+            *out = (uint32_t)map[k][1];
             ps->i++;
             return true;
         }
