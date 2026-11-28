@@ -1573,14 +1573,15 @@ static vx_list *vx_range_list(vx_range r, int line) {
     return l;
 }
 
-// Returns the elements of [l] at the positions [r] gives.
-static vx_list *vx_list_slice_range(vx_list *l, vx_range r, int line) {
+// Returns the elements of [l] at the positions [r] gives. [what] names
+// [l] in the message when [r] reaches outside it.
+static vx_list *vx_slice_range(vx_list *l, vx_range r, int line, const char *what) {
     bool flat = vx_is_atomic(l->data);
     if (r.step == 1) {
         int64_t from = r.first, to = vx_range_at(r, r.n);
         if (from < 0 || from > l->len || (r.n > 0 && to > l->len) || r.n > (uint64_t)l->len) {
             vx_str s = vx_range_str(r);
-            vx_fail(line, "range %.*s is out of range for a list of length %" PRId64, (int)s.len, s.ptr, l->len);
+            vx_fail(line, "range %.*s is out of range for %s of length %" PRId64, (int)s.len, s.ptr, what, l->len);
         }
         return vx_list_make(l->esz, (int64_t)r.n, 0, l->data + from * l->esz, flat);
     }
@@ -1589,7 +1590,7 @@ static vx_list *vx_list_slice_range(vx_list *l, vx_range r, int line) {
         int64_t i = vx_range_at(r, (uint64_t)k);
         if (i < 0 || i >= l->len) {
             vx_str s = vx_range_str(r);
-            vx_fail(line, "range %.*s is out of range for a list of length %" PRId64, (int)s.len, s.ptr, l->len);
+            vx_fail(line, "range %.*s is out of range for %s of length %" PRId64, (int)s.len, s.ptr, what, l->len);
         }
     }
     vx_list *out = vx_list_make(l->esz, 0, n, NULL, flat);
@@ -1599,6 +1600,8 @@ static vx_list *vx_list_slice_range(vx_list *l, vx_range r, int line) {
     out->len = n;
     return out;
 }
+
+static vx_list *vx_list_slice_range(vx_list *l, vx_range r, int line) { return vx_slice_range(l, r, line, "a list"); }
 
 // Returns the characters of [s] at the positions [r] gives.
 static vx_str vx_str_slice_range(vx_str s, vx_range r, int line) {
@@ -1638,6 +1641,194 @@ static vx_str vx_str_slice_range(vx_str s, vx_range r, int line) {
     }
     buf[at] = 0;
     return (vx_str){buf, at};
+}
+
+// --- Bytes ---
+
+// Bytes are a list of uint8_t elements, allocated without pointers so the
+// collector never scans them.
+
+// Returns new Bytes holding a copy of the [n] bytes at [items].
+static vx_list *vx_bytes_new(int64_t n, const void *items) { return vx_list_make(1, n, 0, items, true); }
+
+// Returns [n] zero bytes.
+static vx_list *vx_bytes_count(int64_t n, int line) {
+    if (n < 0) vx_fail(line, "Bytes(count:) needs a count of 0 or more, found %" PRId64, n);
+    vx_list *b = vx_list_make(1, 0, n, NULL, true);
+    memset(b->data, 0, (size_t)n);
+    b->len = n;
+    return b;
+}
+
+// Returns [v] as a byte, stopping the program when it is outside 0 to 255.
+static inline uint8_t vx_byte(int64_t v, int line) {
+    if (__builtin_expect((uint64_t)v > 255, 0)) vx_fail(line, "%" PRId64 " is not a byte; a byte is 0 to 255", v);
+    return (uint8_t)v;
+}
+
+// Returns the ints of [l] as Bytes.
+static vx_list *vx_bytes_from_list(vx_list *l, int line) {
+    vx_list *b = vx_list_make(1, 0, l->len, NULL, true);
+    for (int64_t i = 0; i < l->len; i++) b->data[i] = (char)vx_byte(((int64_t *)l->data)[i], line);
+    b->len = l->len;
+    return b;
+}
+
+__attribute__((noreturn, cold))
+static void vx_bytes_index_fail(vx_list *b, int64_t i, int line) {
+    vx_fail(line, "index %" PRId64 " is out of range for Bytes of length %" PRId64, i, b->len);
+}
+
+// A pointer to byte [i] of [b], or a stop at [line] when [i] is out of
+// range.
+#define VX_BYTE(b, i, line) ({ \
+    vx_list *vx_byte_b = (b); \
+    int64_t vx_byte_i = (i); \
+    if (__builtin_expect((uint64_t)vx_byte_i >= (uint64_t)vx_byte_b->len, 0)) vx_bytes_index_fail(vx_byte_b, vx_byte_i, line); \
+    (uint8_t *)vx_byte_b->data + vx_byte_i; \
+})
+
+static vx_list *vx_bytes_slice_range(vx_list *b, vx_range r, int line) { return vx_slice_range(b, r, line, "Bytes"); }
+
+static bool vx_bytes_eq(vx_list *a, vx_list *b) {
+    return a == b || (a->len == b->len && memcmp(a->data, b->data, (size_t)a->len) == 0);
+}
+
+// Returns the bytes of [b] as a list of ints.
+static vx_list *vx_bytes_list(vx_list *b) {
+    vx_list *l = vx_list_make(sizeof(int64_t), 0, b->len, NULL, true);
+    for (int64_t i = 0; i < b->len; i++) ((int64_t *)l->data)[i] = (uint8_t)b->data[i];
+    l->len = b->len;
+    return l;
+}
+
+static const char vx_hex_digits[] = "0123456789abcdef";
+
+// Returns [b] as lowercase hex, two digits a byte.
+static vx_str vx_bytes_hex(vx_list *b) {
+    char *buf = vx_alloc_atomic((size_t)b->len * 2 + 1);
+    for (int64_t i = 0; i < b->len; i++) {
+        uint8_t c = (uint8_t)b->data[i];
+        buf[2 * i] = vx_hex_digits[c >> 4];
+        buf[2 * i + 1] = vx_hex_digits[c & 15];
+    }
+    buf[2 * b->len] = 0;
+    return (vx_str){buf, 2 * b->len};
+}
+
+static int vx_hex_value(char c) {
+    if (c >= '0' && c <= '9') return c - '0';
+    if (c >= 'a' && c <= 'f') return c - 'a' + 10;
+    if (c >= 'A' && c <= 'F') return c - 'A' + 10;
+    return -1;
+}
+
+// Returns the bytes the hex digits of [s] spell, or NULL when [s] isn't
+// pairs of hex digits.
+static vx_list *vx_bytes_from_hex(vx_str s) {
+    if (s.len % 2 != 0) return NULL;
+    vx_list *b = vx_list_make(1, 0, s.len / 2, NULL, true);
+    for (int64_t i = 0; i < s.len; i += 2) {
+        int hi = vx_hex_value(s.ptr[i]), lo = vx_hex_value(s.ptr[i + 1]);
+        if (hi < 0 || lo < 0) return NULL;
+        b->data[i / 2] = (char)(hi << 4 | lo);
+    }
+    b->len = s.len / 2;
+    return b;
+}
+
+// Returns [b] as a string, or a string with a NULL pointer when [b] isn't
+// valid UTF-8: overlong forms, surrogates and code points past U+10FFFF
+// are rejected.
+static vx_str vx_bytes_utf8(vx_list *b) {
+    const unsigned char *p = (const unsigned char *)b->data;
+    int64_t n = b->len;
+    for (int64_t i = 0; i < n;) {
+        unsigned c = p[i];
+        if (c < 0x80) {
+            i++;
+            continue;
+        }
+        int k;
+        uint32_t cp, min;
+        if (c >= 0xC2 && c < 0xE0) k = 1, cp = c & 0x1F, min = 0x80;
+        else if (c >= 0xE0 && c < 0xF0) k = 2, cp = c & 0x0F, min = 0x800;
+        else if (c >= 0xF0 && c < 0xF5) k = 3, cp = c & 0x07, min = 0x10000;
+        else return (vx_str){NULL, 0};
+        if (n - i <= k) return (vx_str){NULL, 0};
+        for (int j = 1; j <= k; j++) {
+            if ((p[i + j] & 0xC0) != 0x80) return (vx_str){NULL, 0};
+            cp = cp << 6 | (p[i + j] & 0x3F);
+        }
+        if (cp < min || cp > 0x10FFFF || (cp >= 0xD800 && cp < 0xE000)) return (vx_str){NULL, 0};
+        i += k + 1;
+    }
+    return vx_str_new(b->data, n);
+}
+
+// Returns [b] as printed: its length and its first 32 bytes in hex, such
+// as `Bytes(2 bytes: 48 69)`.
+static vx_str vx_bytes_str(vx_list *b) {
+    int64_t shown = b->len < 32 ? b->len : 32;
+    char *buf = vx_alloc_atomic((size_t)(48 + 3 * shown + 6));
+    int n = snprintf(buf, 48, "Bytes(%" PRId64 " byte%s", b->len, b->len == 1 ? "" : "s");
+    if (shown > 0) buf[n++] = ':';
+    for (int64_t i = 0; i < shown; i++) {
+        uint8_t c = (uint8_t)b->data[i];
+        buf[n++] = ' ';
+        buf[n++] = vx_hex_digits[c >> 4];
+        buf[n++] = vx_hex_digits[c & 15];
+    }
+    if (b->len > shown) {
+        memcpy(buf + n, " ...", 4);
+        n += 4;
+    }
+    buf[n++] = ')';
+    buf[n] = 0;
+    return (vx_str){buf, n};
+}
+
+static const char vx_base64_digits[] = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+
+// Returns [b] in standard base64, with padding.
+static vx_str vx_bytes_base64(vx_list *b) {
+    const unsigned char *p = (const unsigned char *)b->data;
+    int64_t n = b->len, len = (n + 2) / 3 * 4;
+    char *buf = vx_alloc_atomic((size_t)len + 1);
+    int64_t o = 0;
+    for (int64_t i = 0; i < n; i += 3) {
+        uint32_t v = (uint32_t)p[i] << 16 | (i + 1 < n ? (uint32_t)p[i + 1] << 8 : 0) | (i + 2 < n ? p[i + 2] : 0);
+        buf[o++] = vx_base64_digits[v >> 18];
+        buf[o++] = vx_base64_digits[v >> 12 & 63];
+        buf[o++] = i + 1 < n ? vx_base64_digits[v >> 6 & 63] : '=';
+        buf[o++] = i + 2 < n ? vx_base64_digits[v & 63] : '=';
+    }
+    buf[len] = 0;
+    return (vx_str){buf, len};
+}
+
+// Returns the bytes the standard base64 text [s] holds, or NULL when it
+// isn't base64. Padding may be left out.
+static vx_list *vx_bytes_from_base64(vx_str s) {
+    int64_t n = s.len;
+    if (n % 4 == 0 && n > 0 && s.ptr[n - 1] == '=') n -= s.ptr[n - 2] == '=' ? 2 : 1;
+    if (n % 4 == 1) return NULL;
+    vx_list *b = vx_list_make(1, 0, n * 3 / 4, NULL, true);
+    uint32_t acc = 0;
+    int bits = 0;
+    int64_t o = 0;
+    for (int64_t i = 0; i < n; i++) {
+        const char *d = memchr(vx_base64_digits, s.ptr[i], 64);
+        if (!d) return NULL;
+        acc = acc << 6 | (uint32_t)(d - vx_base64_digits);
+        bits += 6;
+        if (bits >= 8) {
+            bits -= 8;
+            b->data[o++] = (char)(acc >> bits);
+        }
+    }
+    b->len = o;
+    return b;
 }
 
 static vx_list *vx_str_chars(vx_str s) {
@@ -2557,6 +2748,20 @@ static bool vx_fs_write(const char *path, vx_str text, bool append) {
     if (!ok) vx_errno = errno;
     if (fclose(f) != 0 && ok) { vx_errno = errno; ok = false; }
     return ok;
+}
+
+// Returns the contents of the file at [path] as Bytes, or NULL on failure.
+static vx_list *vx_fs_read_bytes(const char *path) {
+    vx_str s = vx_fs_read(path);
+    if (!s.ptr) return NULL;
+    vx_list *b = vx_alloc(sizeof(vx_list));
+    *b = (vx_list){s.len, s.len + 1, 1, (char *)s.ptr};
+    vx_remember(b);
+    return b;
+}
+
+static bool vx_fs_write_bytes(const char *path, vx_list *data, bool append) {
+    return vx_fs_write(path, (vx_str){data->data, data->len}, append);
 }
 
 static bool vx_fs_exists(const char *path) {
