@@ -61,6 +61,14 @@ type Options struct {
 	Flags      []string
 	Frameworks []string
 
+	// C files the standard library brings along, written next to the
+	// generated C: `.c` files are compiled with it, and headers can be
+	// included by name.
+	Files []File
+
+	// Linker arguments the standard library needs, such as -lcrypto.
+	LinkArgs []string
+
 	// Set for a debug build: without optimizations and with debug
 	// information. Otherwise the program is optimized with -O3.
 	Debug bool
@@ -71,6 +79,12 @@ type Options struct {
 	// Where to keep the generated C, so a debugger can show it; empty to
 	// write it to a temporary file.
 	KeepC string
+}
+
+// A C file kept in memory, such as a source file of the standard library.
+type File struct {
+	Name string
+	Text []byte
 }
 
 // Returns the flags that set how the program is optimized and checked.
@@ -115,6 +129,18 @@ func CompileWith(src, out string, opts Options) error {
 	args = append(args, strings.Fields(os.Getenv("VEX_CFLAGS"))...)
 	args = append(args, opts.Flags...)
 	args = append(args, "-o", out, cfile)
+	if len(opts.Files) > 0 {
+		args = append(args, "-I", dir)
+	}
+	for _, f := range opts.Files {
+		path := filepath.Join(dir, f.Name)
+		if err := os.WriteFile(path, f.Text, 0o644); err != nil {
+			return err
+		}
+		if filepath.Ext(f.Name) == ".c" {
+			args = append(args, path)
+		}
+	}
 	for _, s := range opts.Sources {
 		if filepath.Ext(s) == ".m" {
 			// Objective-C, with automatic reference counting.
@@ -132,12 +158,16 @@ func CompileWith(src, out string, opts Options) error {
 	for _, f := range opts.Frameworks {
 		args = append(args, "-framework", f)
 	}
+	args = append(args, opts.LinkArgs...)
 	args = append(args, "-lm")
 	cmd := exec.Command(command[0], args...)
 	var output bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &output, &output
 	if err := cmd.Run(); err != nil {
 		var exit *exec.ExitError
+		if errors.As(err, &exit) && slices.Contains(opts.LinkArgs, "-lcrypto") && missingLibcrypto(output.String()) {
+			return fmt.Errorf("vex:crypto needs the libcrypto library of OpenSSL 3; install it, such as with apt install libssl-dev or dnf install openssl-devel\n%s", strings.TrimSpace(output.String()))
+		}
 		if errors.As(err, &exit) && len(opts.Sources)+len(opts.Libs)+len(opts.Flags)+len(opts.Frameworks) > 0 {
 			return fmt.Errorf("the C compiler (%s) failed; check the C code and the [c] section of package.toml\n%s", command[0], strings.TrimSpace(output.String()))
 		}
@@ -150,4 +180,11 @@ func CompileWith(src, out string, opts Options) error {
 		return fmt.Errorf("running the C compiler (%s): %w", command[0], err)
 	}
 	return nil
+}
+
+// Reports whether the C compiler's [output] says OpenSSL's headers or
+// library are missing.
+func missingLibcrypto(output string) bool {
+	return strings.Contains(output, "openssl/") && strings.Contains(output, "No such file") ||
+		strings.Contains(output, "-lcrypto") || strings.Contains(output, "library 'crypto' not found")
 }
