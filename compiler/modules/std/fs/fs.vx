@@ -1,10 +1,13 @@
 /// Reading and writing files and folders.
 ///
-/// Files are read and written as text. Functions that can fail throw an
-/// Error naming the path and the reason.
+/// Files are read and written as text, or as [Bytes] with [readBytes] and
+/// [writeBytes]. Functions that can fail throw an Error naming the path and
+/// the reason.
 
 extern fn cRead(path: string) -> string? as "vx_fs_read"
 extern fn cWrite(path: string, text: string, append: bool) -> bool as "vx_fs_write"
+extern fn cReadBytes(path: string) -> Bytes? as "vx_fs_read_bytes"
+extern fn cWriteBytes(path: string, data: Bytes, append: bool) -> bool as "vx_fs_write_bytes"
 extern fn cExists(path: string) -> bool as "vx_fs_exists"
 extern fn cIsDir(path: string) -> bool as "vx_fs_is_dir"
 extern fn cSize(path: string) -> int as "vx_fs_size"
@@ -32,6 +35,28 @@ pub fn write(path: string, text: string) throws {
 /// Adds [text] to the end of the file at [path], creating it if needed.
 pub fn append(path: string, text: string) throws {
     if !cWrite(path, text, true) {
+        throw Error("can't write {path}: {cError()}")
+    }
+}
+
+/// Returns the contents of the file at [path] as bytes.
+pub fn readBytes(path: string) throws -> Bytes {
+    guard let data = cReadBytes(path) else {
+        throw Error("can't read {path}: {cError()}")
+    }
+    return data
+}
+
+/// Writes [data] to the file at [path], replacing what it held.
+pub fn writeBytes(path: string, data: Bytes) throws {
+    if !cWriteBytes(path, data, false) {
+        throw Error("can't write {path}: {cError()}")
+    }
+}
+
+/// Adds [data] to the end of the file at [path], creating it if needed.
+pub fn appendBytes(path: string, data: Bytes) throws {
+    if !cWriteBytes(path, data, true) {
         throw Error("can't write {path}: {cError()}")
     }
 }
