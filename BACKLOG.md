@@ -162,7 +162,7 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-172** Map helpers: `isEmpty`, `getOrPut`, `update`, `filter`, `mapValues`, `entries` (S)
 - [x] **V-173** String helpers: `isEmpty`, `lastIndexOf`, `count`, a `split` limit, `padStart`/`padEnd`, `reversed`, `capitalize`, and `vex:strings` functions as methods (S)
 - [x] **V-174** Format specs in interpolation: `"{x:.2}"`, `"{n:04}"`, `"{n:x}"` (M)
-- [ ] **V-175** Standard library: `vex:random`, `vex:datetime` (`now`, `Duration`, ISO 8601, calendar fields), `eprintln` and `os.stderr`, and `vex:regex` (L)
+- [x] **V-175** Standard library: `vex:random`, `vex:datetime` (`now`, `Duration`, ISO 8601, calendar fields), `eprintln` and `os.stderr`, and `vex:regex` (L)
 
 ---
 
