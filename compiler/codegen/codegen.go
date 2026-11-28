@@ -212,6 +212,7 @@ func Generate(info *types.Info, srcName string) string {
 	}
 	for _, name := range g.reprNames() {
 		g.line("static vx_str repr_%s(%s);", name, decl(g.reprs[name], "v"))
+		g.line("static void wr_%s(vx_buf *b, %s);", name, decl(g.reprs[name], "v"))
 		if showsInline(g.reprs[name]) {
 			g.line("static vx_str show_%s(%s);", name, decl(g.reprs[name], "v"))
 		}
@@ -794,6 +795,28 @@ func repr(t types.Type, x string) string {
 	return "VX_LIT(\"\")"
 }
 
+// Returns a C statement that writes [x] as in [repr] to the buffer [b].
+func write(t types.Type, b, x string) string {
+	switch t.(type) {
+	case *types.List, *types.Map, *types.Struct, *types.Enum, *types.Optional, *types.Interface, *types.Record:
+		return fmt.Sprintf("wr_%s(%s, %s);", mangle(t), b, x)
+	}
+	switch t {
+	case types.Int:
+		return fmt.Sprintf("vx_buf_int(%s, %s);", b, x)
+	case types.Float:
+		return fmt.Sprintf("vx_buf_float(%s, %s);", b, x)
+	case types.String:
+		return fmt.Sprintf("vx_buf_quote(%s, %s);", b, x)
+	}
+	return fmt.Sprintf("vx_buf_add(%s, %s);", b, repr(t, x))
+}
+
+// Returns a C statement that writes the text [s] to the buffer [b].
+func writeLit(b, s string) string {
+	return fmt.Sprintf("vx_buf_add(%s, VX_LIT(%s));", b, cQuote(s))
+}
+
 // Returns C code giving [x] as printed: strings as they are, everything
 // else as in [repr].
 func show(t types.Type, x string) string {
@@ -813,79 +836,107 @@ func showsInline(t types.Type) bool {
 	return ok && o.Elem == types.String
 }
 
+// Writes the functions that show [t]: wr_NAME writes it to a buffer, and
+// repr_NAME returns it as a string.
 func (g *gen) repr(name string, t types.Type) {
 	g.line("")
 	g.line("static vx_str repr_%s(%s) {", name, decl(t, "v"))
-	if m := types.ToString(t); m != nil {
+	m := types.ToString(t)
+	if m != nil {
 		g.line("    return %s(v);", funcName(m))
+	} else {
+		g.line("    vx_buf b = {0};")
+		g.line("    wr_%s(&b, v);", name)
+		g.line("    return vx_buf_done(&b);")
+	}
+	g.line("}")
+	if showsInline(t) {
+		g.line("")
+		g.line("static vx_str show_%s(%s) {", name, decl(t, "v"))
+		g.line("    return v.has ? v.v : VX_LIT(\"nil\");")
+		g.line("}")
+	}
+	g.line("")
+	g.line("static void wr_%s(vx_buf *b, %s) {", name, decl(t, "v"))
+	if m != nil {
+		g.line("    vx_buf_add(b, %s(v));", funcName(m))
 		g.line("}")
 		return
 	}
 	switch t := t.(type) {
 	case *types.List:
-		g.line("    vx_str s = VX_LIT(\"[\");")
+		g.line("    vx_buf_add(b, VX_LIT(\"[\"));")
 		g.line("    for (int64_t i = 0; i < v->len; i++) {")
-		g.line("        if (i > 0) s = vx_str_concat(s, VX_LIT(\", \"));")
-		g.line("        s = vx_str_concat(s, %s);", repr(t.Elem, fmt.Sprintf("((%s*)v->data)[i]", ctype(t.Elem))))
+		g.line("        if (i > 0) vx_buf_add(b, VX_LIT(\", \"));")
+		g.line("        %s", write(t.Elem, "b", fmt.Sprintf("((%s*)v->data)[i]", ctype(t.Elem))))
 		g.line("    }")
-		g.line("    return vx_str_concat(s, VX_LIT(\"]\"));")
+		g.line("    vx_buf_add(b, VX_LIT(\"]\"));")
 	case *types.Interface:
-		g.line("    return (*(const vx_desc **)v)->repr(v);")
+		g.line("    (*(const vx_desc **)v)->wr(b, v);")
 	case *types.Record:
 		g.recordRepr(t)
 	case *types.Map:
-		g.line("    if (v->len == 0) return VX_LIT(\"[:]\");")
-		g.line("    vx_str s = VX_LIT(\"[\");")
+		g.line("    if (v->len == 0) {")
+		g.line("        vx_buf_add(b, VX_LIT(\"[:]\"));")
+		g.line("        return;")
+		g.line("    }")
+		g.line("    vx_buf_add(b, VX_LIT(\"[\"));")
 		g.line("    vx_map_iter it = vx_map_iter_new(v);")
 		g.line("    bool first = true;")
 		g.line("    for (char *e; (e = vx_map_next(v, &it)); first = false) {")
-		g.line("        if (!first) s = vx_str_concat(s, VX_LIT(\", \"));")
-		g.line("        s = vx_str_concat(s, %s);", repr(t.Key, fmt.Sprintf("*(%s*)(e + VX_MAP_KEY)", ctype(t.Key))))
-		g.line("        s = vx_str_concat(s, VX_LIT(\": \"));")
-		g.line("        s = vx_str_concat(s, %s);", repr(t.Value, fmt.Sprintf("*(%s*)(e + v->voff)", ctype(t.Value))))
+		g.line("        if (!first) vx_buf_add(b, VX_LIT(\", \"));")
+		g.line("        %s", write(t.Key, "b", fmt.Sprintf("*(%s*)(e + VX_MAP_KEY)", ctype(t.Key))))
+		g.line("        vx_buf_add(b, VX_LIT(\": \"));")
+		g.line("        %s", write(t.Value, "b", fmt.Sprintf("*(%s*)(e + v->voff)", ctype(t.Value))))
 		g.line("    }")
-		g.line("    return vx_str_concat(s, VX_LIT(\"]\"));")
+		g.line("    vx_buf_add(b, VX_LIT(\"]\"));")
 	case *types.Struct:
-		g.line("    if (vx_repr_enter(v)) return VX_LIT(%s);", cQuote(t.Name+"(...)"))
-		g.line("    vx_str s = VX_LIT(%s);", cQuote(t.Name+"("))
+		g.line("    if (vx_repr_enter(v)) {")
+		g.line("        %s", writeLit("b", t.Name+"(...)"))
+		g.line("        return;")
+		g.line("    }")
 		for i, f := range t.Fields {
-			sep := ""
-			if i > 0 {
-				sep = ", "
+			label := f.Name + ": "
+			if i == 0 {
+				label = t.Name + "(" + label
+			} else {
+				label = ", " + label
 			}
-			g.line("    s = vx_str_concat(s, VX_LIT(%s));", cQuote(sep+f.Name+": "))
-			g.line("    s = vx_str_concat(s, %s);", repr(f.Type, "v->f_"+f.Name))
+			g.line("    %s", writeLit("b", label))
+			g.line("    %s", write(f.Type, "b", "v->f_"+f.Name))
+		}
+		if len(t.Fields) == 0 {
+			g.line("    %s", writeLit("b", t.Name+"("))
 		}
 		g.line("    vx_repr_leave(v);")
-		g.line("    return vx_str_concat(s, VX_LIT(\")\"));")
+		g.line("    vx_buf_add(b, VX_LIT(\")\"));")
 	case *types.Optional:
-		g.line("    return %s ? %s : VX_LIT(\"nil\");", present(t, "v"), repr(t.Elem, unwrap(t, "v")))
-		if showsInline(t) {
-			g.line("}")
-			g.line("")
-			g.line("static vx_str show_%s(%s) {", name, decl(t, "v"))
-			g.line("    return v.has ? v.v : VX_LIT(\"nil\");")
-		}
+		g.line("    if (%s) {", present(t, "v"))
+		g.line("        %s", write(t.Elem, "b", unwrap(t, "v")))
+		g.line("    } else {")
+		g.line("        vx_buf_add(b, VX_LIT(\"nil\"));")
+		g.line("    }")
 	case *types.Enum:
 		g.line("    switch (v->tag) {")
 		for _, cs := range t.Cases {
 			name := t.Name + "." + cs.Name
 			if len(cs.Fields) == 0 {
-				g.line("    case %d: return VX_LIT(%s);", cs.Index, cQuote(name))
+				g.line("    case %d: %s return;", cs.Index, writeLit("b", name))
 				continue
 			}
-			g.line("    case %d: {", cs.Index)
-			g.line("        vx_str s = VX_LIT(%s);", cQuote(name+"("))
+			g.line("    case %d:", cs.Index)
 			for i, f := range cs.Fields {
-				sep := ""
-				if i > 0 {
-					sep = ", "
+				label := f.Name + ": "
+				if i == 0 {
+					label = name + "(" + label
+				} else {
+					label = ", " + label
 				}
-				g.line("        s = vx_str_concat(s, VX_LIT(%s));", cQuote(sep+f.Name+": "))
-				g.line("        s = vx_str_concat(s, %s);", repr(f.Type, fmt.Sprintf("v->u.c_%s.f_%s", cs.Name, f.Name)))
+				g.line("        %s", writeLit("b", label))
+				g.line("        %s", write(f.Type, "b", fmt.Sprintf("v->u.c_%s.f_%s", cs.Name, f.Name)))
 			}
-			g.line("        return vx_str_concat(s, VX_LIT(\")\"));")
-			g.line("    }")
+			g.line("        vx_buf_add(b, VX_LIT(\")\"));")
+			g.line("        return;")
 		}
 		g.line("    }")
 		g.line("    __builtin_unreachable();")

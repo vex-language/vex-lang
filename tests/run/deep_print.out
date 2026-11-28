@@ -1,0 +1,4 @@
+508893 Node(value: 19999, next: Node(value: 199 ))))))))))))))))))))))))))))))))))))))))
+880009 Tree.node(items: [Tree.node(items: [Tree , label: "n8"), Tree.leaf], label: "n9")
+1565560 [Row(id: 0, tags: ["even": true], pair:  e], pair: (19999, "r\"19999"), at: nil)]
+[Row(id: 0, tags: ["even": true], pair: (0, "r\"0"), at: <0.0, -1.0>), Row(id: 1, tags: ["even": false], pair: (1, "r\"1"), at: nil)]

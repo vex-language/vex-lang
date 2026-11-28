@@ -91,24 +91,24 @@ func (g *gen) recordLit(e *ast.RecordLit, r *types.Record) string {
 
 // Writes the function that shows a record: `(1, "a")` or `(x: 1, y: 2)`.
 func (g *gen) recordRepr(r *types.Record) {
-	g.line("    vx_str s = VX_LIT(\"(\");")
 	names, types := r.FieldNames(), r.FieldTypes()
 	for i, n := range names {
-		label := ""
-		if i > 0 {
-			label = ", "
+		label := ", "
+		if i == 0 {
+			label = "("
 		}
 		if !strings.HasPrefix(n, "$") {
 			label += n + ": "
 		}
-		if label != "" {
-			g.line("    s = vx_str_concat(s, VX_LIT(%s));", cQuote(label))
-		}
-		g.line("    s = vx_str_concat(s, %s);", repr(types[i], "v."+recordField(n)))
+		g.line("    %s", writeLit("b", label))
+		g.line("    %s", write(types[i], "b", "v."+recordField(n)))
 	}
 	end := ")"
 	if len(names) == 1 && len(r.Positional) == 1 {
 		end = ",)"
 	}
-	g.line("    return vx_str_concat(s, VX_LIT(%s));", cQuote(end))
+	if len(names) == 0 {
+		end = "()"
+	}
+	g.line("    %s", writeLit("b", end))
 }

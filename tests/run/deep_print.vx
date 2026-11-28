@@ -1,0 +1,55 @@
+// Values nested thousands of levels deep, and long lists of nested values,
+// print in time that grows with the length of the text.
+//
+// stress: 5003
+
+struct Node {
+    value: int
+    next: Node?
+}
+
+enum Tree {
+    leaf
+    node(items: [Tree], label: string)
+}
+
+struct Point {
+    x: float
+    y: float
+
+    fn toString() -> string => "<{x}, {y}>"
+}
+
+struct Row {
+    id: int
+    tags: [string: bool]
+    pair: (int, string)
+    at: Point?
+}
+
+/// Prints the length and both ends of [s].
+fn ends(s: string) {
+    println(s.len, s[..40], s[s.len - 40..])
+}
+
+fn main() {
+    var head: Node? = nil
+    for i in 0..20000 {
+        head = Node(value: i, next: head)
+    }
+    ends(str(head))
+
+    var tree = Tree.leaf
+    for i in 0..20000 {
+        tree = Tree.node(items: [tree, Tree.leaf], label: "n{i % 10}")
+    }
+    ends("{tree}")
+
+    var rows: [Row] = []
+    for i in 0..20000 {
+        let at: Point? = if i % 2 == 0 { Point(x: float(i) * 0.5, y: -1.0) } else { nil }
+        rows.push(Row(id: i, tags: ["even": i % 2 == 0], pair: (i, "r\"{i}"), at: at))
+    }
+    ends(str(rows))
+    println(rows[..2])
+}

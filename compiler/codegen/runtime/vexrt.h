@@ -1950,6 +1950,31 @@ static vx_str vx_int_str(int64_t v) {
     return vx_str_new(buf, n);
 }
 
+// Writes finite [v] as [vx_float_str] shows it into [buf], which holds
+// 400 bytes, and returns its length.
+static int vx_float_fmt(char *buf, double v) {
+    int prec = 1;
+    for (; prec < 17; prec++) {
+        snprintf(buf, 400, "%.*e", prec - 1, v);
+        if (strtod(buf, NULL) == v) break;
+    }
+    snprintf(buf, 400, "%.*e", prec - 1, v);
+    int exp10 = atoi(strchr(buf, 'e') + 1);
+    int n;
+    if (exp10 >= -5 && exp10 < 17) {
+        int decimals = prec - 1 - exp10;
+        n = snprintf(buf, 400, "%.*f", decimals > 0 ? decimals : 0, v);
+    } else {
+        n = snprintf(buf, 400, "%.*g", prec, v);
+    }
+    if (!strpbrk(buf, ".e")) {
+        buf[n++] = '.';
+        buf[n++] = '0';
+        buf[n] = 0;
+    }
+    return n;
+}
+
 // Formats [v] with the fewest digits that read back as the same value,
 // always showing a decimal point: 2.5, 10.0, 0.001. Very large or small
 // values use an exponent: 1e+20, 1e-07.
@@ -1957,33 +1982,14 @@ static vx_str vx_float_str(double v) {
     if (isnan(v)) return VX_LIT("nan");
     if (isinf(v)) return v > 0 ? VX_LIT("inf") : VX_LIT("-inf");
     char buf[400];
-    int prec = 1;
-    for (; prec < 17; prec++) {
-        snprintf(buf, sizeof buf, "%.*e", prec - 1, v);
-        if (strtod(buf, NULL) == v) break;
-    }
-    snprintf(buf, sizeof buf, "%.*e", prec - 1, v);
-    int exp10 = atoi(strchr(buf, 'e') + 1);
-    int n;
-    if (exp10 >= -5 && exp10 < 17) {
-        int decimals = prec - 1 - exp10;
-        n = snprintf(buf, sizeof buf, "%.*f", decimals > 0 ? decimals : 0, v);
-    } else {
-        n = snprintf(buf, sizeof buf, "%.*g", prec, v);
-    }
-    if (!strpbrk(buf, ".e")) {
-        buf[n++] = '.';
-        buf[n++] = '0';
-        buf[n] = 0;
-    }
-    return vx_str_new(buf, n);
+    return vx_str_new(buf, vx_float_fmt(buf, v));
 }
 
 static vx_str vx_bool_str(bool v) { return v ? VX_LIT("true") : VX_LIT("false"); }
 
-// Returns [s] in quotes with escapes, as shown inside lists and structs.
-static vx_str vx_str_quote(vx_str s) {
-    char *buf = vx_alloc_atomic((size_t)s.len * 2 + 3);
+// Writes [s] in quotes with escapes into [buf], which holds at least
+// `2 * s.len + 2` bytes, and returns the length written.
+static int64_t vx_quote_into(char *buf, vx_str s) {
     int64_t n = 0;
     buf[n++] = '"';
     for (int64_t i = 0; i < s.len; i++) {
@@ -1998,7 +2004,71 @@ static vx_str vx_str_quote(vx_str s) {
         }
     }
     buf[n++] = '"';
-    return (vx_str){buf, n};
+    return n;
+}
+
+// Returns [s] in quotes with escapes, as shown inside lists and structs.
+static vx_str vx_str_quote(vx_str s) {
+    char *buf = vx_alloc_atomic((size_t)s.len * 2 + 3);
+    return (vx_str){buf, vx_quote_into(buf, s)};
+}
+
+// --- Showing values ---
+//
+// A value is shown by writing it, and everything inside it, into one
+// growing buffer that becomes a string at the end, so showing takes time in
+// proportion to the text. The text holds no pointers, so it is allocated
+// atomic; the [vx_buf] itself lives on the stack, where the collector finds
+// its pointer.
+
+// Text being built up for a shown value.
+typedef struct {
+    char *ptr;
+    int64_t len, cap;
+} vx_buf;
+
+// Returns where [n] more bytes go in [b], growing it if needed.
+static char *vx_buf_reserve(vx_buf *b, int64_t n) {
+    if (b->len + n > b->cap) {
+        int64_t cap = b->cap ? b->cap * 2 : 64;
+        while (cap < b->len + n) cap *= 2;
+        char *p = vx_alloc_atomic((size_t)cap + 1);
+        if (b->len > 0) memcpy(p, b->ptr, (size_t)b->len);
+        b->ptr = p;
+        b->cap = cap;
+    }
+    return b->ptr + b->len;
+}
+
+static void vx_buf_add(vx_buf *b, vx_str s) {
+    if (s.len == 0) return;
+    memcpy(vx_buf_reserve(b, s.len), s.ptr, (size_t)s.len);
+    b->len += s.len;
+}
+
+static void vx_buf_int(vx_buf *b, int64_t v) {
+    char *p = vx_buf_reserve(b, 24);
+    b->len += snprintf(p, 24, "%" PRId64, v);
+}
+
+static void vx_buf_float(vx_buf *b, double v) {
+    if (isnan(v) || isinf(v)) {
+        vx_buf_add(b, vx_float_str(v));
+        return;
+    }
+    char buf[400];
+    vx_buf_add(b, (vx_str){buf, vx_float_fmt(buf, v)});
+}
+
+static void vx_buf_quote(vx_buf *b, vx_str s) {
+    b->len += vx_quote_into(vx_buf_reserve(b, s.len * 2 + 2), s);
+}
+
+// Returns the text of [b] as a string.
+static vx_str vx_buf_done(vx_buf *b) {
+    if (b->len == 0) return VX_LIT("");
+    b->ptr[b->len] = 0;
+    return (vx_str){b->ptr, b->len};
 }
 
 // Copies [s] into a NUL-terminated buffer, trimming surrounding spaces, and
