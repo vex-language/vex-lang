@@ -1,0 +1,114 @@
+// Bytes: building, reading, changing, comparing and printing binary data,
+// with JSON, isolates and files.
+import "vex:fs"
+import "vex:isolate"
+import "vex:json"
+import "vex:os"
+
+struct Blob: Codable, Hashable {
+    name: string
+    data: Bytes
+}
+
+extension Bytes {
+    fn sum() -> int {
+        var total = 0
+        for b in self {
+            total += b
+        }
+        return total
+    }
+}
+
+async fn main() throws {
+    // Creating.
+    var b = Bytes()
+    println(b, b.len, b.isEmpty)
+    b.push(0x48)
+    b.push(105)
+    println(b, b.len, b.isEmpty, b[0], b[1])
+    println(Bytes(count: 3), Bytes([0, 127, 128, 255]))
+    let hello = "Hello".toBytes()
+    println(hello, "héllo".toBytes().len)
+
+    // Hex, lists and text.
+    println(hello.toHex(), hello.toList(), hello.decodeUtf8() ?? "?")
+    println(Bytes.fromHex("48690aFF"), Bytes.fromHex(""), Bytes.fromHex("abc"), Bytes.fromHex("zz"))
+    println(Bytes([0xff, 0xfe]).decodeUtf8(), Bytes([0xc0, 0x80]).decodeUtf8(), Bytes([0xed, 0xa0, 0x80]).decodeUtf8())
+    println(Bytes([0xe2, 0x82, 0xac]).decodeUtf8() ?? "?", Bytes().decodeUtf8() == "")
+
+    // Slices copy.
+    println(hello[1..3], hello[..2], hello[3..], hello[(0..5).step(2)], hello[2..2])
+    var copy = hello.copy()
+    copy[0] = 0x4a
+    copy[4] += 1
+    println(copy, hello, copy.decodeUtf8() ?? "?")
+    let part = hello[0..2]
+    part[0] = 0
+    println(part, hello[0])
+
+    // Growing.
+    copy.append(hello)
+    copy.append(copy)
+    println(copy.len, copy)
+    var big = Bytes()
+    for i in 0..256 {
+        big.push(i)
+    }
+    println(big.len, big.sum(), big)
+
+    // Loops.
+    for i, x in "abc".toBytes() {
+        print(i, x, "")
+    }
+    println()
+
+    // Equality and hashing.
+    let again = Bytes([72, 101, 108, 108, 111])
+    println(hello == again, hello != again, hello === again, hello == copy)
+    var names: [Bytes: string] = [:]
+    names[hello] = "hello"
+    names[Bytes()] = "empty"
+    println(names[again] ?? "missing", names[Bytes([1])] ?? "missing", names)
+    let pair = (hello, 1)
+    println(pair == (again, 1), [hello, again].contains("Hello".toBytes()))
+    println("interpolated: {hello}")
+
+    // JSON writes base64.
+    let blob = Blob(name: "greeting", data: hello)
+    let text = json.encode(blob)
+    println(text)
+    let back: Blob = try json.decode(text)
+    println(back == blob, back.data)
+    let odd: Blob = try json.decode(r"""
+        {"name": "odd", "data": "AAEC/w"}
+        """)
+    println(odd.data)
+    let bad = try json.decode<Blob>(r"""
+        {"name": "bad", "data": "@@"}
+        """) catch e { Blob(name: str(e), data: Bytes()) }
+    println(bad.name)
+
+    // Isolates get a copy.
+    let grown = await isolate.run(fn() -> Bytes {
+        var mine = hello.copy()
+        mine.push(33)
+        return mine
+    })
+    println(grown.decodeUtf8() ?? "?", hello.len)
+
+    // Files.
+    let tmp = (try os.output("mktemp -d")).split("\n")[0]
+    let path = tmp + "/data.bin"
+    try fs.writeBytes(path, big)
+    try fs.appendBytes(path, hello)
+    let read = try fs.readBytes(path)
+    println(read.len, read[0..256] == big, read[256..], try fs.size(path))
+    read.push(7)
+    println(read.len, read[read.len - 1])
+    try fs.writeBytes(path, Bytes())
+    println(try fs.readBytes(path))
+    let missing = try fs.readBytes(tmp + "/missing.bin") catch e { e.message.replace(tmp, "TMP").toBytes() }
+    println(missing.decodeUtf8() ?? "?")
+    try os.run("rm -rf '{tmp}'")
+}
