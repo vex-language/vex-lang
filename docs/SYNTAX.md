@@ -1450,7 +1450,7 @@ The pattern syntax:
 
 ## Cryptography
 
-`vex:crypto` hashes, authenticates, encrypts and signs [`Bytes`](#bytes). It never implements a primitive of its own: ChaCha20-Poly1305, BLAKE2b, SHA-512, Argon2id, X25519 and Ed25519 come from [Monocypher](https://monocypher.org) 4.0.3, built into the program, and SHA-256, HKDF with SHA-256, AES-GCM, PBKDF2, P-256, MD5 and SHA-1 from the system: CommonCrypto, CryptoKit and the Security framework on Apple systems, and OpenSSL 3's libcrypto on Linux. Text becomes bytes with `s.toBytes()`.
+`vex:crypto` hashes, authenticates, encrypts and signs [`Bytes`](#bytes). It never implements a primitive of its own: ChaCha20-Poly1305, BLAKE2b, SHA-512, Argon2id, X25519 and Ed25519 come from [Monocypher](https://monocypher.org) 4.0.3, built into the program, and SHA-256, HKDF with SHA-256, AES-GCM, PBKDF2, P-256, MD5 and SHA-1 from the system: CommonCrypto, CryptoKit and the Security framework on Apple systems, CNG on Windows, and OpenSSL 3's libcrypto on Linux. Text becomes bytes with `s.toBytes()`.
 
 ```swift
 import "vex:crypto"
@@ -1513,7 +1513,7 @@ Keys have their own [extension types](#extension-types), so a key can't be passe
 - Ed25519 signatures are checked strictly as RFC 8032 says, and P-256 signatures must be strict DER, so a signature has one accepted form.
 - Signatures and boxes are tested in CI against the RFC and NIST test vectors of every primitive and against Google's Wycheproof vectors.
 
-**Limits.** Keys live in `Bytes`, which the garbage collector manages: copies made when bytes are sliced, copied or grown, and the memory of keys no longer used, are not wiped, and may stay in memory until it is reused. Temporary buffers inside the runtime are wiped. For high-value keys, keep them in the platform's keychain or keystore, which a later version will reach. On Apple systems, AES-GCM and HKDF come from CryptoKit through a small Swift file, so building a program that imports `vex:crypto` needs `swiftc` from the Xcode Command Line Tools (`xcode-select --install`). On Linux, building a program that imports `vex:crypto` needs OpenSSL 3's development files (`apt install libssl-dev` or `dnf install openssl-devel`). On Windows, the functions that use the system's provider, including `randomBytes` and so every `generate()` and `seal`, stop with "not available on this system yet" for now.
+**Limits.** Keys live in `Bytes`, which the garbage collector manages: copies made when bytes are sliced, copied or grown, and the memory of keys no longer used, are not wiped, and may stay in memory until it is reused. Temporary buffers inside the runtime are wiped. For high-value keys, keep them in the platform's keychain or keystore, which a later version will reach. On Apple systems, AES-GCM and HKDF come from CryptoKit through a small Swift file, so building a program that imports `vex:crypto` needs `swiftc` from the Xcode Command Line Tools (`xcode-select --install`). On Linux, building a program that imports `vex:crypto` needs OpenSSL 3's development files (`apt install libssl-dev` or `dnf install openssl-devel`). On Windows they come from CNG (`bcrypt.dll`), so nothing needs installing.
 
 ## C functions
 

@@ -115,7 +115,7 @@ func (p *Program) CCOptions() cc.Options {
 
 // Adds what `vex:crypto` builds on to [opts]: Monocypher's sources, the
 // code that reaches the system's own cryptography library (CryptoKit
-// through Swift on Apple systems), and that library.
+// through Swift on Apple systems, CNG on Windows), and that library.
 func (p *Program) addCrypto(opts *cc.Options) {
 	for _, dir := range []string{"std/crypto", "std/crypto/monocypher"} {
 		entries, _ := fs.ReadDir(stdFS, dir)
@@ -132,6 +132,8 @@ func (p *Program) addCrypto(opts *cc.Options) {
 		opts.LinkArgs = append(opts.LinkArgs, "-framework", "Security", "-framework", "CoreFoundation")
 	case "linux":
 		opts.LinkArgs = append(opts.LinkArgs, "-lcrypto")
+	case "windows":
+		opts.LinkArgs = append(opts.LinkArgs, "-lbcrypt")
 	}
 }
 
