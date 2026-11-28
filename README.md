@@ -569,7 +569,7 @@ go test ./compiler/codegen ./tests
 | 3 | v0.3 | UI core in the `vex-ui` repo: components, state, view diffing | Planned |
 | 4 | v0.4 | iOS backend with UIKit widgets | Planned |
 | 5 | v0.5 | Android backend with native views | Planned |
-| 6 | v0.6 | Hot reload, VS Code extension, formatter | Planned |
+| 6 | v0.6 | Hot reload, language server, VS Code and JetBrains plugins, debugger, formatter | Planned |
 | 7 | v0.7+ | Navigation, HTTP, storage, packages | Planned |
 | 8 | v0.8 | Animation, custom drawing, shaders and 3D | Planned |
 
