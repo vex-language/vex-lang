@@ -18,6 +18,10 @@ type interpolation struct {
 	// is not taken as the end of the interpolation.
 	depth int
 
+	// Unclosed `(` and `[` seen inside the expression, so a `:` in them
+	// doesn't start a format spec.
+	nest int
+
 	// The byte offset of the string's opening quote.
 	start int
 
@@ -91,6 +95,16 @@ func (l *lexer) run() {
 		case c == '{' && len(l.interp) > 0:
 			l.interp[len(l.interp)-1].depth++
 			l.operator()
+		case (c == '(' || c == '[') && len(l.interp) > 0:
+			l.interp[len(l.interp)-1].nest++
+			l.operator()
+		case (c == ')' || c == ']') && len(l.interp) > 0:
+			if top := &l.interp[len(l.interp)-1]; top.nest > 0 {
+				top.nest--
+			}
+			l.operator()
+		case c == ':' && len(l.interp) > 0 && l.interp[len(l.interp)-1].depth == 0 && l.interp[len(l.interp)-1].nest == 0:
+			l.formatSpec()
 		case c == '}' && len(l.interp) > 0:
 			top := &l.interp[len(l.interp)-1]
 			if top.depth > 0 {
@@ -404,6 +418,39 @@ func (l *lexer) stringBody(tokStart, strStart int, first bool) {
 			l.pos++
 		}
 	}
+}
+
+// Lexes the format spec after a top-level `:` in an interpolation, up to
+// the `}` that ends it. The spec is plain text: it can't hold a quote, a
+// line break or a nested `{`.
+func (l *lexer) formatSpec() {
+	start := l.pos
+	l.pos++
+	for l.pos < len(l.src) {
+		switch l.src[l.pos] {
+		case '}':
+			l.emit(FormatSpec, start, l.pos, l.src[start+1:l.pos])
+			return
+		case '\n', '"':
+			l.emit(FormatSpec, start, l.pos, l.src[start+1:l.pos])
+			l.errorAt(start, utf8.RuneCountInString(l.src[start:l.pos]), "end the spec with }, as in {price:.2}", "unterminated format spec")
+			return
+		case '{':
+			l.errorAt(l.pos, 1, "write the width and precision as numbers, as in {x:8.2}", "a format spec can't contain an interpolation")
+			end := strings.IndexAny(l.src[l.pos:], "}\n\"")
+			if end < 0 {
+				l.pos = len(l.src)
+				break
+			}
+			l.pos += end
+			if l.src[l.pos] == '}' {
+				l.pos++
+			}
+			continue
+		}
+		l.pos++
+	}
+	l.emit(FormatSpec, start, l.pos, l.src[start+1:l.pos])
 }
 
 // Returns the kind for a string piece that ends at a closing quote.

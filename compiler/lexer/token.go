@@ -28,6 +28,10 @@ const (
 	// The text after the last `}` of an interpolated string.
 	StringTail
 
+	// The format spec after a `:` in an interpolation, as in `{x:.2}`; the
+	// value is the text after the colon.
+	FormatSpec
+
 	keywordsStart
 	Fn
 	Let
@@ -243,6 +247,7 @@ var kindNames = map[Kind]string{
 	StringHead: "string",
 	StringMid:  "string",
 	StringTail: "string",
+	FormatSpec: "format spec",
 	Shr:        "'>>'",
 	ShrAssign:  "'>>='",
 }
