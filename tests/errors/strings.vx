@@ -1,0 +1,31 @@
+// Mistakes with the string members.
+fn main() {
+    let s = "a,b"
+    println(s.isEmpty())
+    let n: int = s.count
+    if s.count > 1 {}
+    println(s.count())
+    println(s.split(",", limit: "2"))
+    println(s.split(",", max: 2))
+    println(s.padStart("3"))
+    println(s.padEnd(3, with: 0))
+    println(s.reversed(1))
+    println(s.capitalise())
+    println(s.repeat())
+    println(s.lastIndexOf(1))
+    println(s.length)
+}
+
+// error: 4:15: isEmpty is a property, not a method
+// error: 5:20: count is a method, not a property
+// error: 6:10: count is a method, not a property
+// error: 7:13: missing argument 'text' in call to count
+// error: 8:33: argument 'limit': expected int, found string
+// error: 9:26: split has no parameter 'max'
+// error: 10:24: argument 'width': expected int, found string
+// error: 11:31: argument 'with': expected string, found int
+// error: 12:24: too many arguments: reversed takes 0 arguments
+// error: 13:15: string has no method 'capitalise'
+// error: 14:13: missing argument 'count' in call to repeat
+// error: 15:27: argument 'text': expected string, found int
+// error: 16:15: string has no member 'length'

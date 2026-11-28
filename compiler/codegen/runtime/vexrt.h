@@ -1296,11 +1296,14 @@ static void vx_list_append(vx_list *l, vx_list *src) {
     vx_remember(l->data);
 }
 
-static vx_list *vx_str_split(vx_str s, vx_str sep, int line) {
+// Splits [s] at each [sep]. A positive [limit] gives at most that many
+// parts, the last holding the rest of [s]; 0 gives them all.
+static vx_list *vx_str_split(vx_str s, vx_str sep, int64_t limit, int line) {
     if (sep.len == 0) vx_fail(line, "split separator can't be empty");
+    if (limit < 0) vx_fail(line, "split limit can't be negative, found %" PRId64, limit);
     vx_list *l = vx_list_new(sizeof(vx_str), 0, NULL);
     int64_t start = 0;
-    for (;;) {
+    while (limit == 0 || l->len < limit - 1) {
         int64_t at = vx_str_find(s, sep, start);
         if (at < 0) break;
         vx_str part = {s.ptr + start, at - start};
@@ -1390,6 +1393,72 @@ static vx_str vx_str_substring(vx_str s, int64_t from, int64_t to, int line) {
     int64_t a = vx_str_offset(s, from);
     int64_t b = a + vx_str_offset((vx_str){s.ptr + a, s.len - a}, to - from);
     return (vx_str){s.ptr + a, b - a};
+}
+
+// Returns the character index of the last [sub] in [s], or -1.
+static int64_t vx_str_last_index_of(vx_str s, vx_str sub) {
+    for (int64_t i = s.len - sub.len; i >= 0; i--) {
+        if (memcmp(s.ptr + i, sub.ptr, (size_t)sub.len) == 0) return vx_str_len((vx_str){s.ptr, i});
+    }
+    return -1;
+}
+
+// Returns how many times [sub] appears in [s] without overlapping.
+static int64_t vx_str_count(vx_str s, vx_str sub, int line) {
+    if (sub.len == 0) vx_fail(line, "count needs text to look for, not an empty string");
+    int64_t n = 0;
+    for (int64_t at = vx_str_find(s, sub, 0); at >= 0; at = vx_str_find(s, sub, at + sub.len)) n++;
+    return n;
+}
+
+// Returns [s] repeated [n] times; a count below 1 gives "".
+static vx_str vx_str_repeat(vx_str s, int64_t n, int line) {
+    if (n <= 0 || s.len == 0) return VX_LIT("");
+    if (n > (INT64_MAX - 1) / s.len) vx_fail(line, "repeat(%" PRId64 ") makes a string too long", n);
+    char *buf = vx_alloc_atomic((size_t)(s.len * n) + 1);
+    for (int64_t i = 0; i < n; i++) memcpy(buf + i * s.len, s.ptr, (size_t)s.len);
+    buf[s.len * n] = 0;
+    return (vx_str){buf, s.len * n};
+}
+
+// Returns [s] with copies of [fill] added at the start, or at the end, until
+// it is [width] characters long. The last copy is cut short when needed.
+static vx_str vx_str_pad(vx_str s, int64_t width, vx_str fill, bool start, int line) {
+    int64_t need = width - vx_str_len(s);
+    if (need <= 0 || fill.len == 0) return s;
+    int64_t per = vx_str_len(fill), whole = need / per;
+    if (whole >= (INT64_MAX - s.len) / fill.len - 1) vx_fail(line, "padding to %" PRId64 " makes a string too long", width);
+    int64_t rest = vx_str_offset(fill, need % per);
+    int64_t pad = whole * fill.len + rest, n = s.len + pad;
+    char *buf = vx_alloc_atomic((size_t)n + 1);
+    char *p = start ? buf : buf + s.len;
+    for (int64_t i = 0; i < whole; i++) memcpy(p + i * fill.len, fill.ptr, (size_t)fill.len);
+    memcpy(p + whole * fill.len, fill.ptr, (size_t)rest);
+    memcpy(start ? buf + pad : buf, s.ptr, (size_t)s.len);
+    buf[n] = 0;
+    return (vx_str){buf, n};
+}
+
+// Returns the characters of [s] in reverse order.
+static vx_str vx_str_reversed(vx_str s) {
+    char *buf = vx_alloc_atomic((size_t)s.len + 1);
+    for (int64_t i = 0; i < s.len;) {
+        int64_t w = vx_utf8_width(s, i);
+        memcpy(buf + s.len - i - w, s.ptr + i, (size_t)w);
+        i += w;
+    }
+    buf[s.len] = 0;
+    return (vx_str){buf, s.len};
+}
+
+// Returns [s] with its first character upper case when it is a letter a-z.
+static vx_str vx_str_capitalize(vx_str s) {
+    if (s.len == 0 || s.ptr[0] < 'a' || s.ptr[0] > 'z') return s;
+    char *buf = vx_alloc_atomic((size_t)s.len + 1);
+    memcpy(buf, s.ptr, (size_t)s.len);
+    buf[0] = (char)(buf[0] - 32);
+    buf[s.len] = 0;
+    return (vx_str){buf, s.len};
 }
 
 // --- Ranges ---

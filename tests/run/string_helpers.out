@@ -1,0 +1,13 @@
+true false false
+3 nil 4 3 4
+3 1 2 0 0 2
+["a", "b,c,d"] ["a,b,c"] ["a", "b", "c"] ["a", "b"]
+["key", "value=more"] [""]
+[  7] [007] [ab...] [long]
+[ababax] [xababa] [ööé] [x]
+[cba] [🙂yéh] []
+[Hello world] [Hello] [élan] [] [1st]
+[ababab] [] [] []
+abab abab7 7aba a-b
+2 ["bb", "aa"]
+Ann...|

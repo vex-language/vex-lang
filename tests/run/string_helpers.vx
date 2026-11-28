@@ -1,0 +1,22 @@
+// The string helpers. Indexes and widths count characters, as len does.
+import "vex:strings"
+
+fn main() {
+    println("".isEmpty, "a".isEmpty, " ".isEmpty)
+    println("hello".lastIndexOf("l"), "hello".lastIndexOf("z"), "héllo wörld".lastIndexOf("o"), "abc".lastIndexOf(""), "🙂ok🙂ok".lastIndexOf("ok"))
+    println("banana".count("a"), "banana".count("ana"), "aaaa".count("aa"), "abc".count("x"), "".count("a"), "héhé".count("é"))
+    println("a,b,c,d".split(",", limit: 2), "a,b,c".split(",", limit: 1), "a,b,c".split(",", limit: 0), "a,b".split(",", limit: 5))
+    println("key=value=more".split("=", limit: 2), "".split(",", limit: 3))
+    println("[{"7".padStart(3)}] [{"7".padStart(3, with: "0")}] [{"ab".padEnd(5, with: ".")}] [{"long".padStart(2)}]")
+    println("[{"x".padStart(6, with: "ab")}] [{"x".padEnd(6, with: "ab")}] [{"é".padStart(3, with: "ö")}] [{"x".padEnd(4, with: "")}]")
+    println("[{"abc".reversed()}] [{"héy🙂".reversed()}] [{"".reversed()}]")
+    println("[{"hello world".capitalize()}] [{"Hello".capitalize()}] [{"élan".capitalize()}] [{"".capitalize()}] [{"1st".capitalize()}]")
+    println("[{"ab".repeat(3)}] [{"x".repeat(0)}] [{"x".repeat(-2)}] [{"".repeat(5)}]")
+    println(strings.repeat("ab", 2), strings.padLeft("7", 5, fill: "ab"), strings.padRight("7", 4, fill: "ab"), strings.join(["a", "b"], "-"))
+    let counter: fn(string) -> int = "a-b-c".count
+    println(counter("-"), ["b", "a"].map(fn(x) => x.repeat(2)))
+    let name = "  ann  ".trim()
+    if !name.isEmpty {
+        println(name.capitalize().padEnd(6, with: ".") + "|")
+    }
+}
