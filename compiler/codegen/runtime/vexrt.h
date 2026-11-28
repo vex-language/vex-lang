@@ -2667,7 +2667,8 @@ static inline bool vx_set_eq(vx_map *a, vx_map *b) {
 __attribute__((unused))
 static vx_str vx_handle_str(const char *name, void *p) {
     char buf[128];
-    int n = snprintf(buf, sizeof buf, p ? "<%s %p>" : "<%s null>", name, p);
+    // Not %p, which Windows prints without the 0x.
+    int n = p ? snprintf(buf, sizeof buf, "<%s 0x%" PRIxPTR ">", name, (uintptr_t)p) : snprintf(buf, sizeof buf, "<%s null>", name);
     return vx_str_new(buf, n < (int)sizeof buf ? n : (int)sizeof buf - 1);
 }
 
