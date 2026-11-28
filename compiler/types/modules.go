@@ -519,7 +519,10 @@ func (c *checker) moduleCall(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 		}
 		return c.construct(e, s)
 	case m.enums[name] != nil:
-		c.errorAt(id, caseHint("create it from a case, e.g. "+id.Module+".", m.enums[name], true), "enums are created from one of their cases")
+		if c.private(id, m, m.enums[name].Decl.Pub, "enum '"+name+"'") {
+			return fail()
+		}
+		return c.enumCall(e, m.enums[name], id, id.Module+".")
 	case m.interfaces[name] != nil:
 		c.errorAt(id, "", "%s.%s is an interface, so it can't be created", id.Module, name)
 	case m.aliases[name] != nil:
@@ -535,7 +538,7 @@ func (c *checker) moduleCall(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 				return c.construct(e, t)
 			}
 		case *Enum:
-			c.errorAt(id, caseHint("create it from a case, e.g. "+id.Module+".", t, true), "enums are created from one of their cases")
+			return c.enumCall(e, t, id, id.Module+".")
 		default:
 			c.errorAt(id, "", "%s.%s names %s, so it can't be called", id.Module, name, t)
 		}

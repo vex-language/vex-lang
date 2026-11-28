@@ -8,9 +8,25 @@ import (
 	"github.com/vex-language/vex-lang/compiler/lexer"
 )
 
-// Checks the declaration of operator [m] of struct [s].
-func (c *checker) checkOperator(s *Struct, m *Func) {
+// A struct or enum, which can define operators.
+type opOwner interface {
+	Type
+	Operator(name string) *Func
+}
+
+// Returns the name of the struct or enum [t] as written in its
+// declaration, and the keyword that declares it.
+func ownerName(t opOwner) (string, string) {
+	if e, ok := t.(*Enum); ok {
+		return e.Name, "enum"
+	}
+	return t.(*Struct).Name, "struct"
+}
+
+// Checks the declaration of operator [m] of struct or enum [t].
+func (c *checker) checkOperator(t opOwner, m *Func) {
 	md := m.Decl
+	name, _ := ownerName(t)
 	for _, p := range md.Params {
 		if p.Default != nil {
 			c.errorAt(p.Default, "", "operator parameters can't have default values")
@@ -18,12 +34,12 @@ func (c *checker) checkOperator(s *Struct, m *Func) {
 	}
 	switch m.Name {
 	case "==", "<":
-		if len(m.Params) == 1 && m.Params[0].Type != Invalid && !Identical(m.Params[0].Type, s) {
-			c.errorAt(md.Params[0].Type, fmt.Sprintf("write operator %s(other: %s) -> bool", m.Name, s.Name),
-				"operator '%s' compares two %s values, so it takes a %s", m.Name, s.Name, s.Name)
+		if len(m.Params) == 1 && m.Params[0].Type != Invalid && !Identical(m.Params[0].Type, t) {
+			c.errorAt(md.Params[0].Type, fmt.Sprintf("write operator %s(other: %s) -> bool", m.Name, name),
+				"operator '%s' compares two %s values, so it takes a %s", m.Name, name, name)
 		}
 		if m.Result != Invalid && !Identical(m.Result, Bool) {
-			c.errorAt(resultNode(md), fmt.Sprintf("write operator %s(other: %s) -> bool", m.Name, s.Name), "operator '%s' must return bool", m.Name)
+			c.errorAt(resultNode(md), fmt.Sprintf("write operator %s(other: %s) -> bool", m.Name, name), "operator '%s' must return bool", m.Name)
 		}
 	case "[]=":
 		if m.Result != Void {
@@ -31,7 +47,7 @@ func (c *checker) checkOperator(s *Struct, m *Func) {
 		}
 	default:
 		if m.Result == Void {
-			c.errorAt(md.Name, fmt.Sprintf("give its result type: operator %s(...) -> %s", strings.TrimPrefix(m.Name, "unary "), s.Name),
+			c.errorAt(md.Name, fmt.Sprintf("give its result type: operator %s(...) -> %s", strings.TrimPrefix(m.Name, "unary "), name),
 				"operator '%s' must return a value", m.Name)
 		}
 	}
@@ -59,9 +75,10 @@ var compoundOperators = map[lexer.Kind]string{
 }
 
 // Checks the binary expression [e] whose left operand is a value of struct
-// [s], which must define the operator.
-func (c *checker) binaryOperator(e *ast.BinaryExpr, s *Struct) Type {
+// or enum [s], which must define the operator.
+func (c *checker) binaryOperator(e *ast.BinaryExpr, s opOwner) Type {
 	written := strings.Trim(e.Op.String(), "'")
+	sname, kind := ownerName(s)
 	name, ok := binaryOperators[e.Op]
 	var f *Func
 	if ok {
@@ -73,11 +90,11 @@ func (c *checker) binaryOperator(e *ast.BinaryExpr, s *Struct) Type {
 		case !ok:
 			c.errorAt(e, "", "'%s' works only on int, found %s", written, s)
 		case name == "==":
-			c.errorAt(e, fmt.Sprintf("list Equatable on it to compare the fields: struct %s: Equatable", s.Name), "values of type %s can't be compared with %s", s, written)
+			c.errorAt(e, fmt.Sprintf("list Equatable on it to compare the fields: %s %s: Equatable", kind, sname), "values of type %s can't be compared with %s", s, written)
 		case name == "<":
-			c.errorAt(e, fmt.Sprintf("define it in %s: operator <(other: %s) -> bool", s.Name, s.Name), "values of type %s can't be ordered with %s", s, written)
+			c.errorAt(e, fmt.Sprintf("define it in %s: operator <(other: %s) -> bool", sname, sname), "values of type %s can't be ordered with %s", s, written)
 		default:
-			c.errorAt(e, fmt.Sprintf("define it in %s: operator %s(other: ...) -> ...", s.Name, name), "'%s' can't be used with %s", written, s)
+			c.errorAt(e, fmt.Sprintf("define it in %s: operator %s(other: ...) -> ...", sname, name), "'%s' can't be used with %s", written, s)
 		}
 		if comparison(e.Op) {
 			return Bool
@@ -131,10 +148,11 @@ func (c *checker) indexSet(s *ast.AssignStmt, x *ast.IndexExpr, st *Struct) Type
 	return t
 }
 
-// Checks the compound assignment [s] to a value of struct [st], which runs
-// the struct's operator.
-func (c *checker) compoundOperator(s *ast.AssignStmt, st *Struct) {
+// Checks the compound assignment [s] to a value of struct or enum [st],
+// which runs its operator.
+func (c *checker) compoundOperator(s *ast.AssignStmt, st opOwner) {
 	written := strings.Trim(s.Op.String(), "'")
+	sname, _ := ownerName(st)
 	name, ok := compoundOperators[s.Op]
 	var f *Func
 	if ok {
@@ -144,7 +162,7 @@ func (c *checker) compoundOperator(s *ast.AssignStmt, st *Struct) {
 		c.expr(s.Value, nil)
 		hint := ""
 		if ok {
-			hint = fmt.Sprintf("define it in %s: operator %s(other: ...) -> %s", st.Name, name, st.Name)
+			hint = fmt.Sprintf("define it in %s: operator %s(other: ...) -> %s", sname, name, sname)
 		}
 		c.errorAt(s.Target, hint, "%s can't be used with %s", written, st)
 		return
@@ -154,7 +172,7 @@ func (c *checker) compoundOperator(s *ast.AssignStmt, st *Struct) {
 		c.assignable(f.Params[0].Type, c.expr(s.Value, f.Params[0].Type), s.Value, "")
 	}
 	if !assignableType(st, f.Result) {
-		c.errorAt(s.Target, fmt.Sprintf("use x = x %s ..., or return %s from operator %s", name, st.Name, name),
+		c.errorAt(s.Target, fmt.Sprintf("use x = x %s ..., or return %s from operator %s", name, sname, name),
 			"%s needs operator %s to return %s, but it returns %s", written, name, st, f.Result)
 		return
 	}

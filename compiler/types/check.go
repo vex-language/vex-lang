@@ -1427,7 +1427,7 @@ func (c *checker) assign(s *ast.AssignStmt) {
 	default:
 		target = c.expr(s.Target, nil)
 	}
-	if st, ok := target.(*Struct); ok && s.Op != lexer.Assign {
+	if st, ok := target.(opOwner); ok && s.Op != lexer.Assign {
 		c.compoundOperator(s, st)
 		return
 	}

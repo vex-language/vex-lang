@@ -236,6 +236,11 @@ func (c *checker) ident(id *ast.Ident) Type {
 		switch t := c.self.Type.(type) {
 		case *Enum:
 			p = t.Property(id.Name)
+			if p == nil && id.Name == "rawValue" && t.Raw != nil && t.Method(id.Name) == nil {
+				m := selfAccess(id)
+				c.info.Uses[id] = &SelfMember{Expr: m}
+				return c.expr(m, nil)
+			}
 		case *Interface:
 			p = ifaceProperty(t, id.Name)
 		}
@@ -445,10 +450,11 @@ func (c *checker) unary(e *ast.UnaryExpr, want Type) Type {
 		return Int
 	}
 	t := c.expr(e.X, want)
-	if s, ok := t.(*Struct); ok {
+	if s, ok := t.(opOwner); ok {
 		f := s.Operator("unary -")
 		if f == nil {
-			c.errorAt(e.X, fmt.Sprintf("define it in %s: operator -() -> %s", s.Name, s.Name), "'-' can't be used with %s", s)
+			name, _ := ownerName(s)
+			c.errorAt(e.X, fmt.Sprintf("define it in %s: operator -() -> %s", name, name), "'-' can't be used with %s", s)
 			return Invalid
 		}
 		c.methodPrivate(e, f)
@@ -529,6 +535,9 @@ func (c *checker) binary(e *ast.BinaryExpr, want Type) Type {
 	equality := e.Op == lexer.Eq || e.Op == lexer.NotEq
 	if s, ok := x.(*Struct); ok && !(equality && s.Operator("==") == nil && s.Equatable()) {
 		return c.binaryOperator(e, s)
+	}
+	if en, ok := x.(*Enum); ok && enumOperator(en, e.Op) {
+		return c.binaryOperator(e, en)
 	}
 	switch x.(type) {
 	case *Struct, *List, *Map, *Optional:
@@ -686,6 +695,17 @@ func wrapping(k lexer.Kind) bool {
 	return false
 }
 
+// Reports whether [op] on a value of [e] runs one of its operators: [e]
+// defines it, or it is arithmetic, which enums otherwise lack.
+func enumOperator(e *Enum, op lexer.Kind) bool {
+	switch op {
+	case lexer.Plus, lexer.Minus, lexer.Star, lexer.Slash, lexer.Percent:
+		return true
+	}
+	name, ok := binaryOperators[op]
+	return ok && e.Operator(name) != nil
+}
+
 // Reports whether [k] is a bitwise operator: `&`, `|`, `^`, `<<` or `>>`.
 func bitwise(k lexer.Kind) bool {
 	switch k {
@@ -704,6 +724,9 @@ func ordered(t Type) bool {
 	case *Struct:
 		return t.Operator("<") != nil && t.Operator("==") != nil
 	case *Enum:
+		if t.Operator("<") != nil {
+			return comparable(t)
+		}
 		return t.Simple()
 	}
 	return t == Int || t == Float || t == String
@@ -713,7 +736,7 @@ func ordered(t Type) bool {
 func comparable(t Type) bool {
 	switch t := t.(type) {
 	case *Enum:
-		return t.Simple() || t.Equatable()
+		return t.Simple() || t.Equatable() || t.Operator("==") != nil
 	case *Struct:
 		return t.Operator("==") != nil || t.Equatable()
 	case *List:
@@ -748,11 +771,12 @@ func (c *checker) indexOf(e *ast.IndexExpr, x Type) Type {
 		c.mapKey(e.Index, m)
 		return &Optional{Elem: m.Value}
 	}
-	if s, ok := x.(*Struct); ok {
+	if s, ok := x.(opOwner); ok {
 		f := s.Operator("[]")
 		if f == nil {
+			name, _ := ownerName(s)
 			c.expr(e.Index, nil)
-			c.errorAt(e.X, fmt.Sprintf("define it in %s: operator [](index: int) -> ...", s.Name), "can't index a value of type %s", s)
+			c.errorAt(e.X, fmt.Sprintf("define it in %s: operator [](index: int) -> ...", name), "can't index a value of type %s", s)
 			return Invalid
 		}
 		c.methodPrivate(e, f)
@@ -825,6 +849,9 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 		if k := c.staticConst(e, nil, en); k != nil {
 			return k.Type
 		}
+		if name == "allCases" && en.Case(name) == nil && en.Method(name) == nil {
+			return c.allCases(e, en)
+		}
 		return c.caseValue(e, en, e.Name, en.Name+"."+name)
 	}
 	if s := c.structRef(e.X); s != nil {
@@ -893,6 +920,14 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 			}
 		} else if t, ok := c.extTearOff(e, x, name, called, want); ok {
 			return t
+		} else if name == "name" {
+			c.info.Members[e] = &Member{Builtin: "enum.name"}
+			return String
+		} else if name == "rawValue" && x.Raw != nil {
+			c.info.Members[e] = &Member{Builtin: "enum.rawValue"}
+			return x.Raw
+		} else if name == "rawValue" {
+			c.errorAt(e.Name, fmt.Sprintf("give it a raw type: enum %s: int { ... }", x.Name), "%s has no raw values", x.Name)
 		} else {
 			c.errorAt(e.Name, "read the values a case carries with match, e.g. match v { circle(r) => r, ... }", "%s has no member '%s'", x.Name, name)
 		}

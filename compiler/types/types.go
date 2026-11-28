@@ -381,6 +381,10 @@ type Enum struct {
 	// The enum's static constants.
 	Consts []*Const
 
+	// The type of the cases' raw values, [Int] or [String], or nil when the
+	// enum has none.
+	Raw Type
+
 	generic *genericEnum
 
 	// Set for instances whose arguments are type parameters, used only
@@ -403,6 +407,9 @@ func (e *Enum) Case(name string) *Case {
 
 // Returns the method called [name], or nil.
 func (e *Enum) Method(name string) *Func { return memberOf(e.Methods, name, ast.Method) }
+
+// Returns the operator called [name], such as `+` or `unary -`, or nil.
+func (e *Enum) Operator(name string) *Func { return memberOf(e.Methods, name, ast.Operator) }
 
 // Returns the method or getter called [name], or nil.
 func (e *Enum) member(name string) *Func {
@@ -436,6 +443,9 @@ type Case struct {
 	// The position of the case in its enum, used as its tag.
 	Index int
 	Decl  *ast.EnumCase
+
+	// The raw value, an int64 or a string, when the enum has a raw type.
+	Raw any
 }
 
 // A struct field.
@@ -733,6 +743,10 @@ const (
 	// A changed copy of a struct: `user.copy(age: 31)`. [Call.Keep] marks
 	// the fields copied as they are.
 	CopyCall
+
+	// Finding the case of [Call.Enum] with a raw value:
+	// `Color(rawValue: 2)`.
+	RawCall
 )
 
 // The checked meaning of a call expression.
@@ -750,6 +764,9 @@ type Call struct {
 
 	// The enum case created, for CaseCall.
 	Case *Case
+
+	// The enum whose case is looked up, for RawCall.
+	Enum *Enum
 
 	// The built-in name, such as `println` or `push`.
 	Builtin string

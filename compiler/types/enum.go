@@ -2,9 +2,11 @@ package types
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 
 	"github.com/vex-language/vex-lang/compiler/ast"
+	"github.com/vex-language/vex-lang/compiler/lexer"
 )
 
 func (c *checker) declareEnum(ed *ast.EnumDecl) {
@@ -53,6 +55,7 @@ func (c *checker) enumMembers(e *Enum) {
 	if len(e.Cases) == 0 {
 		c.errorAt(e.Decl.Name, "add cases, e.g. enum "+e.Name+" { first, second }", "enum '%s' has no cases", e.Name)
 	}
+	c.rawValues(e)
 	for _, md := range e.Decl.Methods {
 		m := &Func{Name: md.Name.Name, Decl: md, Enum: e, Static: md.Static, Ext: c.extModule(md)}
 		if !e.abstract {
@@ -69,6 +72,10 @@ func (c *checker) enumMembers(e *Enum) {
 			c.errorAt(md.Name, "", "'%s' is already a case of %s", m.Name, e.Name)
 			continue
 		}
+		if md.Accessor == ast.Operator && m.Name == "[]=" {
+			c.errorAt(md.Name, "return a changed copy from a method instead", "enum values never change, so an enum can't define operator []=")
+			continue
+		}
 		e.Methods = append(e.Methods, m)
 		if c.genericMethod(m, e.abstract, e.generic == nil || isTemplate(e.Args, e.generic.params)) {
 			continue
@@ -77,8 +84,148 @@ func (c *checker) enumMembers(e *Enum) {
 			c.info.Funcs = append(c.info.Funcs, m)
 		}
 		c.signature(m)
+		if md.Accessor == ast.Operator {
+			c.checkOperator(e, m)
+		}
 	}
 	c.enumConformances(e)
+}
+
+// Resolves the raw type of [e] and the raw value of each case: the value
+// written after `=`, or for int the previous case's plus one, starting
+// at 0, and for string the case's name.
+func (c *checker) rawValues(e *Enum) {
+	d := e.Decl
+	if d.RawType != nil {
+		switch t := builtinTypes[d.RawType.Name]; t {
+		case Int, String:
+			e.Raw = t
+		default:
+			c.errorAt(d.RawType, fmt.Sprintf("use int or string: enum %s: int", d.Name.Name), "raw values must be int or string, found %s", d.RawType.Name)
+		}
+	}
+	next := int64(0)
+	seen := map[any]*Case{}
+	for _, cs := range e.Cases {
+		v := cs.Decl.Value
+		switch {
+		case len(cs.Fields) > 0 && v != nil:
+			c.errorAt(v, "remove the raw value, or the values the case carries", "case '%s' carries values, so it can't have a raw value", cs.Name)
+			continue
+		case len(cs.Fields) > 0 && d.RawType != nil:
+			c.errorAt(cs.Decl.Name, fmt.Sprintf("remove the values, or remove ': %s'", d.RawType.Name), "case '%s' carries values, so %s can't have raw values", cs.Name, e.Name)
+			continue
+		case v != nil && d.RawType == nil:
+			c.errorAt(v, fmt.Sprintf("give the enum a raw type: enum %s: int", d.Name.Name), "case '%s' has a raw value, but %s has no raw type", cs.Name, e.Name)
+			continue
+		case e.Raw == nil:
+			continue
+		}
+		switch {
+		case v == nil && e.Raw == Int:
+			cs.Raw = next
+		case v == nil:
+			cs.Raw = cs.Name
+		default:
+			cs.Raw = c.rawLiteral(v, e.Raw)
+			if cs.Raw == nil {
+				continue
+			}
+		}
+		if n, ok := cs.Raw.(int64); ok {
+			next = n + 1
+		}
+		if prev := seen[cs.Raw]; prev != nil {
+			at := ast.Node(cs.Decl.Name)
+			if v != nil {
+				at = v
+			}
+			c.errorAt(at, "give each case its own raw value", "raw value %s is already used by case '%s'", rawString(cs.Raw), prev.Name)
+			continue
+		}
+		seen[cs.Raw] = cs
+	}
+}
+
+// Returns the value of the raw value literal [v] of type [t], or nil after
+// reporting an error.
+func (c *checker) rawLiteral(v ast.Expr, t Type) any {
+	var val any
+	switch x := v.(type) {
+	case *ast.IntLit:
+		val = c.fold(x, Int)
+	case *ast.UnaryExpr:
+		if _, ok := x.X.(*ast.IntLit); ok && x.Op == lexer.Minus {
+			if n, ok := c.fold(x.X, Int).(int64); ok {
+				val = -n
+			}
+		}
+	case *ast.StringLit:
+		val = x.Value
+	}
+	switch val.(type) {
+	case int64:
+		if t == Int {
+			return val
+		}
+	case string:
+		if t == String {
+			return val
+		}
+	default:
+		example := "1"
+		if t == String {
+			example = `"a"`
+		}
+		c.errorAt(v, "write a literal, like "+example, "a raw value must be a literal %s", t)
+		return nil
+	}
+	c.errorAt(v, "", "raw values of this enum are %s, but this is %s", t, map[Type]string{Int: "a string", String: "an int"}[t])
+	return nil
+}
+
+// Returns the raw value [v] as written in source.
+func rawString(v any) string {
+	if s, ok := v.(string); ok {
+		return strconv.Quote(s)
+	}
+	return fmt.Sprint(v)
+}
+
+// Checks `Color.allCases`, the list of every case of [en] in declaration
+// order.
+func (c *checker) allCases(e *ast.MemberExpr, en *Enum) Type {
+	for _, cs := range en.Cases {
+		if len(cs.Fields) > 0 {
+			c.errorAt(e.Name, "list the cases yourself, or match on a value", "allCases needs an enum whose cases carry no values, but case '%s' of %s does", cs.Name, en.Name)
+			return Invalid
+		}
+	}
+	c.info.Members[e] = &Member{Builtin: "enum.allCases"}
+	return &List{Elem: en}
+}
+
+// Checks a call of the enum [en] itself, which finds a case by its raw
+// value: `Color(rawValue: 2)`. [prefix] is the module the enum is written
+// with, for hints.
+func (c *checker) enumCall(e *ast.CallExpr, en *Enum, id *ast.Ident, prefix string) Type {
+	byRaw := len(e.Args) == 1 && e.Args[0].Name != nil && e.Args[0].Name.Name == "rawValue"
+	if byRaw && en.Raw == nil && (en.Decl == nil || en.Decl.RawType == nil) {
+		c.checkArgs(e)
+		c.errorAt(id, fmt.Sprintf("give it a raw type: enum %s: int { ... }", en.Name), "%s has no raw values", en.Name)
+		return Invalid
+	}
+	if en.Raw == nil || !byRaw {
+		c.checkArgs(e)
+		hint := caseHint("create it from a case, e.g. "+prefix, en, true)
+		if en.Raw != nil {
+			hint = fmt.Sprintf("find a case by its raw value: %s%s(rawValue: ...), or create it from a case", prefix, en.Name)
+		}
+		c.errorAt(id, hint, "enums are created from one of their cases")
+		return Invalid
+	}
+	c.info.Calls[e] = &Call{Kind: RawCall, Enum: en, Args: c.bind(e, []slot{{name: "rawValue", typ: en.Raw}}, prefix+en.Name)}
+	return &Optional{Elem: en}
 }
 
 // Returns the enum named by [x] when it is used as a type, as in
