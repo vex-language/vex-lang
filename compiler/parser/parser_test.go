@@ -1226,3 +1226,76 @@ func TestParseFormatSpec(t *testing.T) {
 		}
 	}
 }
+
+func TestDocComments(t *testing.T) {
+	src := `/// Shapes and their areas.
+///
+/// Second paragraph.
+
+import "vex:math"
+
+/// A shape.
+pub enum Shape {
+    /// A circle.
+    circle(r: float)
+    square(side: float)
+
+    /// Returns the area.
+    pub fn area() -> float => 0.0
+}
+
+// A plain comment.
+/// A point.
+pub struct Point {
+    /// The x coordinate.
+    pub x: int
+    // Not a doc comment.
+    y: int
+    /// Watched.
+    z: int = 0 {
+        didSet { print(oldValue) }
+    }
+
+    /// The origin.
+    pub static const origin = Point(x: 0, y: 0)
+}
+
+/// Detached by a blank line.
+
+fn main() {
+    /// Inside a body.
+    let x = 1 /// trailing
+}
+`
+	f, errs := parse(t, src)
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	shape := f.Decls[0].(*ast.EnumDecl)
+	point := f.Decls[1].(*ast.StructDecl)
+	got := []string{
+		f.Doc, shape.Doc, shape.Cases[0].Doc, shape.Cases[1].Doc, shape.Methods[0].Doc,
+		point.Doc, point.Fields[0].Doc, point.Fields[1].Doc, point.Fields[2].Doc, point.Methods[0].Doc,
+		point.Consts[0].Doc, f.Decls[2].(*ast.FuncDecl).Doc,
+	}
+	want := []string{
+		"Shapes and their areas.\n\nSecond paragraph.", "A shape.", "A circle.", "", "Returns the area.",
+		"A point.", "The x coordinate.", "", "Watched.", "",
+		"The origin.", "",
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Errorf("doc %d = %q, want %q", i, got[i], want[i])
+		}
+	}
+}
+
+func TestDocCommentAboveFirstDeclIsNotModuleDoc(t *testing.T) {
+	f, errs := parse(t, "/// Adds.\nfn add() {}\n")
+	if errs != nil {
+		t.Fatal(errs)
+	}
+	if f.Doc != "" || f.Decls[0].(*ast.FuncDecl).Doc != "Adds." {
+		t.Errorf("file doc %q, fn doc %q", f.Doc, f.Decls[0].(*ast.FuncDecl).Doc)
+	}
+}

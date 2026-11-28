@@ -52,17 +52,89 @@ type parser struct {
 // On syntax errors the returned error is a [diag.List] and the tree may be
 // incomplete. Lexical errors are returned without parsing.
 func Parse(f *diag.File) (*ast.File, error) {
-	toks, err := lexer.Tokenize(f)
+	toks, docs, err := lexer.Scan(f)
 	if err != nil {
 		return nil, err
 	}
 	p := &parser{file: f, toks: toks}
 	file := p.parseFile()
 	file.Warnings = p.warns
+	attachDocs(file, docs, toks[0].Pos.Line)
 	if len(p.errs) > 0 {
 		return file, p.errs
 	}
 	return file, nil
+}
+
+// Sets the Doc of each declaration and member in [file] that starts on
+// the line after a doc comment in [docs], and the file's own Doc from a
+// comment before [firstLine], the line of the first token, that no
+// declaration takes.
+func attachDocs(file *ast.File, docs []lexer.Doc, firstLine int) {
+	if len(docs) == 0 {
+		return
+	}
+	byLine := map[int]string{}
+	for _, d := range docs {
+		byLine[d.EndLine+1] = d.Text
+	}
+	take := func(n ast.Node, doc *string) {
+		line := n.Pos().Line
+		if text, ok := byLine[line]; ok {
+			*doc = text
+			delete(byLine, line)
+		}
+	}
+	funcs := func(fns []*ast.FuncDecl) {
+		for _, f := range fns {
+			if f.Accessor != ast.Observer {
+				take(f, &f.Doc)
+			}
+		}
+	}
+	consts := func(ks []*ast.ConstDecl) {
+		for _, k := range ks {
+			take(k, &k.Doc)
+		}
+	}
+	for _, d := range file.Decls {
+		switch d := d.(type) {
+		case *ast.FuncDecl:
+			take(d, &d.Doc)
+		case *ast.StructDecl:
+			take(d, &d.Doc)
+			for _, f := range d.Fields {
+				take(f, &f.Doc)
+			}
+			funcs(d.Methods)
+			consts(d.Consts)
+		case *ast.EnumDecl:
+			take(d, &d.Doc)
+			for _, c := range d.Cases {
+				take(c, &c.Doc)
+			}
+			funcs(d.Methods)
+			consts(d.Consts)
+		case *ast.InterfaceDecl:
+			take(d, &d.Doc)
+			funcs(d.Methods)
+		case *ast.ExtensionDecl:
+			take(d, &d.Doc)
+			funcs(d.Methods)
+			consts(d.Consts)
+		case *ast.ConstDecl:
+			take(d, &d.Doc)
+		case *ast.TypeAliasDecl:
+			take(d, &d.Doc)
+		case *ast.ExternTypeDecl:
+			take(d, &d.Doc)
+		}
+	}
+	if first := docs[0]; first.EndLine < firstLine {
+		if _, ok := byLine[first.EndLine+1]; ok {
+			file.Doc = first.Text
+		}
+	}
 }
 
 // --- Token helpers ---

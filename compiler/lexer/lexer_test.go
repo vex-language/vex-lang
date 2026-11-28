@@ -351,3 +351,20 @@ func TestKindNames(t *testing.T) {
 		t.Errorf("IsKeyword is wrong")
 	}
 }
+
+func TestScanDocs(t *testing.T) {
+	src := "/// One\n///Two\n//// banner\nx /// trailing\n  /// Three\n// plain\n/// Four\n"
+	_, docs, err := Scan(diag.NewFile("t.vx", src))
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []Doc{{1, 2, "One\nTwo"}, {5, 5, "Three"}, {7, 7, "Four"}}
+	if len(docs) != len(want) {
+		t.Fatalf("got %+v, want %+v", docs, want)
+	}
+	for i := range want {
+		if docs[i] != want[i] {
+			t.Errorf("doc %d = %+v, want %+v", i, docs[i], want[i])
+		}
+	}
+}
