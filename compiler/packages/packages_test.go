@@ -6,6 +6,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -431,6 +432,21 @@ func TestSourceID(t *testing.T) {
 	for _, tt := range tests {
 		if got := tt.src.id("/home/app"); got != tt.want {
 			t.Errorf("%s: got %q, want %q", tt.src, got, tt.want)
+		}
+	}
+}
+
+func TestWindowsDrives(t *testing.T) {
+	if runtime.GOOS != "windows" {
+		t.Skip("drive letters exist only on Windows")
+	}
+	for _, git := range []string{"file:///C:/git/lib.git", "file://C:/git/lib.git", `C:\git\lib.git`} {
+		s := source{git: git}
+		if got := s.id(`D:\app`); got != "local/C_/git/lib" {
+			t.Errorf("%s: id %q", git, got)
+		}
+		if got := s.url(`D:\app`); got != "file:///C:/git/lib.git" && got != git {
+			t.Errorf("%s: url %q", git, got)
 		}
 	}
 }

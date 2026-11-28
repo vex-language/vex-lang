@@ -3,6 +3,7 @@ package modules
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 	"testing/fstest"
@@ -31,14 +32,14 @@ func formatErrors(err error) string {
 	}
 	var list diag.List
 	if !errors.As(err, &list) {
-		return err.Error()
+		return filepath.ToSlash(err.Error())
 	}
 	list.Sort()
 	var out []string
 	for _, d := range list {
 		name := ""
 		if d.File != nil {
-			name = d.File.Name + ":"
+			name = filepath.ToSlash(d.File.Name) + ":"
 		}
 		out = append(out, fmt.Sprintf("%s%s: %s", name, d.Pos, d.Message))
 	}
@@ -131,10 +132,10 @@ func TestLoadFile(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if prog.Name != "" || len(prog.Modules) != 4 || prog.Root.Files[0].Name != "dir/hello.vx" {
+	if prog.Name != "" || len(prog.Modules) != 4 || filepath.ToSlash(prog.Root.Files[0].Name) != "dir/hello.vx" {
 		t.Fatalf("name %q, %d modules, root file %q", prog.Name, len(prog.Modules), prog.Root.Files[0].Name)
 	}
-	if got := prog.Modules[2].Files[0].Name; got != "dir/lib/lib.vx" {
+	if got := filepath.ToSlash(prog.Modules[2].Files[0].Name); got != "dir/lib/lib.vx" {
 		t.Errorf("module file shown as %q", got)
 	}
 }
@@ -193,6 +194,12 @@ flags = ["-DNAME=\"x, y\"", "-Inative", "-O3", "-Wall", "-Wno-unused", "-fvisibi
 	}
 	prog := &Program{Dir: "/proj", CSources: p.CSources, CLibs: p.CLibs, CFlags: p.CFlags}
 	opts := prog.CCOptions()
+	for i := range opts.Sources {
+		opts.Sources[i] = filepath.ToSlash(opts.Sources[i])
+	}
+	for i := range opts.Flags {
+		opts.Flags[i] = filepath.ToSlash(opts.Flags[i])
+	}
 	got = fmt.Sprintf("%q %q %q", opts.Sources, opts.Libs, opts.Flags)
 	if want := `["/proj/native/a.c" "/proj/lib/b.o"] ["z" "sqlite3"] ["-DNAME=\"x, y\"" "-I/proj/native" "-O3" "-Wall" "-Wno-unused" "-fvisibility=hidden" "-mmacosx-version-min=11.0" "-std=c11"]`; got != want {
 		t.Errorf("options\n got %s\nwant %s", got, want)
@@ -238,7 +245,7 @@ func TestLoadCSources(t *testing.T) {
 		"app/main.vx":      {Data: []byte("fn main() {}\n")},
 	}
 	_, err := LoadFS(fsys, "app", "app", true)
-	if err == nil || err.Error() != "app/package.toml: C source 'native/missing.c' not found" {
+	if err == nil || filepath.ToSlash(err.Error()) != "app/package.toml: C source 'native/missing.c' not found" {
 		t.Errorf("got %v", err)
 	}
 }

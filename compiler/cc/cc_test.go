@@ -2,6 +2,7 @@ package cc
 
 import (
 	"fmt"
+	"os"
 	"os/exec"
 	"path/filepath"
 	"runtime"
@@ -10,14 +11,48 @@ import (
 )
 
 func TestRespectsCCVariable(t *testing.T) {
-	t.Setenv("CC", "/usr/bin/false --some-flag")
+	fail := "/usr/bin/false"
+	if runtime.GOOS == "windows" {
+		fail = filepath.Join(t.TempDir(), "false.bat")
+		if err := os.WriteFile(fail, []byte("@exit /b 1\r\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+	}
+	t.Setenv("CC", fail+" --some-flag")
 	command, err := Command()
-	if err != nil || strings.Join(command, " ") != "/usr/bin/false --some-flag" {
+	if err != nil || strings.Join(command, " ") != fail+" --some-flag" {
 		t.Fatalf("Command() = %v, %v", command, err)
 	}
 	err = Compile("int main(void) { return 0; }", filepath.Join(t.TempDir(), "out"))
-	if err == nil || !strings.Contains(err.Error(), "the C compiler (/usr/bin/false) failed") {
+	if err == nil || !strings.Contains(err.Error(), "the C compiler ("+fail+") failed") {
 		t.Errorf("got %v", err)
+	}
+}
+
+func TestCCPathWithSpaces(t *testing.T) {
+	dir := filepath.Join(t.TempDir(), "LLVM tools")
+	if err := os.MkdirAll(dir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(dir, "clang")
+	if err := os.WriteFile(path, nil, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("CC", path)
+	if command, err := Command(); err != nil || len(command) != 1 || command[0] != path {
+		t.Errorf("Command() = %q, %v", command, err)
+	}
+}
+
+func TestExecutable(t *testing.T) {
+	want := map[string]string{"app": "app", "app.exe": "app.exe", "v1.2": "v1.2"}
+	if runtime.GOOS == "windows" {
+		want = map[string]string{"app": "app.exe", "app.exe": "app.exe", "APP.EXE": "APP.EXE", "v1.2": "v1.2.exe"}
+	}
+	for in, out := range want {
+		if got := Executable(in); got != out {
+			t.Errorf("Executable(%q) = %q, want %q", in, got, out)
+		}
 	}
 }
 

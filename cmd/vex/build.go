@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"syscall"
 
@@ -158,6 +159,7 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 	if info, err := os.Stat(*out); err == nil && info.IsDir() {
 		*out = filepath.Join(*out, name)
 	}
+	*out = cc.Executable(*out)
 	if same(*out, path) {
 		fmt.Fprintf(stderr, "vex: building would replace the source file %s; choose another name with -o\n", path)
 		return exitUsage
@@ -167,7 +169,11 @@ func runBuild(args []string, stdout, stderr io.Writer) int {
 		return exitUsage
 	}
 	if opts.Debug {
-		opts.KeepC = *out + ".c"
+		keep := *out
+		if runtime.GOOS == "windows" {
+			keep = strings.TrimSuffix(keep, filepath.Ext(keep))
+		}
+		opts.KeepC = keep + ".c"
 		if same(opts.KeepC, path) {
 			fmt.Fprintf(stderr, "vex: keeping the C would replace %s; choose another name with -o\n", path)
 			return exitUsage
@@ -216,7 +222,7 @@ func runRun(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	defer os.RemoveAll(dir)
-	exe := filepath.Join(dir, "main")
+	exe := cc.Executable(filepath.Join(dir, "main"))
 	opts := prog.CCOptions()
 	if !mode.apply(&opts, stderr) {
 		return exitUsage
@@ -248,12 +254,39 @@ func execute(exe string, args []string, stdout, stderr io.Writer) int {
 				}
 				return 128 + int(status.Signal())
 			}
+			if msg := windowsCrash(uint32(exit.ExitCode())); msg != "" {
+				fmt.Fprintf(stderr, "vex: the program crashed (%s); this is a bug in vex\n", msg)
+			}
 			return exit.ExitCode()
 		}
 		fmt.Fprintf(stderr, "vex: %v\n", err)
 		return exitError
 	}
 	return exitOK
+}
+
+// Returns what stopped a Windows program that ended with the exception
+// code [code], or "" for an ordinary exit status or an interrupt, which
+// ends the program as it would end any other.
+func windowsCrash(code uint32) string {
+	if runtime.GOOS != "windows" || code < 0xC0000000 {
+		return ""
+	}
+	switch code {
+	case 0xC000013A: // STATUS_CONTROL_C_EXIT
+		return ""
+	case 0xC0000005:
+		return "access violation"
+	case 0xC00000FD:
+		return "stack overflow"
+	case 0xC000001D:
+		return "illegal instruction"
+	case 0xC0000094:
+		return "integer division by zero"
+	case 0xC0000409:
+		return "aborted"
+	}
+	return fmt.Sprintf("exception 0x%08X", code)
 }
 
 // Reports whether [a] and [b] name the same existing file.
@@ -296,7 +329,7 @@ func runTest(args []string, stdout, stderr io.Writer) int {
 		return exitError
 	}
 	defer os.RemoveAll(dir)
-	exe := filepath.Join(dir, "test")
+	exe := cc.Executable(filepath.Join(dir, "test"))
 	opts := prog.CCOptions()
 	if !mode.apply(&opts, stderr) {
 		return exitUsage

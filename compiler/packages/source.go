@@ -50,7 +50,14 @@ var safePath = regexp.MustCompile(`[^A-Za-z0-9._~+/-]|\.\.+`)
 func localPath(repo, root string) string {
 	if strings.HasPrefix(repo, "file://") {
 		if u, err := url.Parse(repo); err == nil {
-			return filepath.FromSlash(u.Path)
+			// On Windows both file:///C:/git and file://C:/git name C:\git.
+			p := u.Path
+			if filepath.VolumeName(u.Host) != "" {
+				p = u.Host + p
+			} else if len(p) > 1 && filepath.VolumeName(p[1:]) != "" {
+				p = p[1:]
+			}
+			return filepath.FromSlash(p)
 		}
 	}
 	if filepath.IsAbs(repo) {
@@ -64,7 +71,11 @@ func (s source) url(root string) string {
 	if strings.Contains(s.git, "://") || strings.Contains(s.git, "@") {
 		return s.git
 	}
-	return "file://" + filepath.ToSlash(localPath(s.git, root))
+	p := filepath.ToSlash(localPath(s.git, root))
+	if !strings.HasPrefix(p, "/") {
+		p = "/" + p
+	}
+	return "file://" + p
 }
 
 // Returns the tag that marks version [v], such as `v0.3.1`, or

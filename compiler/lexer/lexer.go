@@ -82,6 +82,10 @@ func (l *lexer) run() {
 			if len(l.interp) > 0 {
 				l.unterminatedInterpolation()
 			}
+			// A CRLF line ends where its \r is, as an LF line ends at its \n.
+			if start > 0 && l.src[start-1] == '\r' {
+				start--
+			}
 			l.lineBreak(start)
 			l.pos++
 		case c == '/' && l.peek(1) == '/':

@@ -194,8 +194,8 @@ func TestRunMissingCFunction(t *testing.T) {
 func TestBuild(t *testing.T) {
 	needCC(t)
 	path := writeFile(t, "fn main() {\n    println(\"built\")\n}\n")
-	exe := filepath.Join(t.TempDir(), "app")
-	code, out, errOut := runCLI("build", path, "-o", exe)
+	exe := cc.Executable(filepath.Join(t.TempDir(), "app"))
+	code, out, errOut := runCLI("build", path, "-o", strings.TrimSuffix(exe, ".exe"))
 	if code != exitOK || out != "Built "+exe+"\n" {
 		t.Fatalf("code %d, stdout %q, stderr %q", code, out, errOut)
 	}
@@ -227,7 +227,8 @@ func TestBuildOutputPath(t *testing.T) {
 	if err := os.WriteFile(script, []byte(src), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if code, _, errOut := runCLI("build", script, "-o", script); code != exitUsage || !strings.Contains(errOut, "would replace the source file") {
+	// On Windows the program is script.exe, which leaves the source alone.
+	if code, _, errOut := runCLI("build", script, "-o", script); cc.Executable(script) == script && (code != exitUsage || !strings.Contains(errOut, "would replace the source file")) {
 		t.Errorf("same output as source: code %d, stderr %q", code, errOut)
 	}
 	if got, _ := os.ReadFile(script); string(got) != src {
@@ -240,7 +241,7 @@ func TestBuildOutputPath(t *testing.T) {
 	}
 	os.WriteFile(filepath.Join(store, "package.toml"), []byte("[package]\nname = \"store\"\n"), 0o644)
 	os.WriteFile(filepath.Join(store, "main.vx"), []byte(src), 0o644)
-	exe := filepath.Join(store, "store")
+	exe := cc.Executable(filepath.Join(store, "store"))
 	if code, out, errOut := runCLI("build", store, "-o", store); code != exitOK || out != "Built "+exe+"\n" {
 		t.Fatalf("folder output: code %d, stdout %q, stderr %q", code, out, errOut)
 	}
