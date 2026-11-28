@@ -1,0 +1,115 @@
+struct User {
+    name: string
+    tags: [string]? = nil
+    manager: User? = nil
+}
+
+interface Shape {
+    fn area() -> int
+}
+
+struct Square: Shape {
+    side: int
+    fn area() -> int => side * side
+}
+
+struct Grid {
+    cells: [int]
+    operator [](i: int) -> int => cells[i]
+}
+
+fn pick<T>(a: T?, b: T) -> [T] => [?a, b]
+
+fn maybe(n: int) -> int? {
+    println("maybe {n}")
+    if n > 0 { return n }
+    return nil
+}
+
+fn label(s: string) -> string {
+    println("label {s}")
+    return s
+}
+
+fn main() {
+    // Null-aware list elements.
+    let a = 1
+    let b: int? = 2
+    let c: int? = nil
+    let xs = [a, ?b, ?c, 4]
+    println(xs)
+
+    let names: [string] = [?nil, "x"]
+    println(names)
+
+    // Elements are evaluated in order.
+    let ys = [maybe(1), ?maybe(0), ?maybe(3)]
+    println(ys)
+
+    // An optional element type keeps the value, still skipping nil.
+    let opts: [int?] = [?b, ?c, nil]
+    println(opts)
+
+    // Alongside if, for and spread.
+    let more: [int]? = [7, 8]
+    let ok = true
+    let zs = [?b, if ok ?c, for n in -1..=2 ?maybe(n), ...?more]
+    println(zs)
+
+    let user: User? = User(name: "ann")
+    let owners = [?user?.name, ?user?.manager?.name]
+    println(owners)
+
+    let sq: Square? = Square(side: 3)
+    let shapes: [Shape] = [?sq]
+    println(shapes.len, shapes[0].area())
+
+    // Null-aware map keys and values.
+    let k: string? = "bob"
+    let none: string? = nil
+    let v: int? = 5
+    let empty: int? = nil
+    let m = ["ann": 1, ?k: 2, ?none: 3, "cat": ?v, "dan": ?empty]
+    println(m)
+    let both = [?k: ?v, ?none: ?v, ?k: ?empty]
+    println(both)
+
+    // A nil key skips the value without evaluating it.
+    let lazy = [?none: label("skipped"), ?k: label("kept")]
+    println(lazy)
+
+    // ?[ ] indexing.
+    var list: [int]? = nil
+    println(list?[0])
+    list = [10, 20, 30]
+    println(list?[1])
+    println(list?[1..])
+    let n: int = list?[2] ?? 0
+    println(n)
+
+    var ages: [string: int]? = nil
+    println(ages?["ann"])
+    ages = ["ann": 31]
+    println(ages?["ann"], ages?["zoe"])
+    let age: int? = ages?["ann"]
+    println(age ?? 0)
+
+    let text: string? = "hello"
+    println(text?[1..3])
+
+    let tagged: User? = User(name: "bo", tags: ["a", "b"])
+    println(tagged?.tags?[1])
+    println(user?.tags?[0])
+    let nobody: User? = nil
+    println(nobody?.tags?[0] ?? "none")
+
+    if let first = tagged?.tags?[0] {
+        println("first {first}")
+    }
+
+    let grid: Grid? = Grid(cells: [4, 5])
+    println(grid?[1])
+    println(pick(nil, 3), pick(1, 2))
+    let counts: [string: [int]]? = ["a": [1, 2]]
+    println(counts?["a"]?[1])
+}

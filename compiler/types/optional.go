@@ -131,7 +131,13 @@ func (c *checker) typeChain(m *ast.MemberExpr) bool {
 // Returns the type of [e], which reads member [m] whose own type is [t]:
 // for `x?.name`, [t] made optional.
 func (c *checker) chain(e ast.Expr, m *ast.MemberExpr, t Type) Type {
-	if !m.Optional || t == Invalid {
+	return c.optChain(e, m.Optional, t)
+}
+
+// Returns the type of [e], whose own type is [t], made optional when
+// [optional] marks it as a step of an optional chain.
+func (c *checker) optChain(e ast.Expr, optional bool, t Type) Type {
+	if !optional || t == Invalid {
 		return t
 	}
 	if _, ok := t.(*Optional); ok || t == Void {

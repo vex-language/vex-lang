@@ -269,6 +269,11 @@ func TestCollectionElements(t *testing.T) {
 		{"let a = [...xs]", `(let a (list (... xs)))`},
 		{"Column {\n    Text(\"a\")\n    ...rest\n}", `(call Column (block (call Text "a") (... rest)))`},
 		{"f(x) { a }", `(call f x (block a))`},
+		{"let a = [1, ?b, c]", `(let a (list 1 (? b) c))`},
+		{"let a = [?u?.name, ? f(x), ?xs?[0]]", `(let a (list (? (?. u name)) (? (call f x)) (? (?index xs 0))))`},
+		{"let a = [if ok ?b, for x in xs ?f(x), ...?ys]", `(let a (list (if ok (block (? b))) (for x xs (block (? (call f x)))) (...? ys)))`},
+		{"let m = [?k: 1, \"a\": ?v, ?k: ?v]", `(let m (map (: (? k) 1) (: "a" (? v)) (: (? k) (? v))))`},
+		{"let a = [b ?? c, d]", `(let a (list (?? b c) d))`},
 	}
 	for _, c := range cases {
 		if got, want := body(t, c.src), "(block "+c.want+")"; got != want {
@@ -691,6 +696,10 @@ func TestOptionals(t *testing.T) {
 		{"if let u = find(1) {\n    use(u)\n} else if let v = w {\n}", "(if let u (call find 1) (block (call use u)) (if let v w block))"},
 		{"guard let u = find(1) else { return }", "(guard let u (call find 1) (block return))"},
 		{"let s = name\n    ?.upper()\n    ?? \"\"", "(let s (?? (call (?. name upper)) \"\"))"},
+		{"let t = xs?[0]", "(let t (?index xs 0))"},
+		{"let t = u?.tags?[i + 1]?.len", "(let t (?. (?index (?. u tags) (+ i 1)) len))"},
+		{"let t = s?[1..]", "(let t (?index s (.. 1 _)))"},
+		{"let t = m?[k] ?? 0", "(let t (?? (?index m k) 0))"},
 	}
 	for _, c := range cases {
 		if got, want := body(t, c.src), "(block "+c.want+")"; got != want {
@@ -925,6 +934,9 @@ func TestErrors(t *testing.T) {
 		{"method without body", "struct S {\n    fn x()\n}", "2:11", "expected '{' or '=>' to start the body of x, found end of line", ""},
 		{"empty type parameters", "fn f<>() {\n}", "1:5", "empty type parameter list", "remove the <>, or name a type parameter: <T>"},
 		{"ternary", "fn main() {\n let n = ok ? 1 : 2\n}", "2:13", "Vex has no ? : operator", "write if cond { a } else { b }"},
+		{"ternary with list", "fn main() {\n let n = ok ? [1] : [2]\n}", "2:13", "Vex has no ? : operator", "write if cond { a } else { b }"},
+		{"spaced ?[", "fn main() {\n let n = xs? [1]\n}", "2:12", "unexpected '?'", "write ?[ without a space, e.g. xs?[0]"},
+		{"? outside literal", "fn main() {\n let a = ?b\n}", "2:10", "'?' before a value can only be used in a list or map literal", "use ?x inside a list or map literal, e.g. [a, ?b], or write if let"},
 		{"force unwrap", "fn main() {\n println(x!)\n}", "2:11", "Vex has no ! to force an optional open", "use x ?? fallback, or open it with if let or guard let"},
 		{"repeat while on next line", "fn main() {\n repeat {\n }\n while ok\n}", "4:2", "while must follow the repeat block on the same line", "write } while cond on one line"},
 		{"defer without block", "fn main() {\n defer close(f)\n}", "2:8", "defer takes a block", "write defer { cleanup() }"},

@@ -1,0 +1,27 @@
+// Null-aware elements and ?[ ] indexing.
+
+fn main() {
+    let b = 2
+    let s: string? = "x"
+    let xs = [1, ?b]
+    let m = ["a": ?b, ?s: 1]
+    let n: int? = 3
+    let ys: [string] = [?n]
+    var list: [int]? = [1]
+    let zs = [1, 2]
+    println(list[0])
+    println(zs?[0])
+    list?[0] = 5
+    var ages: [string: int]? = nil
+    println(ages["a"])
+    println(list?["a"])
+}
+
+// error: 6:18: '?' needs an optional value, found int
+// error: 7:19: '?' needs an optional value, found int
+// error: 9:25: list element: expected string, found int
+// error: 12:13: can't index a [int]?: it may be nil
+// error: 13:13: ?[ ] is only for optional values, but this is [int]
+// error: 14:5: can't assign through ?[ ]
+// error: 16:13: can't index a [string: int]?: it may be nil
+// error: 17:19: index must be int, found string

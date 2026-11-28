@@ -102,6 +102,10 @@ func (c *checker) exprType(e ast.Expr, want Type) Type {
 		c.expr(e.X, nil)
 		c.errorAt(e, "use it inside a list or map literal, e.g. [...xs, 4]", "'...' can only be used in a list or map literal")
 		return Invalid
+	case *ast.OptionalElem:
+		c.expr(e.X, nil)
+		c.errorAt(e, "use ?x inside a list or map literal, e.g. [a, ?b]", "'?' before a value can only be used in a list or map literal")
+		return Invalid
 	case *ast.MapEntry:
 		c.expr(e.Key, nil)
 		c.expr(e.Value, nil)
@@ -765,11 +769,27 @@ func comparable(t Type) bool {
 }
 
 func (c *checker) index(e *ast.IndexExpr) Type {
-	return c.indexOf(e, c.expr(e.X, nil))
+	x := c.expr(e.X, nil)
+	if !e.Optional {
+		return c.indexOf(e, x)
+	}
+	o, ok := x.(*Optional)
+	if !ok {
+		if x != Invalid {
+			c.errorAt(e, "use [ ] instead", "?[ ] is only for optional values, but this is %s", x)
+		}
+		return c.indexOf(e, x)
+	}
+	return c.optChain(e, true, c.indexOf(e, o.Elem))
 }
 
 // Checks the index of [e], whose indexed value has type [x].
 func (c *checker) indexOf(e *ast.IndexExpr, x Type) Type {
+	if _, ok := x.(*Optional); ok {
+		c.expr(e.Index, nil)
+		c.errorAt(e.X, "use ?[ ] to read it, or unwrap it first with if let", "can't index a %s: it may be nil", x)
+		return Invalid
+	}
 	if m, ok := x.(*Map); ok {
 		c.mapKey(e.Index, m)
 		return &Optional{Elem: m.Value}

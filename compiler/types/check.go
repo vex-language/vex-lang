@@ -1396,6 +1396,13 @@ func (c *checker) assign(s *ast.AssignStmt) {
 			c.assignMember(s, x.Name, m.Field)
 		}
 	case *ast.IndexExpr:
+		if x.Optional {
+			c.expr(x.X, nil)
+			c.expr(x.Index, nil)
+			c.expr(s.Value, nil)
+			c.errorAt(x, "unwrap it first with if let", "can't assign through ?[ ]")
+			return
+		}
 		xt := c.expr(x.X, nil)
 		switch xt.(type) {
 		case *Map:

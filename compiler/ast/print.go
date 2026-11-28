@@ -589,6 +589,8 @@ func buildExpr(e Expr) *tree {
 			label = "...?"
 		}
 		return branch(label, buildExpr(e.X))
+	case *OptionalElem:
+		return branch("?", buildExpr(e.X))
 	case *RecordLit:
 		t := branch("record")
 		for _, a := range e.Fields {
@@ -702,6 +704,9 @@ func buildExpr(e Expr) *tree {
 		}
 		return t
 	case *IndexExpr:
+		if e.Optional {
+			return branch("?index", buildExpr(e.X), buildExpr(e.Index))
+		}
 		return branch("index", buildExpr(e.X), buildExpr(e.Index))
 	case *MemberExpr:
 		if e.Optional {
