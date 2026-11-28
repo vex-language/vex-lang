@@ -200,7 +200,7 @@ func CompileWith(src, out string, opts Options) error {
 		if errors.As(err, &exit) && len(opts.Sources)+len(opts.Libs)+len(opts.Flags)+len(opts.Frameworks) > 0 {
 			return fmt.Errorf("the C compiler (%s) failed; check the C code and the [c] section of package.toml\n%s", command[0], strings.TrimSpace(output.String()))
 		}
-		if errors.As(err, &exit) && (strings.Contains(output.String(), "Undefined symbols") || strings.Contains(output.String(), "undefined reference")) {
+		if errors.As(err, &exit) && (strings.Contains(output.String(), "Undefined symbols") || strings.Contains(output.String(), "undefined reference") || strings.Contains(output.String(), "undefined symbol")) {
 			return fmt.Errorf("linking failed: a C function named by an extern isn't defined; add its source or library to the [c] section of package.toml\n%s", strings.TrimSpace(output.String()))
 		}
 		if errors.As(err, &exit) {
