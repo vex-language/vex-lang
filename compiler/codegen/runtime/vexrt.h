@@ -3427,25 +3427,83 @@ static int vx_fs_cmp(const void *a, const void *b) {
     return strcmp(*(char *const *)a, *(char *const *)b);
 }
 
+#ifdef _WIN32
+// A folder being read with FindFirstFileW, since the C library's opendir
+// doesn't take UTF-8 names.
+typedef struct {
+    HANDLE h;
+    WIN32_FIND_DATAW found;
+    bool fresh; // [found] holds an entry not yet read
+    char *name;
+} vx_dir;
+
+static vx_dir *vx_opendir(const char *path) {
+    size_t n = strlen(path);
+    char *pattern = malloc(n + 3);
+    if (!pattern) vx_out_of_memory();
+    memcpy(pattern, path, n);
+    memcpy(pattern + n, n > 0 && VX_IS_SEP(path[n - 1]) ? "*" : "\\*", 3);
+    wchar_t *w = vx_utf16_of(pattern);
+    free(pattern);
+    vx_dir *d = calloc(1, sizeof(vx_dir));
+    if (!d) vx_out_of_memory();
+    d->h = FindFirstFileW(w, &d->found);
+    free(w);
+    if (d->h == INVALID_HANDLE_VALUE) {
+        DWORD e = GetLastError();
+        errno = e == ERROR_FILE_NOT_FOUND || e == ERROR_PATH_NOT_FOUND ? ENOENT
+              : e == ERROR_DIRECTORY ? ENOTDIR : e == ERROR_ACCESS_DENIED ? EACCES : EIO;
+        free(d);
+        return NULL;
+    }
+    d->fresh = true;
+    return d;
+}
+
+// Returns the name of the next entry of [d], or NULL after the last.
+static const char *vx_readdir(vx_dir *d) {
+    if (!d->fresh && !FindNextFileW(d->h, &d->found)) return NULL;
+    d->fresh = false;
+    free(d->name);
+    d->name = vx_utf8_of(d->found.cFileName, -1);
+    return d->name;
+}
+
+static void vx_closedir(vx_dir *d) {
+    FindClose(d->h);
+    free(d->name);
+    free(d);
+}
+#else
+typedef DIR vx_dir;
+#define vx_opendir opendir
+#define vx_closedir closedir
+
+static const char *vx_readdir(vx_dir *d) {
+    struct dirent *e = readdir(d);
+    return e ? e->d_name : NULL;
+}
+#endif
+
 static int64_t vx_fs_list_open(const char *path) {
-    DIR *d = opendir(path);
+    vx_dir *d = vx_opendir(path);
     if (!d) { vx_errno = errno; return -1; }
     int64_t cap = 16, n = 0;
     char **names = vx_alloc((size_t)cap * sizeof(char *));
-    struct dirent *e;
-    while ((e = readdir(d)) != NULL) {
-        if (strcmp(e->d_name, ".") == 0 || strcmp(e->d_name, "..") == 0) continue;
+    const char *name;
+    while ((name = vx_readdir(d)) != NULL) {
+        if (strcmp(name, ".") == 0 || strcmp(name, "..") == 0) continue;
         if (n == cap) {
             names = vx_realloc(names, (size_t)cap * 2 * sizeof(char *));
             cap *= 2;
         }
-        size_t len = strlen(e->d_name);
+        size_t len = strlen(name);
         names[n] = vx_alloc_atomic(len + 1);
         vx_remember(names);
-        memcpy(names[n], e->d_name, len + 1);
+        memcpy(names[n], name, len + 1);
         n++;
     }
-    closedir(d);
+    vx_closedir(d);
     qsort(names, (size_t)n, sizeof(char *), vx_fs_cmp);
     vx_fs_entries = names;
     vx_fs_entry_count = n;

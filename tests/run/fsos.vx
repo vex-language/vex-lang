@@ -38,7 +38,7 @@ fn main() throws {
     try fs.append(file, "\u{0}")
     println(try fs.size(file), (try fs.read(file)).len)
 
-    for name in ["c.txt", "a.txt", "b.txt"] {
+    for name in ["c.txt", "a.txt", "b.txt", "café ✓.txt"] {
         try fs.write(dir + "/" + name, name)
     }
     println(try fs.list(dir))
