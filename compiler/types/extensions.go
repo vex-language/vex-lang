@@ -26,7 +26,7 @@ func extendable(t Type) bool {
 	case *List, *Map:
 		return true
 	}
-	return t == Int || t == Float || t == Bool || t == String
+	return t == Int || t == Float || t == Bool || t == String || t == Bytes
 }
 
 // Declares the members of extension [d]. Those of a struct or enum join
@@ -77,7 +77,7 @@ func (c *checker) declareExtension(d *ast.ExtensionDecl) {
 	case recv == Invalid:
 		return
 	case !extendable(recv):
-		c.errorAt(d.Type, "extend a struct, an enum, an interface, int, float, bool, string, a list or a map", "%s can't be extended", recv)
+		c.errorAt(d.Type, "extend a struct, an enum, an interface, int, float, bool, string, Bytes, a list or a map", "%s can't be extended", recv)
 		return
 	}
 	if len(d.Consts) > 0 {

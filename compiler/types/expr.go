@@ -291,6 +291,10 @@ func (c *checker) ident(id *ast.Ident) Type {
 		c.errorAt(id, "", "'%s' is a type, not a value", id.Name)
 		return Invalid
 	}
+	if c.builtinBytes(id.Name) {
+		c.errorAt(id, "create one: Bytes()", "'Bytes' is a type, not a value")
+		return Invalid
+	}
 	if builtinFuncs[id.Name] {
 		c.errorAt(id, fmt.Sprintf("call it: %s(...)", id.Name), "built-in function '%s' must be called", id.Name)
 		return Invalid
@@ -783,7 +787,7 @@ func comparable(t Type) bool {
 	if _, ok := t.(*Handle); ok {
 		return true
 	}
-	return t == Int || t == Float || t == Bool || t == String || t == Range
+	return t == Int || t == Float || t == Bool || t == String || t == Range || t == Bytes
 }
 
 func (c *checker) index(e *ast.IndexExpr) Type {
@@ -826,6 +830,7 @@ func (c *checker) indexOf(e *ast.IndexExpr, x Type) Type {
 		return f.Result
 	}
 	_, list := x.(*List)
+	list = list || x == Bytes
 	if r, ok := e.Index.(*ast.RangeExpr); ok && (list || x == String) {
 		c.rangeBounds(r, true)
 		c.info.Types[r] = Range
@@ -845,6 +850,9 @@ func (c *checker) indexOf(e *ast.IndexExpr, x Type) Type {
 	switch x := x.(type) {
 	case *List:
 		return x.Elem
+	}
+	if x == Bytes {
+		return Int
 	}
 	if x == Invalid {
 		return Invalid
@@ -1074,6 +1082,16 @@ func (c *checker) member(e *ast.MemberExpr) Type {
 				c.errorAt(e.Name, "use .len for the length; count(text) counts how often text appears", "count is a method, not a property")
 				return Invalid
 			}
+		}
+	}
+	if x == Bytes {
+		switch name {
+		case "len":
+			c.info.Members[e] = &Member{Builtin: name}
+			return Int
+		case "isEmpty":
+			c.info.Members[e] = &Member{Builtin: name}
+			return Bool
 		}
 	}
 	if x == Range {

@@ -84,7 +84,7 @@ func codable(t Type) bool {
 	case *TypeParam:
 		return t.Has("Codable")
 	}
-	return t == Int || t == Float || t == Bool || t == String
+	return t == Int || t == Float || t == Bool || t == String || t == Bytes
 }
 
 // Returns how a value of [t] could become Codable.
@@ -106,7 +106,7 @@ func codableHint(t Type) string {
 	case *Optional:
 		return codableHint(t.Elem)
 	}
-	return "Codable types are int, float, bool, string, lists, maps with string keys and optionals of those, and structs and enums that list Codable"
+	return "Codable types are int, float, bool, string, Bytes, lists, maps with string keys and optionals of those, and structs and enums that list Codable"
 }
 
 // Checks the structs and enums that list `Codable`: their fields must be

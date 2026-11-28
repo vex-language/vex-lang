@@ -31,6 +31,10 @@ var (
 	// called Range hides.
 	Range = &Basic{"Range"}
 
+	// A growable buffer of bytes, each an int from 0 to 255, which a
+	// struct, enum or interface called Bytes hides.
+	Bytes = &Basic{"Bytes"}
+
 	// The result type of a function that returns nothing.
 	Void = &Basic{"void"}
 
