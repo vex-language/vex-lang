@@ -1,0 +1,12 @@
+/// Prints the areas of a few shapes.
+///
+/// See [shapes.Shape] and [shapes.Circle.area] for the shapes it uses.
+
+import "shapes"
+
+fn main() {
+    let all: [shapes.Shape] = [shapes.Circle(radius: 1.0), shapes.Square(side: 2.0)]
+    for s in all {
+        println(shapes.describe(s))
+    }
+}
