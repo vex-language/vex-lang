@@ -155,7 +155,7 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-132** Bytes: a type for binary data, and reading and writing binary files (M)
 - [x] **V-115** Print values through one growing buffer; deeply nested values print in quadratic time today (S)
 - [x] **V-116** Unicode-aware strings: `upper`/`lower` beyond A–Z, and counting visible characters (grapheme clusters) (M)
-- [ ] **V-111** GC stage 2: precise roots and object layouts (L)
+- [x] **V-111** GC stage 2: precise roots and object layouts (L)
 - [ ] **V-112** GC stage 3: generational collection (done), returning memory to the OS (XL)
 - [x] **V-149** Leave out the overflow and bounds checks the compiler proves can't fail, and the capacity check of presized list fills (M)
 - [x] **V-171** `Set<T>` of Hashable values, with literals, `insert`, `remove`, `contains`, `union`, `intersection` and `subtracting` (M)
