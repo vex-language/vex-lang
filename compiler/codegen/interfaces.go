@@ -42,7 +42,7 @@ func prefixed(cs []string) string {
 // Writes the descriptor type, sized for the program's interfaces.
 func (g *gen) descType() {
 	n := max(1, len(g.info.Interfaces))
-	g.line("typedef struct { vx_str (*repr)(void *); void *const *itabs[%d]; } vx_desc;", n)
+	g.line("typedef struct { void (*wr)(vx_buf *, void *); void *const *itabs[%d]; } vx_desc;", n)
 }
 
 // A struct or enum that implements interfaces, as its descriptor needs it.
@@ -81,7 +81,7 @@ func (g *gen) enumDescriptor(e *types.Enum) {
 // thunks, while interface defaults already take `void *`.
 func (g *gen) descriptor(t implementer) {
 	g.line("")
-	g.line("static vx_str reprv_%s(void *v) { return %s; }", t.ident, repr(t.t, "v"))
+	g.line("static void wrv_%s(vx_buf *b, void *v) { %s }", t.ident, write(t.t, "b", "v"))
 	var tables []string
 	for _, i := range t.ifaces {
 		var entries []string
@@ -136,7 +136,7 @@ func (g *gen) descriptor(t implementer) {
 		g.line("static void *const %s[] = { %s };", table, strings.Join(entries, ", "))
 		tables = append(tables, fmt.Sprintf("[%d] = %s", i.Index, table))
 	}
-	g.line("static const vx_desc desc_%s = { reprv_%s, { %s } };", t.ident, t.ident, strings.Join(tables, ", "))
+	g.line("static const vx_desc desc_%s = { wrv_%s, { %s } };", t.ident, t.ident, strings.Join(tables, ", "))
 }
 
 // Writes a table entry called [name] with the signature of [m], taking

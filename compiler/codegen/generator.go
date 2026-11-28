@@ -54,9 +54,9 @@ func (g *gen) generatorFunction(f *types.Func) {
 	g.line("    bd_%s(%s);", name, strings.Join(args, ", "))
 	g.line("}")
 	g.line("static void *git_%s(void *self) { return vx_gen_new(self, en_%s, &desc_gen_%s, %d); }", name, name, ifaceName(iter), g.lineOf(f.Decl))
-	g.line("static vx_str reprv_gi_%s(void *v) { (void)v; return VX_LIT(%s); }", name, cQuote(it.String()))
+	g.line("static void wrv_gi_%s(vx_buf *b, void *v) { (void)v; %s }", name, writeLit("b", it.String()))
 	g.line("static void *const itab_gi_%s[] = { %s };", name, tableOf(it, map[string]string{"iterator": "git_" + name}))
-	g.line("static const vx_desc desc_gi_%s = { reprv_gi_%s, { [%d] = itab_gi_%s } };", name, name, it.Index, name)
+	g.line("static const vx_desc desc_gi_%s = { wrv_gi_%s, { [%d] = itab_gi_%s } };", name, name, it.Index, name)
 	g.line("static void *%s(%s) {", name, strings.Join(sig, ", "))
 	g.line("    gi_%s *a = vx_alloc(sizeof(gi_%s));", name, name)
 	g.line("    a->vx_t = &desc_gi_%s;", name)
@@ -88,9 +88,9 @@ func (g *gen) iteratorDesc(iter *types.Interface, elem types.Type) {
 	g.line("    %s;", decl(elem, "v"))
 	g.line("    return vx_gen_next(self, &v) ? %s : %s;", wrapOpt(opt, "v"), none)
 	g.line("}")
-	g.line("static vx_str reprv_gen_%s(void *v) { (void)v; return VX_LIT(%s); }", id, cQuote(iter.String()))
+	g.line("static void wrv_gen_%s(vx_buf *b, void *v) { (void)v; %s }", id, writeLit("b", iter.String()))
 	g.line("static void *const itab_gen_%s[] = { %s };", id, tableOf(iter, map[string]string{"next": "gnx_" + id}))
-	g.line("static const vx_desc desc_gen_%s = { reprv_gen_%s, { [%d] = itab_gen_%s } };", id, id, iter.Index, id)
+	g.line("static const vx_desc desc_gen_%s = { wrv_gen_%s, { [%d] = itab_gen_%s } };", id, id, iter.Index, id)
 }
 
 // Returns the entries of the method table of [i], filled from [fns], the
