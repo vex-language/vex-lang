@@ -1,0 +1,23 @@
+// Misusing vex:crypto: keys have their own types, data is Bytes, and
+// opening a box can fail.
+import "vex:crypto"
+
+fn main() {
+    let key = crypto.SecretKey.generate()
+    let a = crypto.seal("secret".toBytes(), Bytes(count: 32))
+    let b = crypto.open(a, key)
+    let c = crypto.sha256("text")
+    let d = key == crypto.SecretKey.generate()
+    let signer = crypto.SigningKey.generate()
+    let e = signer.verify("m".toBytes(), signature: Bytes())
+    let f = signer.verifyKey.sign("m".toBytes())
+    let g = crypto.legacy.sha256("m".toBytes())
+}
+
+// error: 7:45: argument 'key': expected crypto.SecretKey, found Bytes
+// error: 8:13: open can throw, so the call needs try
+// error: 9:27: argument 'data': expected Bytes, found string
+// error: 10:13: values of type crypto.SecretKey can't be compared with ==
+// error: 12:20: SigningKey has no method 'verify'
+// error: 13:30: VerifyKey has no method 'sign'
+// error: 14:27: Legacy has no method 'sha256'

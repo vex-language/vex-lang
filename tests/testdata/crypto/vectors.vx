@@ -1,0 +1,77 @@
+// Runs the test vectors in the file named by the first argument, one a
+// line: an operation and its inputs in hex, `-` for empty. Prints one
+// line for each: the result in hex, `valid` or `invalid`, or `fail`.
+import "vex:crypto"
+import "vex:fs"
+import "vex:os"
+
+extern fn chachaSeal(key: Bytes, nonce: Bytes, ad: Bytes, data: Bytes) -> Bytes? as "vx_crypto_chacha_seal"
+extern fn chachaOpen(key: Bytes, nonce: Bytes, ad: Bytes, box: Bytes) -> Bytes? as "vx_crypto_chacha_open"
+extern fn gcmSeal(key: Bytes, nonce: Bytes, ad: Bytes, data: Bytes) -> Bytes? as "vx_crypto_aes_gcm_seal"
+extern fn gcmOpen(key: Bytes, nonce: Bytes, ad: Bytes, box: Bytes) -> Bytes? as "vx_crypto_aes_gcm_open"
+extern fn hkdf256(secret: Bytes, salt: Bytes, info: Bytes, size: int) -> Bytes? as "vx_crypto_hkdf_sha256"
+extern fn hkdf512(secret: Bytes, salt: Bytes, info: Bytes, size: int) -> Bytes? as "vx_crypto_hkdf_sha512"
+extern fn argon2id(password: Bytes, salt: Bytes, secret: Bytes, ad: Bytes, size: int, kib: int, passes: int, lanes: int) -> Bytes? as "vx_crypto_argon2id"
+extern fn x25519(key: Bytes, peer: Bytes) -> Bytes? as "vx_crypto_x25519"
+
+fn hex(b: Bytes?) -> string {
+    guard let v = b else {
+        return "fail"
+    }
+    if v.isEmpty {
+        return "-"
+    }
+    return v.toHex()
+}
+
+fn check(ok: bool) -> string => if ok { "valid" } else { "invalid" }
+
+fn run(op: string, a: [Bytes], n: [int]) throws -> string {
+    match op {
+        "sha256" => return hex(crypto.sha256(a[0]))
+        "sha512" => return hex(crypto.sha512(a[0]))
+        "md5" => return hex(crypto.legacy.md5(a[0]))
+        "sha1" => return hex(crypto.legacy.sha1(a[0]))
+        "blake2b" => return hex(crypto.blake2b(a[1], size: n[0], key: a[0]))
+        "hmac256" => return hex(crypto.hmacSha256(a[0], a[1]))
+        "hmac512" => return hex(crypto.hmacSha512(a[0], a[1]))
+        "hkdf256" => return hex(hkdf256(a[0], a[1], a[2], n[0]))
+        "hkdf512" => return hex(hkdf512(a[0], a[1], a[2], n[0]))
+        "pbkdf2" => return hex(crypto.pbkdf2Sha256(a[0], a[1], iterations: n[0], size: n[1]))
+        "argon2id" => return hex(argon2id(a[0], a[1], a[2], a[3], n[0], n[1], n[2], n[3]))
+        "chacha-seal" => return hex(chachaSeal(a[0], a[1], a[2], a[3]))
+        "chacha-open" => return hex(chachaOpen(a[0], a[1], a[2], a[3]))
+        "gcm-seal" => return hex(gcmSeal(a[0], a[1], a[2], a[3]))
+        "gcm-open" => return hex(gcmOpen(a[0], a[1], a[2], a[3]))
+        "ed25519-sign" => {
+            let key = try crypto.SigningKey.fromSeed(a[0])
+            return "{key.verifyKey.bytes.toHex()} {key.sign(a[1]).toHex()}"
+        }
+        "ed25519-verify" => return check(crypto.VerifyKey(bytes: a[0]).verify(message: a[1], signature: a[2]))
+        "x25519" => return hex(x25519(a[0], a[1]))
+        "x25519-public" => return hex((try crypto.ExchangeKey.fromBytes(a[0])).publicKey.bytes)
+        "p256-verify" => return check(crypto.verifyP256(message: a[1], signature: a[2], publicKey: a[0]))
+        _ => return "unknown operation {op}"
+    }
+}
+
+fn main() throws {
+    let text = try fs.read(os.args()[0])
+    var out: [string] = []
+    for line in text.lines() {
+        let fields = line.split(" ")
+        var bytes: [Bytes] = []
+        var ints: [int] = []
+        for f in fields[1..] {
+            if f == "-" {
+                bytes.push(Bytes())
+            } else if f.startsWith("#") {
+                ints.push(int(f[1..]))
+            } else {
+                bytes.push(Bytes.fromHex(f) ?? Bytes())
+            }
+        }
+        out.push(try run(fields[0], bytes, ints))
+    }
+    println(out.join("\n"))
+}

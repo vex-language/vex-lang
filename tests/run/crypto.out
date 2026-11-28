@@ -1,0 +1,43 @@
+ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad
+cf83e1357eefb8bdf1542850d66d8007
+bddd813c634239723171ef3fee98579b94964e3bb1cb3e427262c8c068d52319
+2cf02ae16ac225ee731f9d359d8a1c38
+9c196e32dc0175f86f4b1cb89289d6619de6bee699e4c378e68309ed97a1a6ab
+64
+fca9cb8fd4cb520dcdc9eb7f70577cfc88192bacdf72d3c0e3ec10c7fe28dd9a
+f1156507c39b0e32
+64
+632c2812e46d4604102ba7618e9d6d7d
+16a1a498734609dd01456da406de9f3d9da93e6c86c300a12fc1465214ce4922
+900150983cd24fb0d6963f7d28e17f72 a9993e364706816aba3e25717850c26c9cd0d89d
+32 0 false
+36 [8, 4, 4, 4, 12] 4 true true
+true false false
+SecretKey(32 bytes) 32
+54 false
+attack at dawn
+can't open the data: the data was changed or the key is wrong
+can't open the data: the data was changed or the key is wrong
+can't open the data: it is too short to have been sealed
+x
+can't open the data: the data was changed or the key is wrong
+35 interop
+can't open the data: the data was changed or the key is wrong
+abc
+a SecretKey needs 32 bytes, found 16
+SigningKey(Ed25519) VerifyKey(d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a)
+true
+64 true false
+false
+true
+true
+an Ed25519 public key needs 32 bytes, found 31
+an Ed25519 seed needs 32 bytes, found 0
+ExchangeKey(X25519) 32 true
+can't agree on a secret: the public key is weak and gives no shared secret
+P256SigningKey(P-256) 65 4 true
+true
+false
+true
+not a P-256 private key: it needs 97 bytes, 0x04, X, Y and the scalar, that belong together
+false false
