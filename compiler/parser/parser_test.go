@@ -407,6 +407,11 @@ enum Suit: Drawable, Store<Suit> {
     hearts
     get name -> string => "suit"
 }
+enum Color: int, Drawable {
+    red = 1
+    green
+    operator +(other: Color) -> Color => self
+}
 fn largest<T: Ordered<T> & Equatable>(xs: [T]) -> T? => nil
 pub sealed interface Result: Shape {}
 sealed interface Tree<T> {}
@@ -422,6 +427,7 @@ fn sealed(sealed: int) -> int => sealed
 		"struct Box<T>: Shape",
 		"(interface Store<T: Hashable>: Sized, m.Named (get size -> int) (set size param value: int) (fn get param key: string -> T?))",
 		`(enum Suit: Drawable, Store<Suit> case hearts (get name -> string (=> "suit")))`,
+		"(enum Color: int, Drawable (case red (raw 1)) case green (operator + param other: Color -> Color (=> self)))",
 		"(fn largest<T: Ordered<T> & Equatable> param xs: [T] -> T? (=> nil))",
 		"pub sealed interface Result: Shape",
 		"sealed interface Tree<T>",
@@ -939,7 +945,7 @@ func TestErrors(t *testing.T) {
 		{"index set arity", "struct A {\n    operator []=(i: int) {}\n}", "2:17", "operator '[]=' takes 2 parameters, found 1", "write operator []=(index: int, value: T)"},
 		{"generic operator", "struct A {\n    operator +<T>(o: T) -> A => self\n}", "2:15", "operators can't take type parameters", ""},
 		{"throwing operator", "struct A {\n    operator +(o: A) throws -> A => o\n}", "2:22", "operators can't throw", "make it a method that throws instead"},
-		{"enum operator", "enum E {\n    a\n    operator +(o: E) -> E => a\n}", "3:5", "enums can't define operators yet", "use a method, or a struct that holds the enum"},
+		{"raw type last", "enum E: Drawable, int {\n    a\n}", "1:19", "the raw type must come before the interfaces", "write the raw type first: enum E: int, ..."},
 		{"interface operator", "interface I {\n    operator ==(o: I) -> bool\n}", "2:5", "interfaces can't declare operators", "require a method instead, and define the operator in each struct"},
 		{"typedef in function", "fn main() {\n typedef T = int\n}", "2:2", "typedefs can't be declared inside functions", "declare it at the top level of the file"},
 		{"typedef without =", "typedef T int", "1:11", "expected '=' after the type's name, found 'int'", "write typedef T = the type it names, e.g. typedef T = [string: int]"},
