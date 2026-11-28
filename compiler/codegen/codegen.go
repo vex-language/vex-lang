@@ -1883,6 +1883,11 @@ func (g *gen) value(e ast.Expr) string {
 			if l, ok := g.info.Types[e.X].(*types.List); ok {
 				return g.listProperty(e, m.Builtin, l, g.expr(e.X))
 			}
+			if _, ok := g.info.Types[e.X].(*types.Map); ok {
+				return "((" + g.expr(e.X) + ")->len == 0)"
+			}
+		case "entries":
+			return g.mapEntries(g.info.Types[e.X].(*types.Map), g.expr(e.X))
 		case "isCancelled":
 			return "((" + g.expr(e.X) + ")->state == 3)"
 		case "stream":
@@ -2237,6 +2242,7 @@ func (g *gen) memberBuiltin(e *ast.CallExpr, c *types.Call, line int) string {
 			case "copy":
 				return "vx_map_copy(" + cs[0] + ")"
 			}
+			return g.mapMember(e, c, m, cs, line)
 		}
 		if l, ok := recv.(*types.List); ok {
 			if s := g.listMember(e, c, l, cs, line); s != "" {

@@ -127,6 +127,10 @@ func mapMethodHint(recv Type, name string) string {
 		return "use .remove(key)"
 	case "set", "put", "insert":
 		return "write m[key] = value"
+	case "putIfAbsent", "setdefault":
+		return "use .getOrPut(key) { value }"
+	case "getOrDefault", "getOrElse":
+		return "write m[key] ?? fallback"
 	}
 	return ""
 }
@@ -156,4 +160,39 @@ func literalKey(k ast.Expr) string {
 		return fmt.Sprint(k.Value)
 	}
 	return ""
+}
+
+// Returns the record type of the entries of [m]: `({K key, V value})`.
+func mapEntry(m *Map) *Record {
+	return &Record{Named: []RecordField{{"key", m.Key}, {"value", m.Value}}}
+}
+
+// Checks `m.mapValues(fn(v) => ...)`, whose result is a map with the same
+// keys and whatever the function returns as values.
+func (c *checker) mapValuesCall(e *ast.CallExpr, m *ast.MemberExpr, mt *Map) Type {
+	args := withBlock(e)
+	if len(args) != 1 || args[0].Name != nil {
+		c.checkArgs(e)
+		c.errorAt(m.Name, "e.g. m.mapValues(fn(v) => v * 2)", "mapValues takes 1 function")
+		return Invalid
+	}
+	arg := args[0].Value
+	t := c.expr(arg, &FuncType{Params: []Type{mt.Value}})
+	ft, ok := t.(*FuncType)
+	switch {
+	case t == Invalid:
+		return Invalid
+	case !ok || len(ft.Params) != 1 || !Identical(ft.Params[0], mt.Value):
+		c.errorAt(arg, "e.g. m.mapValues(fn(v) => v * 2)", "mapValues needs a function that takes %s, found %s", mt.Value, t)
+		return Invalid
+	case ft.Result == Void:
+		c.errorAt(arg, "", "mapValues needs a function that returns a value")
+		return Invalid
+	}
+	if _, ok := ft.Result.(*Optional); ok {
+		c.errorAt(arg, "filter out the entries first, or give a fallback with ??", "map values can't be optional, so mapValues needs a function that returns %s, not %s", ft.Result.(*Optional).Elem, ft.Result)
+		return Invalid
+	}
+	c.info.Calls[e] = &Call{Kind: MemberBuiltinCall, Builtin: "mapValues", Recv: m.X, Args: []ast.Expr{arg}}
+	return &Map{Key: mt.Key, Value: ft.Result}
 }

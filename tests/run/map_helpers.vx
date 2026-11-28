@@ -1,0 +1,79 @@
+struct Point: Hashable {
+    x: int
+    y: int
+}
+
+fn main() {
+    var ages = ["ann": 31, "bob": 25, "cat": 40]
+    let none: [string: int] = [:]
+    println(ages.isEmpty, none.isEmpty)
+
+    // getOrPut runs the block only for a missing key.
+    var calls = 0
+    println(ages.getOrPut("ann") {
+        calls += 1
+        0
+    })
+    println(ages.getOrPut("dan") {
+        calls += 1
+        19
+    })
+    println(calls, ages)
+
+    var groups: [string: [string]] = [:]
+    for word in ["apple", "avocado", "banana", "blueberry", "cherry"] {
+        groups.getOrPut(word.substring(0, 1)) { [] }.push(word)
+    }
+    println(groups)
+
+    // update changes an existing value and gives nil for a missing key.
+    println(ages.update("bob") { it + 1 })
+    println(ages.update("zoe") { old in old + 1 })
+    println(ages)
+
+    var counts: [string: int] = [:]
+    for w in "a b a c b a".split(" ") {
+        let n = counts.update(w) { it + 1 }
+        if n == nil {
+            counts[w] = 1
+        }
+    }
+    println(counts)
+
+    // filter and mapValues give new maps and keep the order.
+    let adults = ages.filter { name, age in age >= 30 }
+    println(adults, ages.len)
+    println(ages.filter { k, _ in k.startsWith("c") })
+    println(ages.mapValues { "{it} years" })
+    println(ages.mapValues(fn(a) => float(a) / 2.0))
+
+    for e in ages.entries {
+        println(e.key, e.value)
+    }
+    for (key: name, value: age) in ages.entries {
+        println("{name}={age}")
+    }
+    println(none.entries, ages.entries.len)
+
+    // Struct keys go through the generated hash.
+    var grid = [Point(x: 0, y: 0): "origin"]
+    println(grid.getOrPut(Point(x: 1, y: 2)) { "p" }, grid.len)
+    println(grid.mapValues { it.len }.values)
+    println(grid.filter { p, _ in p.x > 0 }.keys)
+
+    // A loop sees the entries there were at the start.
+    var growing = [1: 1, 2: 2]
+    let seen = growing.filter { k, v in
+        growing[k + 10] = v
+        true
+    }
+    println(seen, growing.len)
+
+    // Tear-offs bind the map.
+    let put = ages.getOrPut
+    println(put("eve", fn() => 50), ages["eve"] ?? 0)
+    let keep = ages.filter
+    println(keep(fn(k, v) => v > 40))
+    let bump = counts.update
+    println(bump("a", fn(n) => n * 10), counts)
+}

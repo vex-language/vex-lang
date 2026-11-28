@@ -469,6 +469,9 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 			return c.reduceCall(e, m, l)
 		}
 	}
+	if mt, ok := recv.(*Map); ok && name == "mapValues" {
+		return c.mapValuesCall(e, m, mt)
+	}
 	sig := builtinMember(recv, name)
 	if sig == nil {
 		if t := c.recvCall(e, m, recv, want); t != nil {
@@ -480,7 +483,7 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 		}
 		if hint := mapMethodHint(recv, name); hint != "" {
 			c.errorAt(m.Name, hint, "%s has no method '%s'", recv, name)
-		} else if name == "len" || name == "keys" || name == "values" || name == "first" || name == "last" || name == "isEmpty" || name == "isCancelled" || name == "stream" || name == "isClosed" {
+		} else if name == "len" || name == "keys" || name == "values" || name == "entries" || name == "first" || name == "last" || name == "isEmpty" || name == "isCancelled" || name == "stream" || name == "isClosed" {
 			c.errorAt(m.Name, "write it without (): ."+name, "%s is a property, not a method", name)
 		} else {
 			c.errorAt(m.Name, didYouMean(name, builtinMemberNames(recv)), "%s has no method '%s'", recv, name)
@@ -521,7 +524,8 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 			c.constChange(m.X, "list")
 		}
 	case *Map:
-		if name == "remove" {
+		switch name {
+		case "remove", "getOrPut", "update":
 			c.constChange(m.X, "map")
 		}
 	}
@@ -981,6 +985,12 @@ func builtinMember(recv Type, name string) *memberSig {
 			return &memberSig{[]slot{{name: "key", typ: m.Key}}, &Optional{Elem: m.Value}}
 		case "copy":
 			return &memberSig{nil, m}
+		case "getOrPut":
+			return &memberSig{[]slot{{name: "key", typ: m.Key}, {name: "defaultValue", typ: &FuncType{Result: m.Value}}}, m.Value}
+		case "update":
+			return &memberSig{[]slot{{name: "key", typ: m.Key}, {name: "transform", typ: &FuncType{Params: []Type{m.Value}, Result: m.Value}}}, &Optional{Elem: m.Value}}
+		case "filter":
+			return &memberSig{[]slot{{name: "keep", typ: &FuncType{Params: []Type{m.Key, m.Value}, Result: Bool}}}, m}
 		}
 		return nil
 	}
@@ -1038,7 +1048,8 @@ func builtinMemberNames(recv Type) []string {
 			"sort", "sorted", "reversed", "min", "max", "sum", "join", "slice", "copy"}
 	}
 	if _, ok := recv.(*Map); ok {
-		return []string{"len", "keys", "values", "contains", "remove", "copy"}
+		return []string{"len", "isEmpty", "keys", "values", "entries", "contains", "remove", "copy",
+			"getOrPut", "update", "filter", "mapValues"}
 	}
 	if _, ok := recv.(*Channel); ok {
 		return []string{"send", "receive", "receiveSync", "close"}
