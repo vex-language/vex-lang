@@ -1523,6 +1523,33 @@ fn main() throws(ParseError) {
 	}
 }
 
+// A program built without traces keeps no frames.
+func TestNoTraces(t *testing.T) {
+	src := "enum E { bad }\nfn f(n: int) throws(E) -> int {\n    if n == 0 { throw .bad }\n    return n\n}\nfn main() throws(E) {\n    let g = fn(x: int) -> int => x * 2\n    println(g(try f(1)))\n}\n"
+	f := diag.NewFile("main.vx", src)
+	tree, err := parser.Parse(f)
+	if err != nil {
+		t.Fatal(err)
+	}
+	info, err := types.Check(f, tree)
+	if err != nil {
+		t.Fatal(err)
+	}
+	c := GenerateWith(info, "main.vx", Options{})
+	if strings.Contains(c, "#define VX_TRACES") {
+		t.Error("generated code without traces turns them on")
+	}
+	c = c[strings.Index(c, "// --- Program ---"):]
+	for _, gone := range []string{"VX_ENTER", "vx_fr", "vx_throw"} {
+		if strings.Contains(c, gone) {
+			t.Errorf("generated code without traces has %q", gone)
+		}
+	}
+	if !strings.Contains(GenerateWith(info, "main.vx", Options{Traces: true}), "VX_ENTER(\"f\")") {
+		t.Error("generated code with traces has no frames")
+	}
+}
+
 // Compiles generated code with strict warnings, to catch sloppy C that the
 // normal build would hide.
 func TestGeneratedCodeIsWarningFree(t *testing.T) {

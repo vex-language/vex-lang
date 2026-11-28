@@ -72,14 +72,19 @@ static void vx_test_mark(void) {
 // --- Errors ---
 
 // A call of a Vex function in progress, kept on the C stack. Each thread
-// and each task has its own chain, from the innermost call out.
+// and each task has its own chain, from the innermost call out. Programs
+// built without traces define no VX_TRACES and keep no frames.
 typedef struct vx_frame {
     struct vx_frame *prev;
     const char *name;
     int line;                 // where this function last called another
 } vx_frame;
 
+#if defined(__APPLE__)
 static VX_TLS vx_frame *vx_top;
+#else
+static VX_TLS vx_frame *vx_top __attribute__((tls_model("initial-exec")));
+#endif
 
 static inline void vx_leave(vx_frame *f) { vx_top = f->prev; }
 
@@ -125,7 +130,9 @@ static void vx_fail(int line, const char *fmt, ...) {
     vfprintf(stderr, fmt, ap);
     va_end(ap);
     fprintf(stderr, "\n --> %s:%d\n", vx_files[line >> 20], line & 0xFFFFF);
+#ifdef VX_TRACES
     vx_trace(vx_top, line);
+#endif
     exit(1);
 }
 
@@ -4558,8 +4565,10 @@ static VX_TLS int vx_spare_len;
 static void vx_switch(vx_task *to, bool ending) {
     vx_task *from = vx_cur;
     vx_cur = to;
+#ifdef VX_TRACES
     from->frames = vx_top;
     vx_top = to->frames;
+#endif
     vx_stack_base = to->top;
 #ifdef VX_ASAN
     __sanitizer_start_switch_fiber(ending ? NULL : &from->asan_fake, to->asan_bottom, to->asan_size);
@@ -4665,10 +4674,12 @@ static vx_task *vx_task_make(void (*entry)(void *), void *arg) {
 static void vx_go_f(void (*entry)(void *), void *arg, struct vx_future *f) {
     vx_task *t = vx_task_make(entry, arg);
     t->parent = vx_cur;
+#ifdef VX_TRACES
     if (vx_top) {
         t->origin = vx_top->name;
         t->origin_line = vx_top->line;
     }
+#endif
     t->future = f;
     if (f) vx_future_own(f, t);
     if (vx_tasks_len == vx_tasks_cap) vx_tasks = vx_grow(vx_tasks, &vx_tasks_cap, sizeof(vx_task *));

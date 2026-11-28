@@ -48,6 +48,9 @@ type gen struct {
 	// are frozen.
 	constMode bool
 
+	// Set when functions keep frames for stack traces.
+	traces bool
+
 	// The name shown in stack traces for the function being generated, set
 	// while it has a frame that its calls record their lines in.
 	frameName string
@@ -134,10 +137,23 @@ type gen struct {
 	jsonDefs      strings.Builder
 }
 
-// Returns the C source of the program described by [info]. [srcName] is
-// the file name shown in runtime errors.
+// Options choose what the generated program carries.
+type Options struct {
+	// Whether runtime errors list the calls that led to them. Each call
+	// then records itself, which slows down programs made of many small
+	// calls.
+	Traces bool
+}
+
+// Returns the C source of the program described by [info], with stack
+// traces. [srcName] is the file name shown in runtime errors.
 func Generate(info *types.Info, srcName string) string {
-	g := &gen{info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{}, throwingValues: map[*types.Func]bool{},
+	return GenerateWith(info, srcName, Options{Traces: true})
+}
+
+// Like [Generate], with the choices in [opts].
+func GenerateWith(info *types.Info, srcName string, opts Options) string {
+	g := &gen{traces: opts.Traces, info: info, reprs: map[string]types.Type{}, fnValues: map[*types.Func]bool{}, throwingValues: map[*types.Func]bool{},
 		opts: map[string]*types.Optional{}, recs: map[string]*types.Record{}, recvs: map[ast.Expr]string{}, chaining: map[ast.Expr]bool{},
 		builds: map[ast.Expr]string{}, fills: map[ast.Expr]fill{}, litNames: map[*ast.FuncLit]string{}, localNames: map[*ast.FuncLit]string{}, codecs: map[string]bool{},
 		ifResults: map[*ast.IfExpr]string{}}
@@ -192,6 +208,9 @@ func Generate(info *types.Info, srcName string) string {
 
 	var out strings.Builder
 	g.b, g.ind = &out, 0
+	if g.traces {
+		g.line("#define VX_TRACES 1")
+	}
 	g.b.WriteString(runtime)
 	g.line("")
 	g.line("// --- Program ---")
@@ -634,6 +653,9 @@ func (g *gen) enter(b *strings.Builder) {
 // Starts the frame of the function being generated, which stack traces
 // show as [name].
 func (g *gen) enterFrame(name string) {
+	if !g.traces {
+		return
+	}
 	g.frameName = name
 	g.line("VX_ENTER(%s);", cQuote(name))
 }
@@ -1206,7 +1228,11 @@ func (g *gen) emitStmt(s ast.Stmt) {
 	case *ast.LocalFuncStmt:
 		g.localFunc(s)
 	case *ast.ThrowStmt:
-		g.line("*vx_err = vx_throw(%s, %d);", g.expr(s.Value), g.lineOf(s))
+		if g.traces {
+			g.line("*vx_err = vx_throw(%s, %d);", g.expr(s.Value), g.lineOf(s))
+		} else {
+			g.line("*vx_err = %s;", g.expr(s.Value))
+		}
 		g.line("%s%s", g.leaving(), zeroReturn(g.result))
 	case *ast.BreakStmt:
 		g.jump(s.Label, false)
