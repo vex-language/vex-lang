@@ -1,0 +1,14 @@
+/// A closed set of results that only this module extends.
+pub sealed interface Result {}
+
+pub struct Ok: Result {
+    pub value: int
+}
+
+struct Hidden: Result {}
+
+pub interface Plain {}
+
+/// An open interface over a sealed one, which still only this module
+/// implements.
+pub interface Wider: Result {}

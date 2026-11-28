@@ -265,6 +265,9 @@ func (c *checker) match(m *ast.MatchExpr, want Type, stmt bool) Type {
 		} else if subject != Invalid {
 			sp := c.lower(arm.Pattern, subject)
 			key := simpleKey(arm.Pattern, c.info)
+			if wholeMember(sp) {
+				key = "value " + sp.key
+			}
 			// Literals and constants with the same value repeat each other.
 			if sp.kind == sOpaque && !strings.HasPrefix(sp.key, "const ") && !strings.HasPrefix(sp.key, "range ") {
 				key = "value " + sp.key
@@ -372,9 +375,15 @@ func (c *checker) checkExhaustive(m *ast.MatchExpr, subject Type, rows []patRow)
 		return
 	}
 	var missing []string
+	var arms []string
+	var hidden Type
+	sealed := e.c.sealedMembers(subject) != nil
 	switch subject.(type) {
 	case *Enum:
 	default:
+		if sealed {
+			break
+		}
 		if subject != Bool {
 			switch {
 			case w[0] != "_":
@@ -382,26 +391,50 @@ func (c *checker) checkExhaustive(m *ast.MatchExpr, subject Type, rows []patRow)
 				c.errorAtPos(m.Pos(), 5, "add _ => ... as the last arm", "a match on %s needs a _ arm for the other values", subject)
 				return
 			default:
-				c.errorAtPos(m.Pos(), 5, "add _ => ... as the last arm", "match doesn't handle every %s value", subject)
+				hint := "add _ => ... as the last arm"
+				if i, ok := subject.(*Interface); ok && i.Sealed && genericMember(i) {
+					hint += ", since a generic type implements " + i.String()
+				}
+				c.errorAtPos(m.Pos(), 5, hint, "match doesn't handle every %s value", subject)
 				return
 			}
 			missing = []string{w[0]}
 		}
 	}
 	if missing == nil {
-		for _, k := range ctors(subject, nil) {
+		for _, k := range e.ctors(subject, nil) {
 			spec := specializeRows(rows, k)
-			if len(spec) == 0 {
+			switch {
+			case len(spec) == 0 && sealed:
+				missing = append(missing, k.types[0].String())
+				arms = append(arms, memberArm(k.types[0]))
+				if hidden == nil && !c.visibleType(k.types[0]) {
+					hidden = k.types[0]
+				}
+			case len(spec) == 0:
 				missing = append(missing, k.key)
-			} else if w := e.missing(spec, k.types); w != nil {
-				missing = append(missing, show(subject, k, w))
+			default:
+				if w := e.missing(spec, k.types); w != nil {
+					shown := show(subject, k, w)
+					missing = append(missing, shown)
+					if sealed && shown == k.types[0].String() {
+						shown = memberArm(k.types[0])
+					}
+					arms = append(arms, shown)
+				}
 			}
 		}
 	}
-	switch len(missing) {
-	case 0:
-	case 1:
-		c.errorAtPos(m.Pos(), 5, fmt.Sprintf("add %s => ..., or _ => ...", missing[0]), "match doesn't handle %s", quoteList(missing))
+	switch {
+	case len(missing) == 0:
+	case hidden != nil:
+		c.errorAtPos(m.Pos(), 5, fmt.Sprintf("add _ => ..., since %s is private to %s", hidden, typeModule(hidden)), "match doesn't handle %s", quoteList(missing))
+	case len(missing) == 1:
+		arm := missing[0]
+		if sealed {
+			arm = arms[0]
+		}
+		c.errorAtPos(m.Pos(), 5, fmt.Sprintf("add %s => ..., or _ => ...", arm), "match doesn't handle %s", quoteList(missing))
 	default:
 		c.errorAtPos(m.Pos(), 5, "add the missing arms, or _ => ...", "match doesn't handle %s", quoteList(missing))
 	}
