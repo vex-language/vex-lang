@@ -3,7 +3,7 @@
 
 extern fn cArgCount() -> int as "vx_os_argc"
 extern fn cArg(i: int) -> string as "vx_os_arg"
-extern fn cGetEnv(name: string) -> string? as "getenv"
+extern fn cGetEnv(name: string) -> string? as "vx_os_get_env"
 extern fn cSetEnv(name: string, value: string) as "vx_os_set_env"
 extern fn cExit(code: int) as "vx_os_exit"
 extern fn cCwd() -> string? as "vx_os_cwd"

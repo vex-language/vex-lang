@@ -1,8 +1,9 @@
 // Runtime library compiled into every Vex program.
 
 #ifdef _WIN32
-// Windows 10 and later.
+// Windows 10 and later, and file sizes past 2 GB.
 #define _WIN32_WINNT 0x0A00
+#define _FILE_OFFSET_BITS 64
 #endif
 
 #include <ctype.h>
@@ -25,7 +26,13 @@
 #define WIN32_LEAN_AND_MEAN
 #define NOMINMAX
 #include <windows.h>
+#include <bcrypt.h>
+#include <direct.h>
+#include <fcntl.h>
+#include <io.h>
+#include <locale.h>
 #include <process.h>
+#include <shellapi.h>
 #else
 #include <pthread.h>
 #include <sys/mman.h>
@@ -1175,8 +1182,14 @@ static void vx_catch_stack_overflow(void) {
 
 // Prepares the runtime; [base] is the top of the stack.
 static void vx_inbox_init(void);
+#ifdef _WIN32
+static void vx_windows_init(void);
+#endif
 
 static void vx_init(void *base) {
+#ifdef _WIN32
+    vx_windows_init();
+#endif
     vx_gc_init(base);
     vx_catch_stack_overflow();
     vx_inbox_init();
@@ -1213,9 +1226,21 @@ static vx_str vx_str_from_c(const char *p) {
 
 // Nanoseconds from a fixed point in the past, for measuring time.
 static int64_t vx_time_ns(void) {
+#ifdef _WIN32
+    static int64_t freq;
+    LARGE_INTEGER now;
+    if (!freq) {
+        LARGE_INTEGER f;
+        QueryPerformanceFrequency(&f);
+        freq = f.QuadPart;
+    }
+    QueryPerformanceCounter(&now);
+    return now.QuadPart / freq * 1000000000 + now.QuadPart % freq * 1000000000 / freq;
+#else
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (int64_t)ts.tv_sec * 1000000000 + ts.tv_nsec;
+#endif
 }
 
 // Seconds since 1970-01-01 UTC.
@@ -1223,9 +1248,17 @@ static int64_t vx_time_unix(void) { return (int64_t)time(NULL); }
 
 // Microseconds since 1970-01-01 UTC, for vex:datetime.
 static int64_t vx_datetime_now(void) {
+#ifdef _WIN32
+    // In 100 ns steps since 1601-01-01 UTC.
+    FILETIME ft;
+    GetSystemTimePreciseAsFileTime(&ft);
+    int64_t t = (int64_t)(((uint64_t)ft.dwHighDateTime << 32) | ft.dwLowDateTime);
+    return t / 10 - INT64_C(11644473600000000);
+#else
     struct timespec ts;
     clock_gettime(CLOCK_REALTIME, &ts);
     return (int64_t)ts.tv_sec * 1000000 + ts.tv_nsec / 1000;
+#endif
 }
 
 // Returns how many seconds the local time zone is ahead of UTC at
@@ -1235,8 +1268,14 @@ static int64_t vx_datetime_offset(int64_t seconds) {
     tzset();
     time_t t = (time_t)seconds;
     struct tm tm;
+#ifdef _WIN32
+    // The local time read back as UTC is ahead of [t] by the offset.
+    if (localtime_s(&tm, &t) != 0) return 0;
+    return (int64_t)(_mkgmtime(&tm) - t);
+#else
     if (!localtime_r(&t, &tm)) return 0;
     return (int64_t)tm.tm_gmtoff;
+#endif
 }
 
 // Returns 64 bits from the operating system's random source, to seed an
@@ -1245,6 +1284,8 @@ static int64_t vx_random_seed(void) {
     uint64_t seed = 0;
 #if defined(__APPLE__)
     arc4random_buf(&seed, sizeof seed);
+#elif defined(_WIN32)
+    BCryptGenRandom(NULL, (PUCHAR)&seed, sizeof seed, BCRYPT_USE_SYSTEM_PREFERRED_RNG);
 #else
     FILE *f = fopen("/dev/urandom", "rb");
     bool ok = f && fread(&seed, sizeof seed, 1, f) == 1;
@@ -3075,7 +3116,20 @@ static int64_t vx_shr(int64_t a, int64_t b, int line) {
 
 // --- Input and output ---
 
-static void vx_write(vx_str s) { fwrite(s.ptr, 1, (size_t)s.len, stdout); }
+#ifdef _WIN32
+// Stops the program once standard output is a closed pipe, as SIGPIPE
+// does elsewhere, with the status a shell shows for that.
+#define VX_CHECK_OUT() do { \
+    if (ferror(stdout) && (GetLastError() == ERROR_NO_DATA || GetLastError() == ERROR_BROKEN_PIPE)) _exit(128 + 13); \
+} while (0)
+#else
+#define VX_CHECK_OUT() ((void)0)
+#endif
+
+static void vx_write(vx_str s) {
+    fwrite(s.ptr, 1, (size_t)s.len, stdout);
+    VX_CHECK_OUT();
+}
 
 // Prints [n] strings separated by spaces, then a newline if [newline] is set.
 static void vx_print(bool newline, int n, const vx_str *parts) {
@@ -3084,6 +3138,7 @@ static void vx_print(bool newline, int n, const vx_str *parts) {
         vx_write(parts[i]);
     }
     if (newline) fputc('\n', stdout);
+    VX_CHECK_OUT();
 }
 
 // Prints like vx_print, to standard error. Standard output is flushed
@@ -3097,6 +3152,56 @@ static void vx_eprint(bool newline, int n, const vx_str *parts) {
     if (newline) fputc('\n', stderr);
 }
 
+#ifdef _WIN32
+static char *vx_utf8_of(const wchar_t *w, int n);
+
+// Reads a line from standard input into [*line], growing it, as getline
+// does. A console is read as UTF-16, which is the only way it gives
+// every character, and the line converted to UTF-8.
+static ssize_t vx_getline(char **line, size_t *cap, FILE *f) {
+    HANDLE in = GetStdHandle(STD_INPUT_HANDLE);
+    DWORD mode;
+    if (f == stdin && GetConsoleMode(in, &mode)) {
+        wchar_t buf[1024];
+        wchar_t *w = NULL;
+        int len = 0;
+        DWORD got;
+        while (ReadConsoleW(in, buf, 1024, &got, NULL) && got > 0) {
+            w = realloc(w, (size_t)(len + (int)got) * sizeof(wchar_t));
+            if (!w) vx_out_of_memory();
+            memcpy(w + len, buf, got * sizeof(wchar_t));
+            len += (int)got;
+            if (w[len - 1] == L'\n') break;
+        }
+        if (len == 0 || w[0] == 26) {  // Ctrl+Z ends the input
+            free(w);
+            return -1;
+        }
+        free(*line);
+        *line = vx_utf8_of(w, len);
+        free(w);
+        *cap = strlen(*line) + 1;
+        return (ssize_t)strlen(*line);
+    }
+    size_t n = 0;
+    int c;
+    while ((c = getc(f)) != EOF) {
+        if (n + 2 > *cap) {
+            *cap = *cap ? *cap * 2 : 128;
+            *line = realloc(*line, *cap);
+            if (!*line) vx_out_of_memory();
+        }
+        (*line)[n++] = (char)c;
+        if (c == '\n') break;
+    }
+    if (n == 0) return -1;
+    (*line)[n] = 0;
+    return (ssize_t)n;
+}
+#else
+#define vx_getline getline
+#endif
+
 // Reads one line from standard input without its line break; "" at the end
 // of input.
 static vx_str vx_input(vx_str prompt) {
@@ -3104,7 +3209,7 @@ static vx_str vx_input(vx_str prompt) {
     fflush(stdout);
     char *line = NULL;
     size_t cap = 0;
-    ssize_t n = getline(&line, &cap, stdin);
+    ssize_t n = vx_getline(&line, &cap, stdin);
     if (n <= 0) {
         free(line);
         return VX_LIT("");
@@ -3157,6 +3262,54 @@ static void vx_test_error(vx_str message) {
 static VX_TLS int vx_errno;
 static int vx_argc;
 static char **vx_argv;
+
+#ifdef _WIN32
+// Returns a malloc'd UTF-8 copy of the [n] UTF-16 units at [w], or of the
+// whole NUL-terminated string when [n] is -1.
+static char *vx_utf8_of(const wchar_t *w, int n) {
+    int len = WideCharToMultiByte(CP_UTF8, 0, w, n, NULL, 0, NULL, NULL);
+    char *s = malloc((size_t)len + 1);
+    if (!s) vx_out_of_memory();
+    WideCharToMultiByte(CP_UTF8, 0, w, n, s, len, NULL, NULL);
+    s[len] = 0;
+    return s;
+}
+
+// Returns a malloc'd UTF-16 copy of the UTF-8 string [s].
+static wchar_t *vx_utf16_of(const char *s) {
+    int len = MultiByteToWideChar(CP_UTF8, 0, s, -1, NULL, 0);
+    wchar_t *w = malloc((size_t)len * sizeof(wchar_t));
+    if (!w) vx_out_of_memory();
+    MultiByteToWideChar(CP_UTF8, 0, s, -1, w, len);
+    return w;
+}
+
+static UINT vx_console_cp;
+
+static void vx_console_restore(void) { SetConsoleOutputCP(vx_console_cp); }
+
+// Makes a program on Windows work in UTF-8 as it does elsewhere: its
+// arguments, the file names it passes to the C library and the text it
+// shows in a console. Its output is written byte for byte, so a newline
+// stays one byte.
+static void vx_windows_init(void) {
+    setlocale(LC_CTYPE, ".UTF8");
+    vx_console_cp = GetConsoleOutputCP();
+    if (vx_console_cp != CP_UTF8 && SetConsoleOutputCP(CP_UTF8)) atexit(vx_console_restore);
+    _setmode(_fileno(stdout), _O_BINARY);
+    _setmode(_fileno(stderr), _O_BINARY);
+    int argc;
+    wchar_t **wargv = CommandLineToArgvW(GetCommandLineW(), &argc);
+    if (!wargv) return;
+    char **argv = malloc(((size_t)argc + 1) * sizeof(char *));
+    if (!argv) vx_out_of_memory();
+    for (int i = 0; i < argc; i++) argv[i] = vx_utf8_of(wargv[i], -1);
+    argv[argc] = NULL;
+    LocalFree(wargv);
+    vx_argc = argc;
+    vx_argv = argv;
+}
+#endif
 
 static const char *vx_os_error(void) { return strerror(vx_errno); }
 
@@ -3240,16 +3393,28 @@ static bool vx_fs_remove(const char *path) {
     return true;
 }
 
+#ifdef _WIN32
+// Creates the folder [p]; a drive, such as C:, is there already.
+static int vx_mkdir(const char *p) {
+    if (isalpha((unsigned char)p[0]) && p[1] == ':' && !p[2]) return 0;
+    return _mkdir(p);
+}
+#define VX_IS_SEP(c) ((c) == '/' || (c) == '\\')
+#else
+#define vx_mkdir(p) mkdir(p, 0777)
+#define VX_IS_SEP(c) ((c) == '/')
+#endif
+
 // Creates the folder [path] and any missing parents.
 static bool vx_fs_make_dir(const char *path) {
     size_t n = strlen(path);
     char *p = vx_alloc_atomic(n + 1);
     memcpy(p, path, n + 1);
     for (size_t i = 1; i <= n; i++) {
-        if (p[i] != '/' && p[i] != 0) continue;
+        if (!VX_IS_SEP(p[i]) && p[i] != 0) continue;
         char saved = p[i];
         p[i] = 0;
-        if (mkdir(p, 0777) != 0 && errno != EEXIST) { vx_errno = errno; return false; }
+        if (vx_mkdir(p) != 0 && errno != EEXIST) { vx_errno = errno; return false; }
         p[i] = saved;
     }
     if (!vx_fs_is_dir(path)) { vx_errno = ENOTDIR; return false; }
@@ -3630,6 +3795,57 @@ static void vx_os_exit(int64_t code) {
     exit((int)code);
 }
 
+#ifdef _WIN32
+// Returns a copy of the malloc'd string [s] on the collected heap, and
+// frees [s].
+static const char *vx_collected(char *s) {
+    size_t n = strlen(s);
+    char *out = vx_alloc_atomic(n + 1);
+    memcpy(out, s, n + 1);
+    free(s);
+    return out;
+}
+
+static const char *vx_os_cwd(void) {
+    wchar_t *w = _wgetcwd(NULL, 0);
+    if (!w) { vx_errno = errno; return NULL; }
+    const char *out = vx_collected(vx_utf8_of(w, -1));
+    free(w);
+    return out;
+}
+
+// Returns the environment variable [name], or NULL when it isn't set.
+static const char *vx_os_get_env(const char *name) {
+    wchar_t *wname = vx_utf16_of(name);
+    DWORD n = GetEnvironmentVariableW(wname, NULL, 0);
+    if (n == 0) {
+        bool empty = GetLastError() != ERROR_ENVVAR_NOT_FOUND;
+        free(wname);
+        return empty ? "" : NULL;
+    }
+    wchar_t *w = malloc(n * sizeof(wchar_t));
+    if (!w) vx_out_of_memory();
+    GetEnvironmentVariableW(wname, w, n);
+    free(wname);
+    const char *out = vx_collected(vx_utf8_of(w, -1));
+    free(w);
+    return out;
+}
+
+// Sets the environment variable [name] for this program, its C library
+// and the programs it starts.
+static void vx_os_set_env(const char *name, const char *value) {
+    wchar_t *wname = vx_utf16_of(name), *wvalue = vx_utf16_of(value);
+    _wputenv_s(wname, wvalue);
+    // The C library removes a variable set to "", which Windows keeps.
+    if (!*value) SetEnvironmentVariableW(wname, L"");
+    free(wname);
+    free(wvalue);
+}
+
+// Returns the exit status of a finished child.
+static int64_t vx_os_status(int status) { return status; }
+#else
 static const char *vx_os_cwd(void) {
     char buf[4096];
     if (!getcwd(buf, sizeof buf)) { vx_errno = errno; return NULL; }
@@ -3638,6 +3854,9 @@ static const char *vx_os_cwd(void) {
     memcpy(out, buf, n + 1);
     return out;
 }
+
+// Returns the environment variable [name], or NULL when it isn't set.
+static const char *vx_os_get_env(const char *name) { return getenv(name); }
 
 static void vx_os_set_env(const char *name, const char *value) { setenv(name, value, 1); }
 
@@ -3648,6 +3867,7 @@ static int64_t vx_os_status(int status) {
     if (WIFSIGNALED(status)) return 128 + WTERMSIG(status);
     return -1;
 }
+#endif
 
 // Runs [cmd] with the shell; returns its exit status, or -1 if it couldn't
 // start.
