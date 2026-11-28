@@ -35,6 +35,13 @@ func (g *gen) codec(t types.Type) string {
 		fmt.Fprintf(&rcv, "vx_list *o = vx_dec_ref(d); if (o) return o; int64_t n = vx_dec_i64(d); "+
 			"o = %s; vx_dec_obj(d, o); "+
 			"for (int64_t i = 0; i < n; i++) { %s = rcv_%s(d); vx_list_push(o, &x); } return o;", newList(t.Elem, "0", "n", "NULL"), decl(t.Elem, "x"), e)
+	case *types.Set:
+		x := g.codec(t.Elem)
+		fmt.Fprintf(&snd, "if (vx_enc_ref(e, v)) return; vx_enc_i64(e, v->len); vx_map_iter it = vx_map_iter_new(v); "+
+			"for (char *en; (en = vx_map_next(v, &it));) snd_%s(e, *(%s *)(en + VX_MAP_KEY));", x, ctype(t.Elem))
+		fmt.Fprintf(&rcv, "vx_map *o = vx_dec_ref(d); if (o) return o; int64_t n = vx_dec_i64(d); o = %s; vx_dec_obj(d, o); "+
+			"for (int64_t i = 0; i < n; i++) { %s = rcv_%s(d); vx_map_set(o, &k); } return o;",
+			g.newSet(t), decl(t.Elem, "k"), x)
 	case *types.Map:
 		k, v := g.codec(t.Key), g.codec(t.Value)
 		fmt.Fprintf(&snd, "if (vx_enc_ref(e, v)) return; vx_enc_i64(e, v->len); vx_map_iter it = vx_map_iter_new(v); "+

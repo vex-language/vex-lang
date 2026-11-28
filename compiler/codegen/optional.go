@@ -66,6 +66,8 @@ func (g *gen) collectOptionals() {
 			visit(t.Elem)
 		case *types.List:
 			visit(t.Elem)
+		case *types.Set:
+			visit(t.Elem)
 		case *types.Future:
 			visit(t.Elem)
 		case *types.Record:

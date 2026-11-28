@@ -1389,6 +1389,8 @@ func TestFrozenConstants(t *testing.T) {
 		{"set nested list", "const grid = [[1]]\nfn main() {\n    let row = grid[0]\n    row[0] = 5\n}\n", "can't change a constant list; change a copy made with .copy()\n --> main.vx:4"},
 		{"set map through alias", "const m = [\"a\": 1]\nfn main() {\n    var n = m\n    n[\"b\"] = 2\n}\n", "can't change a constant map; change a copy made with .copy()\n --> main.vx:4"},
 		{"remove from map", "const m = [\"a\": 1]\nfn main() {\n    var n = m\n    n.remove(\"a\")\n}\n", "can't change a constant map; change a copy made with .copy()\n --> main.vx:4"},
+		{"insert into set", "const s: Set<int> = [1]\nfn main() {\n    var t = s\n    t.insert(2)\n}\n", "can't change a constant set; change a copy made with .copy()\n --> main.vx:4"},
+		{"remove from set", "const s: Set<int> = [1]\nfn main() {\n    var t = s\n    t.remove(1)\n}\n", "can't change a constant set; change a copy made with .copy()\n --> main.vx:4"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

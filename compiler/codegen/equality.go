@@ -43,7 +43,7 @@ func (g *gen) eq(t types.Type, a, b string) string {
 // Reports whether == on values of [t] calls a generated function.
 func needsEqFunc(t types.Type) bool {
 	switch t := t.(type) {
-	case *types.Struct, *types.Record, *types.List, *types.Map, *types.Optional:
+	case *types.Struct, *types.Record, *types.List, *types.Map, *types.Set, *types.Optional:
 		return true
 	case *types.Enum:
 		return !t.Simple()
@@ -105,6 +105,8 @@ func (g *gen) eqFunc(t types.Type) string {
 		body = fmt.Sprintf("if (a == b) return true; if (a->len != b->len) return false; vx_map_iter it = vx_map_iter_new(a); "+
 			"for (char *e; (e = vx_map_next(a, &it));) { %s *w = vx_map_find(b, e + VX_MAP_KEY); if (!w || !%s) return false; } return true;",
 			v, g.eq(t.Value, fmt.Sprintf("*(%s*)(e + a->voff)", v), "*w"))
+	case *types.Set:
+		body = "return vx_set_eq(a, b);"
 	case *types.Optional:
 		body = fmt.Sprintf("bool x = %s, y = %s; return x == y && (!x || %s);",
 			present(t, "a"), present(t, "b"), g.eq(t.Elem, unwrap(t, "a"), unwrap(t, "b")))
@@ -187,18 +189,24 @@ func (g *gen) hashFunc(t types.Type) string {
 // bools, strings and simple enums hash and compare through generated
 // functions.
 func (g *gen) newMap(m *types.Map) string {
-	if kind := keyKind(m.Key); kind != "" {
-		return fmt.Sprintf("vx_map_new(%s, sizeof(%s), sizeof(%s))", kind, ctype(m.Key), ctype(m.Value))
+	return g.newTable(m.Key, "sizeof("+ctype(m.Value)+")")
+}
+
+// Returns C code for a new, empty map with keys of type [key] and values of
+// [vsize] bytes.
+func (g *gen) newTable(key types.Type, vsize string) string {
+	if kind := keyKind(key); kind != "" {
+		return fmt.Sprintf("vx_map_new(%s, sizeof(%s), %s)", kind, ctype(key), vsize)
 	}
-	k := ctype(m.Key)
-	id := mangle(m.Key)
+	k := ctype(key)
+	id := mangle(key)
 	if !g.codecs["khash_"+id] {
 		g.codecs["khash_"+id] = true
-		fmt.Fprintf(&g.codecDefs, "static uint64_t khash_%s(const void *k) { return %s; }\n", id, g.hashOf(m.Key, fmt.Sprintf("(*(const %s *)k)", k)))
+		fmt.Fprintf(&g.codecDefs, "static uint64_t khash_%s(const void *k) { return %s; }\n", id, g.hashOf(key, fmt.Sprintf("(*(const %s *)k)", k)))
 		fmt.Fprintf(&g.codecDefs, "static bool keq_%s(const void *a, const void *b) { return %s; }\n", id,
-			g.eq(m.Key, fmt.Sprintf("(*(const %s *)a)", k), fmt.Sprintf("(*(const %s *)b)", k)))
+			g.eq(key, fmt.Sprintf("(*(const %s *)a)", k), fmt.Sprintf("(*(const %s *)b)", k)))
 	}
-	return fmt.Sprintf("vx_map_new_custom(khash_%s, keq_%s, sizeof(%s), sizeof(%s))", id, id, k, ctype(m.Value))
+	return fmt.Sprintf("vx_map_new_custom(khash_%s, keq_%s, sizeof(%s), %s)", id, id, k, vsize)
 }
 
 // Returns C code for `hash(a, b, ...)` over the arguments [cs] of types [ts].
