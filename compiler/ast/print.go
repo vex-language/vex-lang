@@ -349,6 +349,9 @@ func build(n Node) *tree {
 		return branch(label, buildExpr(n.Value))
 	case *StructDecl:
 		label := "struct " + n.Name.Name + typeParamsString(n.TypeParams)
+		if n.Extension {
+			label = "extension type " + n.Name.Name + typeParamsString(n.TypeParams)
+		}
 		if n.Pub {
 			label = "pub " + label
 		}

@@ -299,6 +299,11 @@ func (p *parser) decl() ast.Decl {
 			return d
 		case *ast.StructDecl:
 			d.Pub = true
+			if d.Extension {
+				for _, f := range d.Fields {
+					f.Pub = true
+				}
+			}
 			return d
 		case *ast.EnumDecl:
 			d.Pub = true
@@ -340,6 +345,9 @@ func (p *parser) decl() ast.Decl {
 	case lexer.Ident:
 		if t.Text == "export" && (p.peek(1).Kind == lexer.Fn || p.peek(1).Kind == lexer.Async) {
 			return p.exportDecl()
+		}
+		if t.Text == "extension" && p.peek(1).Kind == lexer.Ident && p.peek(1).Text == "type" && p.peek(2).Kind == lexer.Ident {
+			return p.extensionType()
 		}
 		if t.Text == "extension" {
 			return p.extensionDecl()
@@ -642,6 +650,81 @@ func (p *parser) structDecl() *ast.StructDecl {
 			p.fail(open, "add a matching }", "unclosed struct body")
 		}
 		p.guard(func() { p.member(s) }, p.syncStmt)
+	}
+	p.next()
+	s.Span = p.span(start)
+	return s
+}
+
+// Parses `extension type Name(value: T): Equatable { ... }`, whose body
+// is optional.
+func (p *parser) extensionType() *ast.StructDecl {
+	start := p.next().Pos
+	p.next()
+	s := &ast.StructDecl{Name: p.ident("a name for the extension type"), Extension: true}
+	s.TypeParams = p.typeParams()
+	example := fmt.Sprintf("e.g. extension type %s(value: int)", s.Name.Name)
+	if !p.at(lexer.LParen) {
+		p.fail(p.tok(), example, "expected '(' and the value %s wraps, found %s", s.Name.Name, describe(p.tok()))
+	}
+	open := p.next()
+	p.list(open, lexer.RParen, func() {
+		if len(s.Fields) == 1 {
+			p.fail(p.tok(), "use a struct to hold more than one value", "an extension type wraps exactly one value")
+		}
+		fstart := p.tok().Pos
+		f := &ast.Field{Name: p.ident("a name for the wrapped value"), Let: true}
+		if !p.at(lexer.Colon) {
+			p.fail(p.tok(), fmt.Sprintf("write its type: %s: int", f.Name.Name), "the wrapped value '%s' needs a type", f.Name.Name)
+		}
+		p.next()
+		f.Type = p.typeExpr()
+		f.Span = p.span(fstart)
+		if p.at(lexer.Assign) {
+			p.fail(p.tok(), "remove the default: the value is given when one is created", "the wrapped value can't have a default")
+		}
+		s.Fields = append(s.Fields, f)
+	})
+	if len(s.Fields) == 0 {
+		p.fail(open, example, "an extension type wraps exactly one value")
+	}
+	s.Interfaces = p.ifaceList()
+	if !p.at(lexer.LBrace) {
+		s.Span = p.span(start)
+		p.endStmt()
+		return s
+	}
+	body := p.next()
+	for {
+		for p.at(lexer.Semi) || p.at(lexer.Comma) {
+			p.next()
+		}
+		if p.at(lexer.RBrace) {
+			break
+		}
+		if p.at(lexer.EOF) {
+			p.fail(body, "add a matching }", "unclosed extension type body")
+		}
+		p.guard(func() {
+			i := 0
+			if p.at(lexer.Pub) {
+				i = 1
+			}
+			t, next := p.peek(i), p.peek(i+1)
+			switch {
+			case t.Kind == lexer.Let || t.Kind == lexer.Var || t.Kind == lexer.Ident && (next.Kind == lexer.Colon || next.Kind == lexer.Assign || t.Text == "private" && next.Kind == lexer.LParen):
+				name := t.Text
+				if t.Kind != lexer.Ident || name == "private" {
+					name = "name"
+				}
+				p.fail(t, fmt.Sprintf("compute it instead: get %s -> T { ... }", name), "an extension type holds only the value in its parentheses")
+			case t.Kind == lexer.Ident && t.Text == "init" && next.Kind == lexer.LBrace:
+				p.fail(t, "check the value in a static fn that creates it", "extension types have no init block")
+			case t.Kind == lexer.Ident && t.Text == "set" && next.Kind == lexer.Ident:
+				p.fail(t, "use a method that returns a new value", "extension types never change, so they can't have setters")
+			}
+			p.member(s)
+		}, p.syncStmt)
 	}
 	p.next()
 	s.Span = p.span(start)

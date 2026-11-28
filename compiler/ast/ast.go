@@ -184,6 +184,10 @@ type StructDecl struct {
 	// The `init { ... }` block, which runs when the struct is created, or
 	// nil.
 	Init *FuncDecl
+
+	// Set for `extension type Name(value: T) { ... }`, a distinct type
+	// whose one field is its whole value.
+	Extension bool
 }
 
 // A type parameter of a generic function or struct: `T` or
