@@ -1,6 +1,6 @@
 # Memory management
 
-Status: stage 1 done (V-107); stage 2, precise object layouts, done (V-111); generational collection done (part of V-112).
+Status: stage 1 done (V-107); stage 2, precise object layouts, done (V-111); stage 3, generational collection and returning memory to the system, done (V-112).
 
 ## Decision
 
@@ -26,7 +26,8 @@ The collector is part of the runtime (`compiler/codegen/runtime/vexrt.h`); the c
 - **Generations.** Marks stay set after a collection, so the objects that survived are old. A *minor* collection marks only from the roots and from old objects written since the last collection, and stops at anything already marked, so it doesn't trace long-lived data again. A *major* collection clears every mark and traces everything.
 - **Write barrier.** After the compiled code or the runtime stores a pointer into an object (a field, a list element, a map entry, a captured variable), it records the object in the remembered set, which the next minor collection scans again. Plain local variables are roots and need no barrier, and neither do stores of numbers and bools. Writing one object repeatedly records it once; when the set fills, it is compacted to one entry per object.
 - **Sweeping.** Unmarked objects go back onto the free lists. Pages with no live objects are reused for any size class, pages whose objects are all live are skipped, and unmarked large objects are freed.
-- **Pacing.** A minor collection runs once the young objects reach the size of the heap after the last collection, and never below 4 MB. A major one runs instead once the old objects have doubled since the last major collection.
+- **Pacing.** A minor collection runs once the young objects reach the size of the heap after the last collection, and never below 4 MB. A major one runs instead once the old objects have doubled since the last major collection, or after 16 minor ones in a row in which the old objects grew by less than a quarter, so that old objects that died are found even when the old objects stop growing, as when a screen full of objects is closed. Boehm's collector makes a similar trade, with a full collection every 19 partial ones.
+- **Returning memory.** Pages are cut from 1 MB chunks taken from the system with `mmap`, or `VirtualAlloc` on Windows. At each collection the collector counts the pages it needs: those in use, and those the young objects may fill before the next collection. A major collection keeps as many as were needed at any collection since the last major one, and gives the memory of the other empty pages back with `madvise` (`MADV_FREE_REUSABLE` on Apple systems, which the system's memory accounting and the iOS memory limit see at once, `MADV_DONTNEED` on Linux), or decommits it with `VirtualFree` on Windows. The page keeps its addresses, and is used again before any new memory is taken. Waiting for a major collection, and keeping the most pages needed since the last one, is the hysteresis: a heap that grows and shrinks between major collections keeps its pages instead of giving them back and faulting them in again. Large objects of 1 MB or more are mapped on their own and unmapped when they die; smaller ones come from `malloc`. The memory from the system is reached only through four small functions (allocate, free, release, reuse), each with a version per system. On Windows a decommitted page faults when touched, so a released page is always committed again before it is used.
 
 Scanning the stacks conservatively can keep a dead object alive when an unrelated number on the stack happens to look like its address, or when a stack slot still holds a pointer the program no longer uses. It never frees a live object.
 
@@ -36,7 +37,7 @@ Scanning the stacks conservatively can keep a dead object alive when an unrelate
 
 | Variable | Effect |
 |---|---|
-| `VEX_GC_STATS=1` | Prints collections, total bytes allocated, the peak heap and the live heap at exit |
+| `VEX_GC_STATS=1` | Prints collections, total bytes allocated, the peak heap and the live heap at exit, and the memory held from the system then, the most it held, and how much was given back |
 | `VEX_GC_STRESS=N` | Collects every N allocations; `1` collects on every one, and every fourth collection is major. The tests run every program this way to catch objects freed too early |
 | `VEX_GC_VERIFY=1` | Each collection keeps a copy of the old objects, and the next minor collection fails if an old object changed since to point at a young one isn't in the remembered set, which would mean a write barrier is missing. The tests set it along with `VEX_GC_STRESS` |
 
@@ -53,9 +54,11 @@ Before the collector, the first program leaked all 387 MB it allocated.
 
 Binary trees of depth 18 (about 67 million short-lived nodes beside one long-lived tree) take 0.26 s and 42 MB: Kotlin on the JVM takes 0.28 s and 438 MB, Dart 0.35 s and 78 MB, Go 1.26 s and 45 MB. Minor collections are what make the difference: before them it took 0.45 s.
 
+Returning memory lowers the peak memory of the sorting benchmark from 143 MB to 120 MB, since its large lists are unmapped when they die, and of the strings benchmark from 12.7 MB to 8.7 MB. A program that builds 60 MB of objects, drops them and goes on allocating falls back to 18 MB of memory footprint, where before it stayed at 72 MB. Forcing major collections when the old objects stop growing costs nothing measurable: taking pages in 1 MB chunks more than makes up for it, and binary trees runs about 3% faster.
+
 Precise object layouts leave the benchmarks of `bench/` within 1% in cycles, except for those whose objects mix numbers with pointers: hash maps run about 6% faster, sorting 4% and JSON 1%, since the collector no longer reads those numbers. A layout of its own holds a partly used page per size class: the JSON benchmark uses 5 pages, 320 KB, more than before. Setting a bit per word on each allocation instead, in a bitmap at the end of each page, cost binary trees 7%.
 
 ## Next stages
 
-1. **Returning memory to the OS**, and finalizers for native handles once the UI bridge exists.
+1. **Finalizers** for native handles once the UI bridge exists.
 2. **Threads**, when Vex gets them: per-thread allocation caches and stopping threads for a collection.

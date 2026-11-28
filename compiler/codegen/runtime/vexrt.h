@@ -229,6 +229,7 @@ typedef struct {
     // ceil(2^32 / size): the object holding byte `off` is (off * recip) >> 32,
     // exact since size * VX_PAGE_SIZE < 2^32.
     uint32_t recip;
+    bool released;      // its memory went back to the system
     uint8_t marks[VX_PAGE_SIZE / 16];
 } vx_page;
 
@@ -279,6 +280,14 @@ typedef struct {
     size_t rem_len, rem_cap;
     size_t rem_done;           // entries before this one name distinct objects
     size_t major_next;         // a major collection is due once gc_base passes this
+    size_t minors;             // minor collections since the last major one
+    size_t demand;             // the most pages needed at a collection since the last major one
+    char **chunks;             // the memory pages are cut from
+    size_t chunks_len, chunks_cap;
+    char *chunk, *chunk_end;   // the unused end of the last chunk
+    size_t committed;          // bytes of pages and large objects held from the system
+    size_t committed_peak;
+    size_t released_total;     // bytes of pages given back to the system
 } vx_heap;
 
 
@@ -481,25 +490,6 @@ static void vx_bounds(uintptr_t lo, uintptr_t hi) {
     if (hi > vx_hi) vx_hi = hi;
 }
 
-// Returns the memory of a new page, aligned to its size, or NULL.
-static char *vx_page_memory(void) {
-#ifdef _WIN32
-    // Windows hands out memory in blocks of 64 KB, aligned to that size.
-    return VirtualAlloc(NULL, VX_PAGE_SIZE, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
-#else
-    void *p;
-    return posix_memalign(&p, VX_PAGE_SIZE, VX_PAGE_SIZE) == 0 ? p : NULL;
-#endif
-}
-
-static void vx_page_memory_free(char *p) {
-#ifdef _WIN32
-    VirtualFree(p, 0, MEM_RELEASE);
-#else
-    free(p);
-#endif
-}
-
 // Gives the objects of [pg] to kind [k] of class [cls], laid out as [mask]
 // every [period] words, which allocates them in order.
 static void vx_page_format(vx_page *pg, vx_kind *k, size_t cls, uint64_t mask, uint32_t period) {
@@ -514,17 +504,112 @@ static void vx_page_format(vx_page *pg, vx_kind *k, size_t cls, uint64_t mask, u
     k->bump_end = pg->start + (size_t)pg->count * pg->size;
 }
 
+// --- Memory from the system ---
+//
+// The heap takes memory from the system and gives it back only through
+// these functions.
+
+// Returns [n] bytes of zeroed memory aligned to [align], a power of two,
+// or NULL.
+static char *vx_os_alloc(size_t n, size_t align) {
+#ifdef _WIN32
+    // Windows hands out memory in blocks of 64 KB, aligned to that size.
+    if (align <= 65536) return VirtualAlloc(NULL, n, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    // Another thread can take the aligned range between the two calls.
+    for (;;) {
+        char *p = VirtualAlloc(NULL, n + align, MEM_RESERVE, PAGE_NOACCESS);
+        if (!p) return NULL;
+        char *q = (char *)(((uintptr_t)p + align - 1) & ~(uintptr_t)(align - 1));
+        VirtualFree(p, 0, MEM_RELEASE);
+        p = VirtualAlloc(q, n, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+        if (p) return p;
+    }
+#else
+    if (align <= (size_t)getpagesize()) {
+        char *p = mmap(NULL, n, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+        return p == MAP_FAILED ? NULL : p;
+    }
+    size_t len = n + align;
+    char *p = mmap(NULL, len, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (p == MAP_FAILED) return NULL;
+    char *q = (char *)(((uintptr_t)p + align - 1) & ~(uintptr_t)(align - 1));
+    if (q > p) munmap(p, (size_t)(q - p));
+    if (q + n < p + len) munmap(q + n, (size_t)(p + len - (q + n)));
+    return q;
+#endif
+}
+
+// Gives back the [n] bytes at [p] that [vx_os_alloc] returned.
+static void vx_os_free(char *p, size_t n) {
+#ifdef _WIN32
+    (void)n;
+    VirtualFree(p, 0, MEM_RELEASE);
+#else
+    munmap(p, n);
+#endif
+}
+
+// Lets the system take back the memory of the [n] bytes at [p] while
+// keeping their addresses. A released page must be readied with
+// [vx_os_reuse] before it is used again.
+static void vx_os_release(char *p, size_t n) {
+#if defined(_WIN32)
+    VirtualFree(p, n, MEM_DECOMMIT);
+#elif defined(__APPLE__)
+    madvise(p, n, MADV_FREE_REUSABLE);
+#else
+    madvise(p, n, MADV_DONTNEED);
+#endif
+}
+
+// Readies the [n] bytes at [p], released before, for use again. They read
+// as zeros or as before.
+static void vx_os_reuse(char *p, size_t n) {
+#if defined(_WIN32)
+    if (!VirtualAlloc(p, n, MEM_COMMIT, PAGE_READWRITE)) vx_out_of_memory();
+#elif defined(__APPLE__)
+    madvise(p, n, MADV_FREE_REUSE);
+#else
+    (void)p;
+    (void)n;
+#endif
+}
+
+// Pages are cut from chunks of this many bytes.
+#define VX_CHUNK ((size_t)1 << 20)
+
+static void vx_committed(size_t add, size_t sub) {
+    vx_h.committed = vx_h.committed + add - sub;
+    if (vx_h.committed > vx_h.committed_peak) vx_h.committed_peak = vx_h.committed;
+}
+
 static void vx_page_new(vx_kind *k, size_t cls, uint64_t mask, uint32_t period) {
     for (size_t i = vx_h.page_scan; i < vx_pages_len; i++) {
-        if (vx_pages[i]->size == 0) {
+        vx_page *pg = vx_pages[i];
+        if (pg->size == 0) {
             vx_h.page_scan = i + 1;
-            vx_page_format(vx_pages[i], k, cls, mask, period);
+            if (pg->released) {
+                vx_os_reuse(pg->start, VX_PAGE_SIZE);
+                pg->released = false;
+                vx_committed(VX_PAGE_SIZE, 0);
+            }
+            vx_page_format(pg, k, cls, mask, period);
             return;
         }
     }
     vx_h.page_scan = vx_pages_len + 1;
     vx_page *pg = calloc(1, sizeof(vx_page));
-    if (!pg || !(pg->start = vx_page_memory())) vx_out_of_memory();
+    if (!pg) vx_out_of_memory();
+    if (vx_h.chunk == vx_h.chunk_end) {
+        vx_h.chunk = vx_os_alloc(VX_CHUNK, VX_PAGE_SIZE);
+        if (!vx_h.chunk) vx_out_of_memory();
+        vx_h.chunk_end = vx_h.chunk + VX_CHUNK;
+        if (vx_h.chunks_len == vx_h.chunks_cap) vx_h.chunks = vx_grow(vx_h.chunks, &vx_h.chunks_cap, sizeof(char *));
+        vx_h.chunks[vx_h.chunks_len++] = vx_h.chunk;
+    }
+    pg->start = vx_h.chunk;
+    vx_h.chunk += VX_PAGE_SIZE;
+    vx_committed(VX_PAGE_SIZE, 0);
     if (vx_pages_len == vx_pages_cap) vx_pages = vx_grow(vx_pages, &vx_pages_cap, sizeof(vx_page *));
     vx_pages[vx_pages_len++] = pg;
     if (vx_pages_len * 2 > vx_page_table_cap) {
@@ -946,18 +1031,81 @@ static void vx_verify_copy(void) {
 }
 
 
+// Large objects of this many bytes or more, with their header, come
+// straight from the system, so freeing one gives its memory back.
+#define VX_LARGE_OS ((size_t)1 << 20)
+
+static void vx_large_free(vx_large *l) {
+    size_t total = sizeof(vx_large) + l->size;
+    vx_committed(0, total);
+    if (total >= VX_LARGE_OS) vx_os_free((char *)l, total);
+    else free(l);
+}
+
+// Gives back to the system the memory of empty pages. At each collection
+// the pages needed are those in use and those the heap may fill before
+// the next collection. A major collection keeps as many pages as were
+// needed at any collection since the last major one, and releases the
+// other empty pages, so a heap that grows and shrinks between major
+// collections doesn't give back pages it soon takes again.
+static void vx_release_pages(bool major) {
+    size_t used = 0;
+    for (size_t p = 0; p < vx_pages_len; p++) used += vx_pages[p]->size != 0;
+    size_t demand = used + (vx_gc_next - vx_heap_bytes) / VX_PAGE_SIZE + 1;
+    if (demand > vx_h.demand) vx_h.demand = demand;
+    if (!major) return;
+    size_t keep = vx_h.demand - used;
+    vx_h.demand = demand;
+    for (size_t p = 0; p < vx_pages_len; p++) {
+        vx_page *pg = vx_pages[p];
+        if (pg->size != 0 || pg->released) continue;
+        if (keep > 0) {
+            keep--;
+            continue;
+        }
+        vx_os_release(pg->start, VX_PAGE_SIZE);
+        pg->released = true;
+        vx_committed(0, VX_PAGE_SIZE);
+        vx_h.released_total += VX_PAGE_SIZE;
+    }
+}
+
+// Zeroes the stack just below the caller. Calls that have returned leave
+// pointers there, which the collector's own frames would otherwise keep in
+// slots they never write, and the stack scan would take as live.
+__attribute__((noinline))
+static void vx_clear_stack(void) {
+    char pad[4096];
+    memset(pad, 0, sizeof pad);
+    __asm__ volatile("" : : "r"(pad) : "memory");
+}
+
+static void vx_collect_now(void);
+
+// Collects garbage, on a stack cleared of stale pointers below this frame.
+__attribute__((noinline))
+static void vx_collect(void) {
+    vx_clear_stack();
+    vx_collect_now();
+}
+
 // Collects garbage. Objects that survive stay marked, which makes them old:
 // a minor collection marks only from the roots and the old objects written
 // since, so it doesn't trace the old objects again. A major collection
 // clears every mark first and traces everything, once the old objects
-// have doubled since the last one.
-static void vx_collect(void) {
+// have doubled since the last one, or after 16 minor collections in a row
+// in which they grew by less than a quarter, so that old objects that died
+// are found even when the old objects stop growing.
+__attribute__((noinline))
+static void vx_collect_now(void) {
     if (!vx_stack_base) return;
     vx_gc_count++;
     vx_gc_total += vx_heap_bytes - vx_h.gc_base;
     if (vx_heap_bytes > vx_gc_peak) vx_gc_peak = vx_heap_bytes;
     if (vx_larges_len > 1) qsort(vx_larges, vx_larges_len, sizeof(vx_large *), vx_large_cmp);
-    bool major = vx_gc_stress ? vx_gc_count % 4 == 0 : vx_h.gc_base >= vx_h.major_next;
+    bool stalled = vx_h.minors >= 16 && vx_h.gc_base < vx_h.major_next / 2 + vx_h.major_next / 8;
+    bool major = vx_gc_stress ? vx_gc_count % 4 == 0 : vx_h.gc_base >= vx_h.major_next || stalled;
+    vx_h.minors = major ? 0 : vx_h.minors + 1;
     if (vx_gc_verify && !major) vx_verify_writes();
     vx_mark_remembered(major);
     if (major) {
@@ -1008,7 +1156,7 @@ static void vx_collect(void) {
             vx_heap_bytes += l->size;
             vx_larges[kept++] = l;
         } else {
-            free(l);
+            vx_large_free(l);
         }
     }
     vx_larges_len = kept;
@@ -1017,12 +1165,15 @@ static void vx_collect(void) {
     // The young objects may grow as large as the old ones before a minor
     // collection.
     vx_gc_next = vx_heap_bytes + (vx_heap_bytes > (size_t)(4 << 20) ? vx_heap_bytes : (size_t)(4 << 20));
+    vx_release_pages(major);
     if (vx_gc_verify) vx_verify_copy();
 }
 
 static void *vx_alloc_large(size_t n, uint64_t mask, size_t esz) {
-    vx_large *l = calloc(1, sizeof(vx_large) + n);
+    size_t total = sizeof(vx_large) + n;
+    vx_large *l = total >= VX_LARGE_OS ? (vx_large *)vx_os_alloc(total, 16) : calloc(1, total);
     if (!l) vx_out_of_memory();
+    vx_committed(total, 0);
     l->size = n;
     l->atomic = mask == 0;
     l->mask = mask;
@@ -1252,8 +1403,9 @@ static void vx_gc_report(void) {
     vx_gc_total += vx_heap_bytes - vx_h.gc_base;
     vx_h.gc_base = vx_heap_bytes;
     if (vx_heap_bytes > vx_gc_peak) vx_gc_peak = vx_heap_bytes;
-    fprintf(stderr, "gc: %zu collections, %zu KB allocated, %zu KB peak heap, %zu KB live\n",
-        vx_gc_count, vx_gc_total / 1024, vx_gc_peak / 1024, vx_heap_bytes / 1024);
+    fprintf(stderr, "gc: %zu collections, %zu KB allocated, %zu KB peak heap, %zu KB live, %zu KB from the system, %zu KB at most, %zu KB given back\n",
+        vx_gc_count, vx_gc_total / 1024, vx_gc_peak / 1024, vx_heap_bytes / 1024,
+        vx_h.committed / 1024, vx_h.committed_peak / 1024, vx_h.released_total / 1024);
 }
 
 // Starts the collector of the running thread; [base] is the top of the
@@ -6277,11 +6429,10 @@ static void vx_idle(void) {
 
 // Frees the heap of the running thread when its isolate ends.
 static void vx_heap_free(void) {
-    for (size_t i = 0; i < vx_pages_len; i++) {
-        vx_page_memory_free(vx_pages[i]->start);
-        free(vx_pages[i]);
-    }
-    for (size_t i = 0; i < vx_larges_len; i++) free(vx_larges[i]);
+    for (size_t i = 0; i < vx_pages_len; i++) free(vx_pages[i]);
+    for (size_t i = 0; i < vx_h.chunks_len; i++) vx_os_free(vx_h.chunks[i], VX_CHUNK);
+    free(vx_h.chunks);
+    for (size_t i = 0; i < vx_larges_len; i++) vx_large_free(vx_larges[i]);
     free(vx_pages);
     free(vx_page_table);
     free(vx_larges);
