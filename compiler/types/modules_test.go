@@ -3,6 +3,7 @@ package types
 import (
 	"errors"
 	"fmt"
+	"path/filepath"
 	"sort"
 	"strings"
 	"testing"
@@ -29,7 +30,7 @@ func checkProject(t *testing.T, files map[string]string) (warnings, errs string)
 		l.Sort()
 		var out []string
 		for _, d := range l {
-			out = append(out, fmt.Sprintf("%s:%s: %s", d.File.Name, d.Pos, d.Message))
+			out = append(out, fmt.Sprintf("%s:%s: %s", filepath.ToSlash(d.File.Name), d.Pos, d.Message))
 		}
 		return strings.Join(out, "\n")
 	}
