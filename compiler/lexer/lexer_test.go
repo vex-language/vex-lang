@@ -91,6 +91,14 @@ func TestTokens(t *testing.T) {
 	}
 }
 
+// Checks that a format spec holding a `{` that nothing closes ends at the
+// end of the source instead of running past it.
+func TestUnclosedBraceInFormatSpec(t *testing.T) {
+	if _, err := Tokenize(diag.NewFile("t.vx", "\"{a:0{0")); err == nil {
+		t.Fatal("expected errors")
+	}
+}
+
 func TestInterpolation(t *testing.T) {
 	cases := []struct {
 		name, src, want string

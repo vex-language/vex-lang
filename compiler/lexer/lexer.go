@@ -440,7 +440,7 @@ func (l *lexer) formatSpec() {
 			end := strings.IndexAny(l.src[l.pos:], "}\n\"")
 			if end < 0 {
 				l.pos = len(l.src)
-				break
+				continue
 			}
 			l.pos += end
 			if l.src[l.pos] == '}' {
