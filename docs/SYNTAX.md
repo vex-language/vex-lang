@@ -1265,7 +1265,42 @@ fn main() throws {
 - Modules may import each other. A name that is already an import, such as a variable called `math`, is an error, so `math.max` always means the module.
 - Errors in a program of several modules are listed with the root module's first, then module by module in the order they are imported, and by position within each file.
 - `vex run` with no file runs the project in the current folder, and `vex run store` runs the one in `store/`. A single file can import too: `vex run hello.vx`.
-- `package:` imports come with the package manager (V-121).
+
+### Packages
+
+A package is a git repository with version tags such as `v0.3.1`. `vex get` adds one to the project:
+
+```sh
+vex get https://github.com/ann/charts           # the newest tag
+vex get https://github.com/ann/charts@0.3.1     # that version
+vex get https://github.com/ann/charts@0.3       # the newest 0.3.x
+vex get --path camera https://github.com/vex-lang/packages   # a folder of a repository, tagged camera/v0.2.0
+vex get                                         # download what package.toml lists and lock it again
+```
+
+It adds a line to `package.toml` under the name the package gives itself, and writes the exact version, commit and content hash of every package, including those the packages use, to `package.lock`:
+
+```toml
+[dependencies]
+charts = { git = "https://github.com/ann/charts", version = "0.3.1" }
+camera = { git = "https://github.com/vex-lang/packages", path = "camera", version = "0.2" }
+```
+
+```swift
+import "package:charts"          // the package's top folder
+import "package:charts/line"     // a folder inside it
+
+fn main() {
+    println(charts.title("Sales"), line.draw([1, 4, 2]))
+}
+```
+
+- The key in `[dependencies]` is the name used after `package:`. Change it to use two packages with the same name. `version` is the oldest version accepted; a different major version isn't.
+- When packages ask for different versions of the same package, the build uses the oldest one that meets every request, so nothing changes until someone runs `vex get`. A build holds one version of each package: needing `1.x` and `2.x` of one package together is an error.
+- Commit `package.lock`. `vex run`, `vex build`, `vex test` and `vex check` use exactly the versions it lists, download any missing from the cache, and stop when a package's files don't match its hash, whether the cached copy was edited or the tag was moved to other code. A dependency in `package.toml` that the lock file lacks asks for `vex get`.
+- Downloads are kept in `~/.vex/pkg/<repository>@<version>`, shared by all projects; set `VEX_CACHE` to use another folder. A project whose packages are cached builds offline.
+- Inside a package, `package:` imports name the packages in its own `package.toml`, and folder imports stay within the package. A package's tests and its own `package.lock` aren't used.
+- `git` can be a URL, an address such as `git@github.com:ann/charts`, or a local repository (a `file://` URL or a path relative to the project). `vex get` runs the system `git`.
 
 ## JSON
 

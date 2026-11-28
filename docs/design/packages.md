@@ -104,10 +104,24 @@ Once Vex has outside users:
 
 Both are optional for `vex get`, which can always fall back to git.
 
+## Implementation notes (V-121)
+
+Built as described above, with these choices where the design left room:
+
+- **Requirements.** `version` in `package.toml` is the oldest version accepted, and may be partial: `"0.3"` means 0.3.0 or newer. Only the major version must match, as in Go, so a package asking for `0.3` accepts `0.4.0` when another package needs it.
+- **Selection.** Each requirement picks the oldest tag that meets it; a full `x.y.z` is taken as it is, without asking the repository. Requirements from every version visited are kept, and the highest wins, as in Go's minimal version selection.
+- **`vex get` arguments.** Without a version, the newest tag; with `@0.3`, the newest 0.3.x; with `@0.3.1`, that tag. `package.toml` then gets the exact version. `--path folder` picks a folder of a repository that holds several packages. `vex get` with no arguments downloads and locks what `package.toml` lists.
+- **Lock file.** TOML, one `[[package]]` table per package with its own `name`, `git`, `path` when set, `version`, `commit` and `hash`. Only the project's lock file is used; those of packages are ignored, as in Go and Dart.
+- **Hash.** `sha256:` and the SHA-256 of a list of each file's SHA-256 and path, sorted by path, over the package folder without git's own files and symbolic links. Every build checks it.
+- **Cache.** `~/.vex/pkg/<repository>[/<path>]@<version>`, where the repository has no scheme (`github.com/ann/charts`) and local repositories go under `local/`; `VEX_CACHE` names another folder. The commit sits next to each folder in `<folder>.commit`.
+- **Git.** The system `git` fetches tags with a shallow clone. Besides URLs it takes `file://` URLs and local paths, which are resolved from the project folder, so tests run offline.
+
+Not done yet: `[dev-dependencies]`, and the `[c]` section of a package, whose C code isn't built into the program.
+
 ## Order
 
 1. V-105 modules: folders as modules, `import` of project folders and `vex:` libraries, `package.toml`. Done.
-2. V-121 `vex get` and `package.lock`, fetching `package:` dependencies from git.
+2. V-121 `vex get` and `package.lock`, fetching `package:` dependencies from git. Done; see the notes below.
 3. V-122 `vex doc`, which the website reuses.
 4. V-605 the website, together with the `vex-ui` repo, its first real package.
 5. V-607 cache and checksum log.

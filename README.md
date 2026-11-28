@@ -145,6 +145,7 @@ vex run                     # run the project in this folder (with a package.tom
 vex run app.vx one two      # arguments after the program go to it (os.args())
 vex build --debug app.vx    # -O0 -g, keeping the generated C as app.c for a debugger
 vex run --sanitize=address,undefined app.vx  # stop at memory errors and undefined behaviour
+vex get https://github.com/ann/charts  # add a package from git and lock it in package.lock
 vex version
 ```
 
