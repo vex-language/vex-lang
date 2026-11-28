@@ -72,6 +72,17 @@ pub enum Mode { fast
 
 pub enum Fail { bad }
 
+pub enum Color: int, Codable {
+    red = 1
+    green
+}
+
+pub sealed interface Load {}
+
+pub extension type UserId(value: int): Hashable {
+    pub fn isAdmin() -> bool => value < 100
+}
+
 pub interface Store<T>: Codable {
     fn get(key: string) -> T?
     static fn make() -> Self
@@ -113,6 +124,12 @@ enum Mode
   slow(level: int, why: string)
 enum Fail
   bad
+enum Color: int, Codable
+  red = 1
+  green
+sealed interface Load
+extension type UserId(value: int): Hashable
+  fn isAdmin() -> bool
 interface Store<T>: Codable
   fn get(key: string) -> T?
   static fn make() -> Self

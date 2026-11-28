@@ -109,6 +109,9 @@ func fieldString(f *ast.Field) string {
 
 // Returns an enum case as written, such as `circle(radius: float)`.
 func caseString(c *ast.EnumCase) string {
+	if c.Value != nil {
+		return c.Name.Name + " = " + exprString(c.Value)
+	}
 	if len(c.Fields) == 0 {
 		return c.Name.Name
 	}

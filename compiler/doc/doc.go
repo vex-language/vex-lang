@@ -308,6 +308,13 @@ func (b *builder) decl(d ast.Decl) *Decl {
 		x := b.new(Struct, d.Name.Name, d, d.Doc)
 		x.Signature = "struct " + d.Name.Name + typeParamsString(d.TypeParams) + interfacesString(d.Interfaces)
 		x.Params = typeParamNames(d.TypeParams)
+		if d.Extension && len(d.Fields) == 1 {
+			f := d.Fields[0]
+			x.Signature = "extension type " + d.Name.Name + typeParamsString(d.TypeParams) +
+				"(" + f.Name.Name + ": " + ast.TypeString(f.Type) + ")" + interfacesString(d.Interfaces)
+			b.members(x, d.Methods, d.Consts)
+			return x
+		}
 		for _, f := range d.Fields {
 			if b.all || f.Pub {
 				m := b.new(Field, f.Name.Name, f, f.Doc)
@@ -322,7 +329,11 @@ func (b *builder) decl(d ast.Decl) *Decl {
 			return nil
 		}
 		x := b.new(Enum, d.Name.Name, d, d.Doc)
-		x.Signature = "enum " + d.Name.Name + typeParamsString(d.TypeParams) + interfacesString(d.Interfaces)
+		header := d.Interfaces
+		if d.RawType != nil {
+			header = append([]*ast.NamedType{d.RawType}, header...)
+		}
+		x.Signature = "enum " + d.Name.Name + typeParamsString(d.TypeParams) + interfacesString(header)
 		x.Params = typeParamNames(d.TypeParams)
 		for _, c := range d.Cases {
 			m := b.new(Case, c.Name.Name, c, c.Doc)
@@ -340,6 +351,9 @@ func (b *builder) decl(d ast.Decl) *Decl {
 		}
 		x := b.new(Interface, d.Name.Name, d, d.Doc)
 		x.Signature = "interface " + d.Name.Name + typeParamsString(d.TypeParams) + interfacesString(d.Supers)
+		if d.Sealed {
+			x.Signature = "sealed " + x.Signature
+		}
 		x.Params = typeParamNames(d.TypeParams)
 		for _, f := range d.Methods {
 			b.add(x, b.fn(f, x))
