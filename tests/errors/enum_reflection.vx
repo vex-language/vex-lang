@@ -1,0 +1,72 @@
+// Mistakes with raw values, allCases and enum reflection.
+enum Size: float {
+    small
+}
+
+enum Dup: int {
+    a = 1
+    b = 1
+    c = 0
+    d
+}
+
+enum Words: string {
+    one
+    two = "one"
+}
+
+enum Mixed: int {
+    plain
+    boxed(n: int)
+}
+
+enum Loose {
+    first = 1
+    carried(n: int) = 2
+}
+
+enum NotLiteral: int {
+    a = 1 + 1
+    b = "x"
+}
+
+enum Shape {
+    circle(r: float)
+    empty
+}
+
+enum Light { red, green }
+
+enum Turn {
+    left
+    operator ==(other: int) -> bool => true
+    operator *(k: int) {}
+}
+
+fn main() {
+    let a = Shape.allCases
+    let b = Light.red.rawValue
+    let c = Light(rawValue: 1)
+    let d = Dup(rawValue: "a")
+    let e = Dup(1)
+    let f = Light.red + Light.green
+    let g = Shape.empty.cases
+}
+// error: 2:12: raw values must be int or string, found float
+// error: 8:9: raw value 1 is already used by case 'a'
+// error: 10:5: raw value 1 is already used by case 'a'
+// error: 15:11: raw value "one" is already used by case 'one'
+// error: 20:5: case 'boxed' carries values, so Mixed can't have raw values
+// error: 24:13: case 'first' has a raw value, but Loose has no raw type
+// error: 25:23: case 'carried' carries values, so it can't have a raw value
+// error: 29:9: a raw value must be a literal int
+// error: 30:9: raw values of this enum are int, but this is a string
+// error: 42:24: operator '==' compares two Turn values, so it takes a Turn
+// error: 43:14: operator '*' must return a value
+// error: 47:19: allCases needs an enum whose cases carry no values, but case 'circle' of Shape does
+// error: 48:23: Light has no raw values
+// error: 49:13: Light has no raw values
+// error: 50:27: argument 'rawValue': expected int, found string
+// error: 51:13: enums are created from one of their cases
+// error: 52:13: '+' can't be used with Light
+// error: 53:25: Shape has no member 'cases'
