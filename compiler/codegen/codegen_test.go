@@ -1260,20 +1260,23 @@ fn main() {
 
 // A heap that shrinks gives its empty pages back to the system.
 func TestMemoryGoesBack(t *testing.T) {
-	if strings.Contains(os.Getenv("VEX_CFLAGS"), "sanitize") {
-		t.Skip("sanitizer stack frames keep stale pointers that the stack scan treats as live")
-	}
+	// The list is built and dropped in its own function, called through a
+	// list so that it can't be inlined into main, whose frame would then
+	// keep a pointer to it for the conservative stack scan.
 	exe := build(t, `struct Blob {
     id: int
     name: string
 }
-fn main() {
+fn fill() {
     var big: [Blob] = []
     for i in 0..150000 {
         big.push(Blob(id: i, name: "blob number {i}"))
     }
     println(big.len, big[149999].name)
-    big = []
+}
+fn main() {
+    let steps = [fill]
+    steps[0]()
     var total = 0
     for i in 0..3000000 {
         total += "x{i}".repeat(10).len
