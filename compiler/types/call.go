@@ -98,6 +98,9 @@ func (c *checker) callName(e *ast.CallExpr, id *ast.Ident, want Type) Type {
 	if name == "Channel" && c.lookupVar(name) == nil && c.structs[name] == nil && c.genStructs[name] == nil && c.funcs[name] == nil && c.enums[name] == nil {
 		return c.newChannel(e, want)
 	}
+	if name == "Set" && c.lookupVar(name) == nil && c.funcs[name] == nil && c.builtinSet() {
+		return c.newSet(e, want)
+	}
 	if name == "StreamController" && c.lookupVar(name) == nil && c.structs[name] == nil && c.genStructs[name] == nil && c.funcs[name] == nil && c.enums[name] == nil {
 		return c.newController(e, want)
 	}
@@ -472,6 +475,11 @@ func (c *checker) callMember(e *ast.CallExpr, m *ast.MemberExpr, want Type) Type
 	}
 	if mt, ok := recv.(*Map); ok && name == "mapValues" {
 		return c.mapValuesCall(e, m, mt)
+	}
+	if s, ok := recv.(*Set); ok {
+		if t, ok := c.setCall(e, m, s, name); ok {
+			return t
+		}
 	}
 	sig := builtinMember(recv, name)
 	if sig == nil {
@@ -1012,6 +1020,9 @@ func builtinMember(recv Type, name string) *memberSig {
 		}
 		return nil
 	}
+	if s, ok := recv.(*Set); ok {
+		return setMember(s, name)
+	}
 	if m, ok := recv.(*Map); ok {
 		switch name {
 		case "contains":
@@ -1085,6 +1096,9 @@ func builtinMemberNames(recv Type) []string {
 	if _, ok := recv.(*Map); ok {
 		return []string{"len", "isEmpty", "keys", "values", "entries", "contains", "remove", "copy",
 			"getOrPut", "update", "filter", "mapValues"}
+	}
+	if _, ok := recv.(*Set); ok {
+		return setMemberNames
 	}
 	if _, ok := recv.(*Channel); ok {
 		return []string{"send", "receive", "receiveSync", "close"}

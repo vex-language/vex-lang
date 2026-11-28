@@ -660,6 +660,9 @@ func Identical(a, b Type) bool {
 	case *Map:
 		b, ok := b.(*Map)
 		return ok && Identical(a.Key, b.Key) && Identical(a.Value, b.Value)
+	case *Set:
+		b, ok := b.(*Set)
+		return ok && Identical(a.Elem, b.Elem)
 	case *Optional:
 		b, ok := b.(*Optional)
 		return ok && Identical(a.Elem, b.Elem)

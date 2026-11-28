@@ -73,6 +73,8 @@ func codable(t Type) bool {
 		return codable(t.Elem)
 	case *List:
 		return codable(t.Elem)
+	case *Set:
+		return codable(t.Elem)
 	case *Map:
 		return t.Key == String && codable(t.Value)
 	case *Struct:
@@ -98,6 +100,8 @@ func codableHint(t Type) string {
 		}
 		return codableHint(t.Value)
 	case *List:
+		return codableHint(t.Elem)
+	case *Set:
 		return codableHint(t.Elem)
 	case *Optional:
 		return codableHint(t.Elem)

@@ -214,6 +214,8 @@ func hasTypeParam(t Type) bool {
 		return hasTypeParam(t.Elem)
 	case *Map:
 		return hasTypeParam(t.Key) || hasTypeParam(t.Value)
+	case *Set:
+		return hasTypeParam(t.Elem)
 	case *Optional:
 		return hasTypeParam(t.Elem)
 	case *Future:
@@ -264,6 +266,8 @@ func keyOf(t Type) string {
 		return "[" + keyOf(t.Elem) + "]"
 	case *Map:
 		return "[" + keyOf(t.Key) + ": " + keyOf(t.Value) + "]"
+	case *Set:
+		return "Set<" + keyOf(t.Elem) + ">"
 	case *Optional:
 		return keyOf(t.Elem) + "?"
 	case *Channel:
@@ -825,6 +829,10 @@ func (b *binding) unify(p, a Type) {
 			b.unify(p.Key, a.Key)
 			b.unify(p.Value, a.Value)
 		}
+	case *Set:
+		if a, ok := a.(*Set); ok {
+			b.unify(p.Elem, a.Elem)
+		}
 	case *Optional:
 		if ao, ok := a.(*Optional); ok {
 			b.unify(p.Elem, ao.Elem)
@@ -939,6 +947,11 @@ func (b *binding) subst(t Type) Type {
 			return nil
 		}
 		return &Map{Key: k, Value: v}
+	case *Set:
+		if e := b.subst(t.Elem); e != nil {
+			return &Set{Elem: e}
+		}
+		return nil
 	case *Optional:
 		if e := b.subst(t.Elem); e != nil {
 			return optionalOf(e)
@@ -1135,6 +1148,8 @@ func nesting(t Type) (depth, size int) {
 		parts = []Type{t.Elem}
 	case *Map:
 		parts = []Type{t.Key, t.Value}
+	case *Set:
+		parts = []Type{t.Elem}
 	case *Optional:
 		parts = []Type{t.Elem}
 	case *Future:
