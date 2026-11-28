@@ -163,7 +163,7 @@ Goal: the language features real apps need before any UI work.
 - [x] **V-173** String helpers: `isEmpty`, `lastIndexOf`, `count`, a `split` limit, `padStart`/`padEnd`, `reversed`, `capitalize`, and `vex:strings` functions as methods (S)
 - [x] **V-174** Format specs in interpolation: `"{x:.2}"`, `"{n:04}"`, `"{n:x}"` (M)
 - [x] **V-175** Standard library: `vex:random`, `vex:datetime` (`now`, `Duration`, ISO 8601, calendar fields), `eprintln` and `os.stderr`, and `vex:regex` (L)
-- [ ] **V-176** `vex:crypto`: SHA-2, HMAC, HKDF, secure random bytes, UUID v4, constant-time compare, Argon2id and PBKDF2, `seal`/`open` with ChaCha20-Poly1305 or AES-256-GCM, Ed25519 and P-256 signatures. Only audited code (Monocypher) or each system's provider (CryptoKit, Conscrypt, CNG, libcrypto), never our own primitives; keys are their own types; MD5 and SHA-1 only under `legacy`; RFC and Wycheproof test vectors in CI on every system (L)
+- [x] **V-176** `vex:crypto`: SHA-2, HMAC, HKDF, secure random bytes, UUID v4, constant-time compare, Argon2id and PBKDF2, `seal`/`open` with ChaCha20-Poly1305 or AES-256-GCM, Ed25519 and P-256 signatures. Only audited code (Monocypher) or each system's provider (CryptoKit, Conscrypt, CNG, libcrypto), never our own primitives; keys are their own types; MD5 and SHA-1 only under `legacy`; RFC and Wycheproof test vectors in CI on every system (L)
 
 ### Windows
 
