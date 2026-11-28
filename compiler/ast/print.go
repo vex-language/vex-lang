@@ -383,6 +383,9 @@ func build(n Node) *tree {
 
 	case *InterfaceDecl:
 		label := "interface " + n.Name.Name + typeParamsString(n.TypeParams)
+		if n.Sealed {
+			label = "sealed " + label
+		}
 		if n.Pub {
 			label = "pub " + label
 		}

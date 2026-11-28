@@ -199,7 +199,7 @@ func (p *parser) syncDecl() {
 				return
 			}
 		case lexer.Ident:
-			if (p.tok().Text == "export" && p.peek(1).Kind == lexer.Fn || p.tok().Text == "extension") && depth <= 0 {
+			if (p.tok().Text == "export" && p.peek(1).Kind == lexer.Fn || p.tok().Text == "extension" || p.tok().Text == "sealed" && p.peek(1).Kind == lexer.Interface) && depth <= 0 {
 				return
 			}
 		}
@@ -338,6 +338,18 @@ func (p *parser) decl() ast.Decl {
 		}
 		if t.Text == "extension" {
 			return p.extensionDecl()
+		}
+		if t.Text == "sealed" {
+			switch p.peek(1).Kind {
+			case lexer.Interface:
+				p.next()
+				d := p.interfaceDecl()
+				d.Sealed = true
+				d.Start = t.Pos
+				return d
+			case lexer.Struct, lexer.Enum:
+				p.fail(p.peek(1), "seal an interface and list it after ':' in each struct", "only interfaces can be sealed")
+			}
 		}
 		if t.Text == "test" && p.peek(1).Kind == lexer.String {
 			return p.testDecl()

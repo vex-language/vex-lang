@@ -281,7 +281,11 @@ type ConstDecl struct {
 // enums provide. A method with a body is a default they may leave out.
 type InterfaceDecl struct {
 	Span
-	Pub        bool
+	Pub bool
+
+	// Whether only types of the same module may implement it:
+	// `sealed interface Result {}`.
+	Sealed     bool
 	Name       *Ident
 	TypeParams []*TypeParam
 
