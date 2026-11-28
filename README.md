@@ -266,7 +266,7 @@ let menu = [home, if loggedIn profile else login, for t in tabs Tab(t), ...extra
 let config = ["debug": false, if verbose "log": true, ...overrides]
 ```
 
-**Strings.** `s.len` counts Unicode code points. Also `.upper()` and `.lower()` (A–Z only for now), `.contains(x)`, `.split(sep)`, `.replace(old, with)`, `.trim()`, `.startsWith(x)`, `.endsWith(x)`, `.indexOf(x)` (an `int?`), `.substring(from, to)`, `.chars()` and `.lines()`.
+**Strings.** `s.len` counts Unicode code points and `s.graphemeCount` the characters a reader sees. Also `.upper()` and `.lower()` (for every script), `.contains(x)`, `.split(sep)`, `.replace(old, with)`, `.trim()`, `.startsWith(x)`, `.endsWith(x)`, `.indexOf(x)` (an `int?`), `.substring(from, to)`, `.chars()` and `.lines()`.
 
 **Structs.** Fields can have defaults, methods use fields directly, and `static fn` belongs to the type. Struct values are shared references.
 
