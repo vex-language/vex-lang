@@ -1,0 +1,16 @@
+/// Naive recursive Fibonacci: function calls and integer arithmetic.
+import "vex:os"
+
+/// Returns the [n]th Fibonacci number, computed the slow way.
+fn fib(n: int) -> int {
+    if n < 2 {
+        return n
+    }
+    return fib(n - 1) + fib(n - 2)
+}
+
+fn main() {
+    let args = os.args()
+    let n = if args.isEmpty { 40 } else { int(args[0]) }
+    println("fib({n}) = {fib(n)}")
+}

@@ -1,0 +1,60 @@
+/// The spectral norm of an infinite matrix: float math over lists.
+import "vex:math"
+import "vex:os"
+
+/// Returns the entry at row [i], column [j] of the matrix.
+fn a(i: int, j: int) -> float => 1.0 / float((i + j) * (i + j + 1) / 2 + i + 1)
+
+/// Sets [out] to the matrix times [v].
+fn timesVec(v: [float], out: [float]) {
+    let n = v.len
+    for i in 0..n {
+        var sum = 0.0
+        for j in 0..n {
+            sum += a(i, j) * v[j]
+        }
+        out[i] = sum
+    }
+}
+
+/// Sets [out] to the transposed matrix times [v].
+fn timesTransposedVec(v: [float], out: [float]) {
+    let n = v.len
+    for i in 0..n {
+        var sum = 0.0
+        for j in 0..n {
+            sum += a(j, i) * v[j]
+        }
+        out[i] = sum
+    }
+}
+
+/// Sets [out] to the transposed matrix times the matrix times [v].
+fn timesAtA(v: [float], out: [float], tmp: [float]) {
+    timesVec(v, tmp)
+    timesTransposedVec(tmp, out)
+}
+
+fn main() {
+    let args = os.args()
+    let n = if args.isEmpty { 3000 } else { int(args[0]) }
+    var u: [float] = []
+    var v: [float] = []
+    var tmp: [float] = []
+    for _ in 0..n {
+        u.push(1.0)
+        v.push(0.0)
+        tmp.push(0.0)
+    }
+    for _ in 0..10 {
+        timesAtA(u, v, tmp)
+        timesAtA(v, u, tmp)
+    }
+    var vBv = 0.0
+    var vv = 0.0
+    for i in 0..n {
+        vBv += u[i] * v[i]
+        vv += v[i] * v[i]
+    }
+    println("spectral-norm({n}) = {math.sqrt(vBv / vv).toFixed(9)}")
+}

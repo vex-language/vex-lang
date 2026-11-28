@@ -1,0 +1,35 @@
+/// Inserts, looks up and removes keys in hash maps with int and string keys.
+import "vex:os"
+
+fn main() {
+    let args = os.args()
+    let n = if args.isEmpty { 2_000_000 } else { int(args[0]) }
+    var ints: [int: int] = [:]
+    for i in 0..n {
+        ints[(i &* 2654435761) & 0xFFFFFFF] = i
+    }
+    var found = 0
+    var sum = 0
+    for i in 0..2 * n {
+        if let v = ints[(i &* 2654435761) & 0xFFFFFFF] {
+            found += 1
+            sum = sum &+ v
+        }
+    }
+    for i in (0..n).step(2) {
+        ints.remove((i &* 2654435761) & 0xFFFFFFF)
+    }
+
+    var words: [string: int] = [:]
+    for i in 0..n {
+        let w = "w{i % 5000}"
+        words[w] = (words[w] ?? 0) + 1
+    }
+    var most = 0
+    for _, count in words {
+        if count > most {
+            most = count
+        }
+    }
+    println("maps({n}) = {found} {sum} {ints.len} {words.len} {most}")
+}

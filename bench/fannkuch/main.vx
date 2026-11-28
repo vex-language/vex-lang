@@ -1,0 +1,67 @@
+/// Fannkuch-redux: flips prefixes of every permutation, in place on lists.
+import "vex:os"
+
+fn main() {
+    let args = os.args()
+    let n = if args.isEmpty { 10 } else { int(args[0]) }
+    var perm: [int] = []
+    var perm1: [int] = []
+    var count: [int] = []
+    for i in 0..n {
+        perm.push(0)
+        perm1.push(i)
+        count.push(0)
+    }
+    var maxFlips = 0
+    var checksum = 0
+    var permCount = 0
+    var r = n
+    while true {
+        while r != 1 {
+            count[r - 1] = r
+            r -= 1
+        }
+        for i in 0..n {
+            perm[i] = perm1[i]
+        }
+        var flips = 0
+        var k = perm[0]
+        while k != 0 {
+            var i = 0
+            var j = k
+            while i < j {
+                let t = perm[i]
+                perm[i] = perm[j]
+                perm[j] = t
+                i += 1
+                j -= 1
+            }
+            flips += 1
+            k = perm[0]
+        }
+        if flips > maxFlips {
+            maxFlips = flips
+        }
+        checksum += if permCount % 2 == 0 { flips } else { -flips }
+
+        // Moves to the next permutation.
+        while true {
+            if r == n {
+                println("{checksum}")
+                println("fannkuch({n}) = {maxFlips}")
+                return
+            }
+            let first = perm1[0]
+            for i in 0..r {
+                perm1[i] = perm1[i + 1]
+            }
+            perm1[r] = first
+            count[r] -= 1
+            if count[r] > 0 {
+                break
+            }
+            r += 1
+        }
+        permCount += 1
+    }
+}

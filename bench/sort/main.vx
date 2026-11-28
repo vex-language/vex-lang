@@ -1,0 +1,28 @@
+/// Sorts pseudo-random ints and strings.
+import "vex:os"
+
+fn main() {
+    let args = os.args()
+    let n = if args.isEmpty { 3_000_000 } else { int(args[0]) }
+    var seed = 42
+    var nums: [int] = []
+    for _ in 0..n {
+        seed = seed &* 6364136223846793005 &+ 1442695040888963407
+        nums.push(seed >> 33)
+    }
+    nums.sort()
+    var hash = 0
+    for x in nums {
+        hash = hash &* 31 &+ x
+    }
+
+    var words: [string] = []
+    for i in 0..n / 4 {
+        words.push("k{nums[(i &* 7919) % n] % 100_000}")
+    }
+    let sorted = words.sorted()
+    for w in sorted {
+        hash = hash &* 31 &+ w.len
+    }
+    println("sort({n}) = {nums[0]} {nums[n - 1]} {sorted[0]} {sorted[sorted.len - 1]} {hash}")
+}

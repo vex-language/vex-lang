@@ -1,0 +1,27 @@
+/// Builds, joins, splits and searches strings.
+import "vex:os"
+
+fn main() {
+    let args = os.args()
+    let rounds = if args.isEmpty { 3000 } else { int(args[0]) }
+    var total = 0
+    for round in 0..rounds {
+        var parts: [string] = []
+        for i in 0..1000 {
+            parts.push("item-{i}-{round}")
+        }
+        let line = parts.join(",")
+        total += line.len + line.split(",").len
+        total += line.replace("item", "x").len
+        if line.contains("item-999-{round}") {
+            total += 1
+        }
+        var s = ""
+        for i in 0..100 {
+            s += "ab"
+            s = s + str(i % 10)
+        }
+        total += s.len
+    }
+    println("strings({rounds}) = {total}")
+}

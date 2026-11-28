@@ -1,0 +1,41 @@
+/// Encodes a list of records as JSON and decodes it back.
+import "vex:json"
+import "vex:os"
+
+/// One record of the document.
+struct Item: Codable {
+    id: int
+    name: string
+    tags: [string]
+    active: bool
+    parent: int?
+}
+
+fn main() throws {
+    let args = os.args()
+    let rounds = if args.isEmpty { 200 } else { int(args[0]) }
+    var items: [Item] = []
+    for i in 0..1000 {
+        items.push(Item(
+            id: i,
+            name: "item number {i}",
+            tags: ["t{i % 7}", "group {i % 13}"],
+            active: i % 3 == 0,
+            parent: if i % 4 == 0 { nil } else { i / 4 },
+        ))
+    }
+    var bytes = 0
+    var sum = 0
+    for _ in 0..rounds {
+        let text = json.encode(items)
+        let back: [Item] = try json.decode(text)
+        bytes += text.len
+        for item in back {
+            sum += item.id + item.tags.len + (item.parent ?? 0)
+            if item.active {
+                sum += 1
+            }
+        }
+    }
+    println("json({rounds}) = {bytes} {sum}")
+}
