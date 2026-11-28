@@ -144,6 +144,10 @@ func CompileWith(src, out string, opts Options) error {
 		return err
 	}
 	args := append(command[1:len(command):len(command)], flags...)
+	if runtime.GOOS == "windows" {
+		// The main thread gets 8 MB of stack, as on macOS and Linux.
+		args = append(args, "-Wl,--stack,8388608")
+	}
 	args = append(args, opts.modeFlags()...)
 	args = append(args, strings.Fields(os.Getenv("VEX_CFLAGS"))...)
 	args = append(args, opts.Flags...)

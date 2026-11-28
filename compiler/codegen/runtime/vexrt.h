@@ -1055,6 +1055,46 @@ static void vx_repr_leave(const void *p) {
 
 // --- Startup ---
 
+static const char vx_overflow_msg[] = "error: stack overflow: too many nested function calls, "
+                                      "probably a function that calls itself without stopping\n";
+
+#ifdef _WIN32
+// The bottom of a task's stack on Windows: room for vx_on_fault, which
+// runs on the stack that overflowed, then a guard page. Pages are 4 KB on
+// every CPU Windows runs on.
+#define VX_STACK_GUARD ((size_t)36 << 10)
+#define VX_GUARD_PAGE ((size_t)4 << 10)
+
+// Turns running out of stack into a readable error: it means the program
+// ran out of stack, almost always through endless recursion. Windows
+// reports it for tasks too, since a switch to a task gives the thread its
+// stack bounds; touching a task's guard page is caught as well.
+static LONG WINAPI vx_on_fault(EXCEPTION_POINTERS *e) {
+    DWORD code = e->ExceptionRecord->ExceptionCode;
+    uintptr_t addr = (uintptr_t)e->ExceptionRecord->ExceptionInformation[1];
+    uintptr_t guard = vx_cur && vx_cur->stack ? (uintptr_t)vx_cur->stack + VX_STACK_GUARD - VX_GUARD_PAGE : 0;
+    bool task_guard = code == STATUS_GUARD_PAGE_VIOLATION && guard && addr >= guard && addr < guard + VX_GUARD_PAGE;
+    if (code != EXCEPTION_STACK_OVERFLOW && !task_guard) return EXCEPTION_CONTINUE_SEARCH;
+    fflush(stdout);
+    DWORD n;
+    WriteFile(GetStdHandle(STD_ERROR_HANDLE), vx_overflow_msg, sizeof(vx_overflow_msg) - 1, &n, NULL);
+    _exit(1);
+}
+
+// Keeps room at the end of the running thread's stack for vx_on_fault.
+static void vx_stack_reserve(void) {
+    ULONG size = 32 << 10;
+    SetThreadStackGuarantee(&size);
+}
+
+static void vx_catch_stack_overflow(void) {
+    vx_stack_reserve();
+    AddVectoredExceptionHandler(1, vx_on_fault);
+}
+#else
+// The guard page below a task's stack.
+#define VX_STACK_GUARD ((size_t)getpagesize())
+
 static VX_TLS size_t vx_stack_limit;
 
 // Turns a crash just below the stack into a readable error: it means the
@@ -1062,12 +1102,10 @@ static VX_TLS size_t vx_stack_limit;
 static void vx_on_fault(int sig, siginfo_t *info, void *ctx) {
     (void)ctx;
     uintptr_t addr = (uintptr_t)info->si_addr, base = (uintptr_t)vx_stack_base;
-    bool task_guard = vx_cur && vx_cur->stack && addr >= (uintptr_t)vx_cur->stack && addr < (uintptr_t)vx_cur->stack + (size_t)getpagesize();
+    bool task_guard = vx_cur && vx_cur->stack && addr >= (uintptr_t)vx_cur->stack && addr < (uintptr_t)vx_cur->stack + VX_STACK_GUARD;
     if (task_guard || ((!vx_cur || vx_cur == &vx_main_task) && addr < base && base - addr <= vx_stack_limit + ((size_t)1 << 20))) {
         fflush(stdout);
-        static const char msg[] = "error: stack overflow: too many nested function calls, "
-                                  "probably a function that calls itself without stopping\n";
-        ssize_t n = write(STDERR_FILENO, msg, sizeof(msg) - 1);
+        ssize_t n = write(STDERR_FILENO, vx_overflow_msg, sizeof(vx_overflow_msg) - 1);
         (void)n;
         _exit(1);
     }
@@ -1102,6 +1140,7 @@ static void vx_catch_stack_overflow(void) {
     sigaction(SIGSEGV, &sa, NULL);
     sigaction(SIGBUS, &sa, NULL);
 }
+#endif
 
 // Prepares the runtime; [base] is the top of the stack.
 static void vx_inbox_init(void);
@@ -4515,6 +4554,70 @@ __asm__(
 #define VX_FRAME 160
 #define VX_FRAME_TASK 0   // x19
 #define VX_FRAME_RET 88   // x30
+#elif defined(__x86_64__) && defined(_WIN32)
+// The Windows x64 convention also keeps rdi, rsi and xmm6 to xmm15, and
+// the thread information block holds the bounds of the running stack:
+// its base, its limit and where its memory starts.
+__asm__(
+    ".text\n"
+    ".globl " VX_SYM("vx_ctx_switch") "\n"
+    VX_SYM("vx_ctx_switch") ":\n"
+    "    pushq %rbp\n"
+    "    pushq %rbx\n"
+    "    pushq %rdi\n"
+    "    pushq %rsi\n"
+    "    pushq %r12\n"
+    "    pushq %r13\n"
+    "    pushq %r14\n"
+    "    pushq %r15\n"
+    "    pushq %gs:0x08\n"
+    "    pushq %gs:0x10\n"
+    "    pushq %gs:0x1478\n"
+    "    subq $160, %rsp\n"
+    "    movaps %xmm6, 0(%rsp)\n"
+    "    movaps %xmm7, 16(%rsp)\n"
+    "    movaps %xmm8, 32(%rsp)\n"
+    "    movaps %xmm9, 48(%rsp)\n"
+    "    movaps %xmm10, 64(%rsp)\n"
+    "    movaps %xmm11, 80(%rsp)\n"
+    "    movaps %xmm12, 96(%rsp)\n"
+    "    movaps %xmm13, 112(%rsp)\n"
+    "    movaps %xmm14, 128(%rsp)\n"
+    "    movaps %xmm15, 144(%rsp)\n"
+    "    movq %rsp, (%rcx)\n"
+    "    movq %rdx, %rsp\n"
+    "    movaps 0(%rsp), %xmm6\n"
+    "    movaps 16(%rsp), %xmm7\n"
+    "    movaps 32(%rsp), %xmm8\n"
+    "    movaps 48(%rsp), %xmm9\n"
+    "    movaps 64(%rsp), %xmm10\n"
+    "    movaps 80(%rsp), %xmm11\n"
+    "    movaps 96(%rsp), %xmm12\n"
+    "    movaps 112(%rsp), %xmm13\n"
+    "    movaps 128(%rsp), %xmm14\n"
+    "    movaps 144(%rsp), %xmm15\n"
+    "    addq $160, %rsp\n"
+    "    popq %gs:0x1478\n"
+    "    popq %gs:0x10\n"
+    "    popq %gs:0x08\n"
+    "    popq %r15\n"
+    "    popq %r14\n"
+    "    popq %r13\n"
+    "    popq %r12\n"
+    "    popq %rsi\n"
+    "    popq %rdi\n"
+    "    popq %rbx\n"
+    "    popq %rbp\n"
+    "    ret\n"
+    VX_SYM("vx_task_boot") ":\n"
+    "    movq %r12, %rcx\n"
+    "    subq $32, %rsp\n"   // the space a callee may use for its arguments
+    "    call " VX_SYM("vx_task_main") "\n"
+    "    ud2\n");
+#define VX_FRAME 256      // ten xmm registers, the stack bounds, eight registers and the return address
+#define VX_FRAME_TIB 160  // where the stack's memory starts, its limit and its base
+#define VX_FRAME_TASK 208 // r12
+#define VX_FRAME_RET 248
 #elif defined(__x86_64__)
 __asm__(
     ".text\n"
@@ -4563,6 +4666,33 @@ void __asan_unpoison_memory_region(const volatile void *addr, size_t size);
 
 #define VX_TASK_STACK ((size_t)256 << 10)
 
+#ifdef _WIN32
+// Returns a new task stack of [size] bytes, starting with VX_STACK_GUARD,
+// or NULL.
+static char *vx_stack_new(size_t size) {
+    char *p = VirtualAlloc(NULL, size, MEM_RESERVE | MEM_COMMIT, PAGE_READWRITE);
+    DWORD old;
+    if (p) VirtualProtect(p + VX_STACK_GUARD - VX_GUARD_PAGE, VX_GUARD_PAGE, PAGE_READWRITE | PAGE_GUARD, &old);
+    return p;
+}
+
+static void vx_stack_free(char *p, size_t size) {
+    (void)size;
+    VirtualFree(p, 0, MEM_RELEASE);
+}
+#else
+// Returns a new task stack of [size] bytes, starting with a guard page,
+// or NULL.
+static char *vx_stack_new(size_t size) {
+    char *p = mmap(NULL, size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
+    if (p == MAP_FAILED) return NULL;
+    mprotect(p, VX_STACK_GUARD, PROT_NONE);
+    return p;
+}
+
+static void vx_stack_free(char *p, size_t size) { munmap(p, size); }
+#endif
+
 // Stacks of finished tasks, kept for new ones.
 static VX_TLS char *vx_spare_stacks[64];
 static VX_TLS int vx_spare_len;
@@ -4606,7 +4736,7 @@ static void vx_task_free(vx_task *t) {
 #endif
         vx_spare_stacks[vx_spare_len++] = t->stack;
     } else {
-        munmap(t->stack, t->size);
+        vx_stack_free(t->stack, t->size);
     }
     free(t);
 }
@@ -4654,13 +4784,12 @@ static vx_task *vx_task_make(void (*entry)(void *), void *arg) {
     if (vx_spare_len > 0) {
         t->stack = vx_spare_stacks[--vx_spare_len];
     } else {
-        t->stack = mmap(NULL, t->size, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANON, -1, 0);
-        if (t->stack == MAP_FAILED) vx_out_of_memory();
-        mprotect(t->stack, (size_t)getpagesize(), PROT_NONE);
+        t->stack = vx_stack_new(t->size);
+        if (!t->stack) vx_out_of_memory();
     }
     t->top = (char *)(((uintptr_t)(t->stack + t->size)) & ~(uintptr_t)15);
-    t->asan_bottom = t->stack + getpagesize();
-    t->asan_size = t->size - (size_t)getpagesize();
+    t->asan_bottom = t->stack + VX_STACK_GUARD;
+    t->asan_size = t->size - VX_STACK_GUARD;
     t->entry = entry;
     t->arg = arg;
 #if defined(__x86_64__)
@@ -4671,6 +4800,12 @@ static vx_task *vx_task_make(void (*entry)(void *), void *arg) {
     memset(sp, 0, VX_FRAME);
     *(void **)(sp + VX_FRAME_TASK) = t;
     *(void **)(sp + VX_FRAME_RET) = (void *)vx_task_boot;
+#ifdef VX_FRAME_TIB
+    void **tib = (void **)(sp + VX_FRAME_TIB);
+    tib[0] = t->stack;
+    tib[1] = t->stack + VX_STACK_GUARD;
+    tib[2] = t->stack + t->size;
+#endif
     t->sp = sp;
     return t;
 }
@@ -5576,7 +5711,7 @@ static void vx_heap_free(void) {
     free(vx_timers);
     free(vx_remote);
     free(vx_repr_set);
-    for (int i = 0; i < vx_spare_len; i++) munmap(vx_spare_stacks[i], VX_TASK_STACK);
+    for (int i = 0; i < vx_spare_len; i++) vx_stack_free(vx_spare_stacks[i], VX_TASK_STACK);
 }
 
 #define VX_ISOLATE_STACK ((size_t)8 << 20)
@@ -5604,8 +5739,10 @@ static void *vx_isolate_main(void *p) {
     free(p);
     char base;
     vx_gc_thread_init(&base);
+#ifdef _WIN32
+    vx_stack_reserve();
+#else
     vx_stack_limit = VX_ISOLATE_STACK;
-#ifndef _WIN32
     stack_t old_alt;
     void *alt = vx_signal_stack(&old_alt);
 #endif
